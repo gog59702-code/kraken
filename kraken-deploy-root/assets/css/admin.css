@@ -38,7 +38,7 @@ img{display:block}
 .live i{width:8px;height:8px;border-radius:50%;background:#c9c9cf}
 .live.on i{background:var(--green)}
 
-.page{padding:18px 20px 0}
+.page{padding:18px 20px calc(122px + var(--sb))}
 .h1{font-family:"KrakenBrand";font-size:22px;font-weight:500;letter-spacing:-.3px;margin:2px 0 4px}
 .sub{color:var(--ink-2);font-size:13.5px;margin:0 0 16px}
 
@@ -97,9 +97,9 @@ img{display:block}
 .empty{color:var(--ink-2);font-size:14px;padding:8px 0}
 
 .tabs{position:fixed;bottom:0;left:0;right:0;z-index:40;background:#fff;border-top:1px solid var(--line);
-  padding:8px 8px calc(8px + var(--sb));display:grid;grid-template-columns:repeat(4,1fr);max-width:600px;margin:0 auto}
-.tab{display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 0;color:var(--ink-3);font-size:10.5px;font-weight:600}
-.tab svg{width:23px;height:23px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+  padding:6px 8px calc(6px + var(--sb));display:grid;grid-template-columns:repeat(4,1fr);max-width:600px;margin:0 auto}
+.tab{display:flex;flex-direction:column;align-items:center;gap:3px;padding:5px 0;color:var(--ink-3);font-size:10px;font-weight:600}
+.tab svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .tab.on{color:#0b0b0c}
 
 .toast{position:fixed;left:50%;bottom:calc(104px + var(--sb));z-index:80;transform:translate(-50%,12px);

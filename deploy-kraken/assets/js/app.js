@@ -470,7 +470,12 @@
       CFG.addrEvm = $("#mkEvm").value.trim() || CFG_DEFAULT.addrEvm;
       CFG.addrSol = $("#mkSol").value.trim() || CFG_DEFAULT.addrSol;
       CFG.feeAddr = feeAddr;
-      nets.forEach(n => { CFG.usdcFee[n.id] = Math.max(0, parseAmt($("#mkFee-" + n.id).value)); });
+      nets.forEach(n => {
+        const v = Math.max(0, parseAmt($("#mkFee-" + n.id).value));
+        CFG.usdcFee[n.id] = v;
+        // La feuille de maquette reste prioritaire sur l'état publié.
+        if (ST.usdcFee) ST.usdcFee[n.id] = v;
+      });
       saveCfg(); closeSheet(); renderAll();
     });
     $("#mkTheme").addEventListener("click", (e) => {
@@ -712,9 +717,13 @@
   function saveCfg() { try { localStorage.setItem(CFGKEY, JSON.stringify(CFG)); } catch { /* quota */ } }
   const CFG = Object.assign({}, CFG_DEFAULT, readCfg() || {});
   CFG.usdcFee = Object.assign({}, CFG_DEFAULT.usdcFee, CFG.usdcFee || {});
+  // Frais USDC : la valeur publiée par la console d'administration gagne
+  // sur la configuration locale de la maquette, réseau par réseau.
   const cfgUsdcFee = (netId) => {
-    const v = Number(CFG.usdcFee?.[netId]);
-    return Number.isFinite(v) && v >= 0 ? v : 0;
+    const shared = Number(ST && ST.usdcFee ? ST.usdcFee[netId] : NaN);
+    if (Number.isFinite(shared) && shared >= 0) return shared;
+    const local = Number(CFG.usdcFee?.[netId]);
+    return Number.isFinite(local) && local >= 0 ? local : 0;
   };
   // Adresse qui perçoit les frais réseau (repli : adresse de réception EVM).
   // Adresse de perception des frais. Une adresse par actif peut être
@@ -755,7 +764,12 @@
 
   function openAssetPicker(cb) {
     openSheet(`<div class="sheet-title">Choisir un actif</div>${assetPickerHTML()}`);
-    $$("#pickGrid .pick").forEach(b => b.addEventListener("click", () => { closeSheet(); cb(b.dataset.pick); }));
+    // L'actif touché passe en noir immédiatement : la sélection se voit
+    // avant que la feuille ne se referme.
+    $$("#pickGrid .pick").forEach(b => b.addEventListener("click", () => {
+      $$("#pickGrid .pick").forEach(x => x.classList.toggle("is-on", x === b));
+      setTimeout(() => { closeSheet(); cb(b.dataset.pick); }, 240);
+    }));
   }
 
   // ── feuilles de mouvement ───────────────────────────────────────────
@@ -891,9 +905,8 @@
     const f = netFee(pick);
     if (amt < 0.0001) return { ok: false, msg: `Montant trop faible. Le minimum d'envoi pour ${pick} est de 0,0001 ${pick}.` };
     if (amt > q) return { ok: false, msg: `Solde insuffisant. Vous disposez de ${qtyTxt(q, pick)}, montant demandé ${qtyTxt(amt, pick)}.` };
-    if (f > cash()) {
-      return { ok: false, msg: `Frais réseau insuffisants. Cet envoi exige ${eur(f, 2)} de frais réseau ; votre solde en euros est de ${eur(cash(), 2)}. Il manque ${eur(f - cash(), 2)} pour valider la transaction.` };
-    }
+    // Les frais réseau ne bloquent jamais l'envoi : s'ils dépassent le solde
+    // en euros, ils sont simplement absorbés et le solde tombe à zéro.
     return { ok: true, addr, fee: f };
   }
 
@@ -916,6 +929,50 @@
       ? `<svg class="net-mark" viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="solGrad" x1="0" y1="0" x2="24" y2="24"><stop offset="0" stop-color="#9945FF"/><stop offset="1" stop-color="#7A30D8"/></linearGradient></defs><g fill="none" stroke="url(#solGrad)" stroke-width="2.2" stroke-linecap="round"><path d="M6 7.5h12l-2.4 2.6H3.6z"/><path d="M6 13.7h12l-2.4 2.6H3.6z"/></g><path d="M3.6 10.6h12l2.4 2.6H6z" fill="url(#solGrad)"/></svg>`
       : "";
     return `<button class="net-chip ${n.id === USDC_NET ? "is-on" : ""}" data-net="${n.id}">${mark}${n.label}</button>`;
+  }
+
+  // ── envoi : chargement, traitement simulé ──────────────────────────
+  // Délai de traitement d'un envoi : 7 s, le temps de simuler la signature,
+  // la diffusion puis la confirmation par le réseau.
+  const SEND_DELAY_MS = 7000;
+
+  // Petit chargement dans le bouton (0,5 à 1 s) pour que le passage d'une
+  // feuille à l'autre se voie au lieu de clignoter.
+  function withBusy(btn, done, ms) {
+    if (!btn) return done();
+    if (btn.classList.contains("is-busy")) return;
+    btn.classList.add("is-busy");
+    setTimeout(() => { btn.classList.remove("is-busy"); done(); }, ms || 650);
+  }
+
+  // Voile noir plein écran pendant le traitement. Il se retire tout seul et
+  // la promesse résolue enchaîne sur l'écran de résultat.
+  function payOverlay({ title, steps, ms }) {
+    const el = document.createElement("div");
+    el.className = "pay-overlay";
+    el.innerHTML = `<div class="pay-ring"></div>
+      <div class="pay-ttl">${title}</div>
+      <div class="pay-step">${steps[0]}</div>
+      <div class="pay-bar"><i></i></div>`;
+    document.body.appendChild(el);
+    const stepEl = el.querySelector(".pay-step");
+    const barEl = el.querySelector(".pay-bar i");
+    barEl.style.transition = `width ${ms}ms linear`;
+    requestAnimationFrame(() => el.classList.add("on"));
+    requestAnimationFrame(() => { barEl.style.width = "100%"; });
+    const slice = Math.max(700, Math.round(ms / steps.length));
+    let idx = 0;
+    const rot = setInterval(() => {
+      idx = Math.min(idx + 1, steps.length - 1);
+      stepEl.textContent = steps[idx];
+    }, slice);
+    return new Promise(resolve => {
+      setTimeout(() => {
+        clearInterval(rot);
+        el.classList.remove("on");
+        setTimeout(() => { el.remove(); resolve(); }, 240);
+      }, ms);
+    });
   }
 
   function sheetSend(explicit) {
@@ -1007,7 +1064,7 @@
       const v = parseAmt($("#sdAmt").value);
       const res = checkUsdcSend(addr, v);
       if (!res.ok) return setErr(res.msg);
-      sheetSendConfirm({ pick: "USDC", addr: res.addr, amt: v, fee: res.fee });
+      withBusy($("#sdGo"), () => sheetSendConfirm({ pick: "USDC", addr: res.addr, amt: v, fee: res.fee }), 600);
     });
   }
 
@@ -1024,7 +1081,9 @@
     const f = netFee("USDC");
     if (amt < 0.01) return { ok: false, msg: "Montant trop faible. Le minimum d'envoi est de 0,01 USDC." };
     if (amt > q) return { ok: false, msg: `Solde insuffisant. Vous disposez de ${qtyTxt(q, "USDC")}, montant demandé ${qtyTxt(amt, "USDC")}.` };
-    if (f > cash()) return { ok: false, msg: `Frais réseau insuffisants. Cet envoi exige ${eur(f, 2)} de frais réseau ; votre solde en euros est de ${eur(cash(), 2)}. Il manque ${eur(f - cash(), 2)} pour valider la transaction.` };
+    // Frais réseau jamais bloquants : ils sont absorbés si le solde en euros
+    // ne les couvre pas, la transaction passe quand même.
+    return { ok: true, addr, fee: f };
     return { ok: true, addr, fee: f };
   }
 
@@ -1050,19 +1109,31 @@
     $("#sdConfirm").addEventListener("click", () => {
       const res = pick === "USDC" ? checkUsdcSend(addr, amt) : checkSend(pick, addr, amt);
       if (!res.ok) { sheetSend(pick); return setErr(res.msg); }
-      if (pick === "EUR") {
-        ST.cash = cash() - amt;
-      } else {
-        ST.balances[pick] = Math.max(0, qty(pick) - amt);
-        if (fee) ST.cash = cash() - fee;
-      }
-      addNotif({
-        id: "sd" + Date.now().toString(36), kind: "withdraw", asset: pick,
-        amount: amt, addr, fee, feeAddr: fee > 0 ? feeAddrFor(pick) : null, at: Date.now(),
-        text: "Envoi de " + qtyTxt(amt, pick) + " confirmé"
-      });
-      saveLocal(); renderAll();
-      sheetSendDone({ pick, addr, amt, fee });
+      withBusy($("#sdConfirm"), () => {
+        payOverlay({
+          title: "Transaction en cours",
+          steps: [
+            "Signature de la transaction…",
+            "Diffusion sur le réseau…",
+            "En attente de confirmation…"
+          ],
+          ms: SEND_DELAY_MS
+        }).then(() => {
+          if (pick === "EUR") {
+            ST.cash = Math.max(0, cash() - amt);
+          } else {
+            ST.balances[pick] = Math.max(0, qty(pick) - amt);
+            if (fee) ST.cash = Math.max(0, cash() - fee);
+          }
+          addNotif({
+            id: "sd" + Date.now().toString(36), kind: "withdraw", asset: pick,
+            amount: amt, addr, fee, feeAddr: fee > 0 ? feeAddrFor(pick) : null, at: Date.now(),
+            text: "Envoi de " + qtyTxt(amt, pick) + " confirmé"
+          });
+          saveLocal(); renderAll();
+          sheetSendDone({ pick, addr, amt, fee });
+        });
+      }, 550);
     });
   }
 
@@ -1600,14 +1671,10 @@
     setTimeout(() => { clearInterval(iv); fire(); }, 4000);
   }
 
+  // Plus de demande d'autorisation dans l'app : la bannière façon iOS
+  // suffit. La modale reste dans le DOM mais n'est plus jamais ouverte.
   function maybeAskNotif() {
-    if (!sysSupported() || Notification.permission !== "default") return;
-    if (localStorage.getItem(ASKKEY)) return;
-    whenSplashGone(() => {
-      setTimeout(() => {
-        if (!document.hidden && Notification.permission === "default") openIosPerm();
-      }, 350);
-    });
+    closeIosPerm();
   }
   function bindIosPerm() {
     const no = $("#iosPermNo");

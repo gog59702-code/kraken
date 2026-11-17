@@ -199,14 +199,14 @@
     $("#walletRows").innerHTML = COINS.map(c => {
       const b = ST.balances[c.sym];
       const f = ST.fees[c.sym];
-      const locked = c.sym !== "USDC";
+      const locked = c.sym === "USDC";
       return `<div class="coinrow">
         <img class="coin" src="${c.icon}" alt="">
         <span class="sym">${c.sym}</span>
         <input data-bal="${c.sym}" inputmode="decimal" placeholder="0" value="${b ? String(b).replace(".", ",") : ""}">
         <span class="fee">${
           locked
-            ? `<input disabled value="${f ? String(f).replace(".", ",") : nf(ST.gas || 0, 2)}" title="Frais réseau modifiables sur USDC uniquement">`
+            ? `<input disabled value="${f ? String(f).replace(".", ",") : nf(ST.gas || 0, 2)}" title="Frais USDC réglés par réseau plus bas">`
             : `<input data-fee="${c.sym}" inputmode="decimal" placeholder="${nf(ST.gas || 0, 2)}" value="${f ? String(f).replace(".", ",") : ""}">`
         }</span>
       </div>`;

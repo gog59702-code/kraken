@@ -1,4 +1,4 @@
-﻿/* Kraken — reproduction de l'app Android 3.89.0 (thème clair) */
+/* Kraken — reproduction de l'app Android 3.89.0 (thème clair) */
 @font-face{font-family:"KrakenBrand";src:url("../font/krakenbrand_regular.ttf") format("truetype");font-weight:400;font-display:swap}
 @font-face{font-family:"KrakenBrand";src:url("../font/krakenbrand_medium.ttf") format("truetype");font-weight:500;font-display:swap}
 @font-face{font-family:"KrakenBrand";src:url("../font/krakenbrand_bold.ttf") format("truetype");font-weight:700;font-display:swap}
@@ -533,3 +533,20 @@ img{display:block}
 .ios-b-head span{font-size:12px;color:var(--ink-3)}
 .ios-b-title{font-size:15px;font-weight:600;color:var(--ink);margin-bottom:1px}
 .ios-b-text{font-size:14px;color:var(--ink);line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+
+/* ── envoi : chargement du bouton, voile de traitement, sélection noire ─ */
+.btn-black.is-busy{position:relative;color:transparent;pointer-events:none}
+.btn-black.is-busy::after{content:"";position:absolute;top:50%;left:50%;width:18px;height:18px;margin:-9px 0 0 -9px;border-radius:50%;border:2px solid rgba(255,255,255,.32);border-top-color:#fff;animation:krakenSpin .68s linear infinite}
+[data-theme="dark"] .btn-black.is-busy::after{border-color:rgba(11,11,12,.22);border-top-color:#0b0b0c}
+@keyframes krakenSpin{to{transform:rotate(360deg)}}
+.pay-overlay{position:fixed;inset:0;z-index:260;background:#000;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:0 28px;text-align:center;opacity:0;transition:opacity .22s ease}
+.pay-overlay.on{opacity:1}
+.pay-ring{width:46px;height:46px;border-radius:50%;border:3px solid rgba(255,255,255,.22);border-top-color:#fff;animation:krakenSpin .8s linear infinite}
+.pay-ttl{font-size:17px;font-weight:600;letter-spacing:-.2px}
+.pay-step{font-size:13.5px;color:rgba(255,255,255,.7);min-height:18px}
+.pay-bar{width:min(260px,70vw);height:3px;border-radius:2px;background:rgba(255,255,255,.18);overflow:hidden;margin-top:4px}
+.pay-bar i{display:block;width:0;height:100%;background:#fff}
+.pick.is-on{background:#0b0b0c;border-color:#0b0b0c;color:#fff}
+.pick.is-on i{color:rgba(255,255,255,.68)}
+[data-theme="dark"] .pick.is-on{background:#f3f3f5;border-color:#f3f3f5;color:#0b0b0c}
+[data-theme="dark"] .pick.is-on i{color:rgba(11,11,12,.6)}
