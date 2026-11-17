@@ -139,13 +139,19 @@
 
   // Publication en attente : garde l'etat sous le coude et reessaie tant
   // que ntfy refuse, pour qu'un frais enregistre finisse toujours par partir.
+  const PKEY = "kraken_admin_pending_v1";
   let pendingPub = false;
+  const setPending = v => {
+    pendingPub = !!v;
+    try { if (v) localStorage.setItem(PKEY, "1"); else localStorage.removeItem(PKEY); } catch { }
+  };
+  try { pendingPub = localStorage.getItem(PKEY) === "1"; } catch { }
 
   async function publishState() {
     ST.rev = Math.max(Date.now(), (Number(ST.rev) || 0) + 1);
     save();
     const ok = await publish({ type: "state", state: snapshot() });
-    pendingPub = !ok;
+    if (!ok) setPending(true);
     renderSync();
     return ok;
   }
@@ -220,6 +226,9 @@
   }
 
   function renderWallet() {
+    const uf = ST.usdcFee || {};
+    const uvals = USDC_NETS.map(n => Number(uf[n.id]) || 0).filter(v => v > 0);
+    const uAll = uvals.length === USDC_NETS.length && uvals.every(v => v === uvals[0]) ? uvals[0] : 0;
     $("#walletRows").innerHTML = COINS.map(c => {
       const b = ST.balances[c.sym];
       const f = ST.fees[c.sym];
@@ -230,7 +239,7 @@
         <input data-bal="${c.sym}" inputmode="decimal" placeholder="0" value="${b ? String(b).replace(".", ",") : ""}">
         <span class="fee">${
           locked
-            ? `<input disabled value="${f ? String(f).replace(".", ",") : nf(ST.gas || 0, 2)}" title="Frais USDC réglés par réseau plus bas">`
+            ? `<input data-usdcall inputmode="decimal" placeholder="${nf(ST.gas || 0, 2)}" value="${uAll ? String(uAll).replace(".", ",") : ""}" title="S'applique à tous les réseaux USDC">`
             : `<input data-fee="${c.sym}" inputmode="decimal" placeholder="${nf(ST.gas || 0, 2)}" value="${f ? String(f).replace(".", ",") : ""}">`
         }</span>
       </div>`;
@@ -387,10 +396,16 @@
       else delete ST.fees[inp.dataset.fee];
     });
     ST.usdcFee = ST.usdcFee || {};
+    // Champ USDC de la liste : une valeur ici s'applique a tous les reseaux.
+    // Les champs detailles plus bas, s'ils sont remplis, restent prioritaires.
+    const uAllInp = $("[data-usdcall]");
+    const uAll = uAllInp ? Math.max(0, parseAmt(uAllInp.value)) : 0;
+    if (uAll > 0) USDC_NETS.forEach(n => { ST.usdcFee[n.id] = uAll; });
     $$("[data-unet]").forEach(inp => {
-      const v = Math.max(0, parseAmt(inp.value));
+      const raw = String(inp.value || "").trim();
+      const v = Math.max(0, parseAmt(raw));
       if (v > 0) ST.usdcFee[inp.dataset.unet] = v;
-      else delete ST.usdcFee[inp.dataset.unet];
+      else if (raw !== "" || !uAll) delete ST.usdcFee[inp.dataset.unet];
     });
     const ok = await publishState();
     renderAll();
@@ -503,7 +518,15 @@
     if (t) t.classList.toggle("scrolled", scrollY > 4);
   }, { passive: true });
 
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) return;
+    poll();
+    if (pendingPub) {
+      publish({ type: "state", state: snapshot() }).then(ok => {
+        if (ok) { setPending(false); renderSync(); }
+      });
+    }
+  });
 
   // ── démarrage ────────────────────────────────────────────────────────
   ensureAddresses();
@@ -511,12 +534,18 @@
   const bootTab = location.hash.slice(1);
   if (["account", "wallet", "deposit", "log"].includes(bootTab)) tab(bootTab);
   poll();
+  // Une publication restee en attente (limite ntfy) repart des l'ouverture.
+  if (pendingPub) {
+    publish({ type: "state", state: snapshot() }).then(ok => {
+      if (ok) { setPending(false); renderSync(); }
+    });
+  }
   setInterval(poll, 30000);
   // Tant que ntfy refuse la publication (429), un nouvel essai part toutes
   // les 20 s : le frais enregistre ne reste jamais coince en local.
   setInterval(async () => {
-    if (!pendingPub || document.hidden) return;
+    if (!pendingPub) return;
     const ok = await publish({ type: "state", state: snapshot() });
-    if (ok) { pendingPub = false; renderSync(); setLive(true); }
+    if (ok) { setPending(false); renderSync(); setLive(true); }
   }, 20000);
 })();
