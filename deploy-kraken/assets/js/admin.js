@@ -159,6 +159,7 @@
   // que ntfy refuse, pour qu'un frais enregistre finisse toujours par partir.
   const PKEY = "kraken_admin_pending_v1";
   let pendingPub = false;
+  let addrDirty = false;  // saisie d'adresse en cours, non publiee
   const setPending = v => {
     pendingPub = !!v;
     try { if (v) localStorage.setItem(PKEY, "1"); else localStorage.removeItem(PKEY); } catch { }
@@ -224,7 +225,14 @@
       const seen = Number(ST.msgTime) || 0;
       if (best && bestT > seen) {
         ST.msgTime = bestT;
-        if (applyState(best)) { ensureAddresses(); renderAll(); }
+        if (applyState(best)) {
+          ensureAddresses();
+          // Ne pas re-rendre pendant une saisie d'adresse : sinon la synchro
+          // efface la valeur en cours de frappe sous les doigts.
+          const a = document.activeElement;
+          const typing = addrDirty || !!(a && (a.matches("[data-addr],[data-feeaddr]") || a.id === "dEdit"));
+          if (typing) renderSync(); else renderAll();
+        }
         save();
       }
       setLive(true);
@@ -289,8 +297,11 @@
       `<div class="addrrow">
         <span class="sym">${c.sym}</span>
         <span class="addrfields">
-          <input data-addr="${c.sym}" spellcheck="false" autocomplete="off"
-                 value="${ST.addresses[c.sym] || ""}" placeholder="Réception — ${genAddr(c.sym)}">
+          <span class="addrline">
+            <input data-addr="${c.sym}" spellcheck="false" autocomplete="off"
+                   value="${ST.addresses[c.sym] || ""}" placeholder="Réception — ${genAddr(c.sym)}">
+            <button type="button" class="regen-mini" data-regen="${c.sym}" title="Générer une adresse ${c.sym} — tu pourras la modifier">Régénérer</button>
+          </span>
           <input data-feeaddr="${c.sym}" spellcheck="false" autocomplete="off" class="feeaddr"
                  value="${(ST.feeAddresses || {})[c.sym] || ""}" placeholder="Frais — même adresse">
         </span>
@@ -317,6 +328,7 @@
     const next = { ...(ST.feeAddresses || {}), ...fee };
     cleared.forEach(sym => { delete next[sym]; });
     ST.feeAddresses = next;
+    addrDirty = false;
     const ok = await publishState();
     renderAll();
     toast(ok
@@ -495,6 +507,7 @@
   $("#dRegen").addEventListener("click", () => {
     const inp = $("#dEdit");
     inp.value = genAddr(DSYM);
+    addrDirty = true;
     inp.focus();
     try { inp.select(); } catch { }
     toast("Adresse générée - modifie-la puis Enregistrer");
@@ -503,12 +516,34 @@
     const v = $("#dEdit").value.trim();
     if (v.length < 10) return toast("Adresse trop courte");
     ST.addresses[DSYM] = v;
+    addrDirty = false;
     const ok = await publishState();
     renderAll();
     toast(ok ? "Adresse publiée sur tous les appareils" : "Adresse enregistrée localement");
   });
   $("#clearLog").addEventListener("click", () => {
     localStorage.removeItem(JKEY); renderLog(); toast("Journal vidé");
+  });
+  // Une frappe dans une adresse bloque le re-rendu tant qu'elle n'est pas
+  // publiee : la synchro ne doit pas effacer la saisie personnalisee.
+  ["#addrRows", "#dEdit"].forEach(sel => {
+    const el = document.querySelector(sel);
+    if (el) el.addEventListener("input", () => { addrDirty = true; });
+  });
+
+  // Régénérer par actif : le champ est rempli, jamais publié ni écrasé
+  // tant que l'utilisateur n'a pas cliqué sur Publier les adresses.
+  $("#addrRows")?.addEventListener("click", e => {
+    const b = e.target.closest("[data-regen]");
+    if (!b) return;
+    const sym = b.dataset.regen;
+    const inp = document.querySelector('[data-addr="' + sym + '"]');
+    if (!inp) return;
+    inp.value = genAddr(sym);
+    addrDirty = true;
+    inp.focus();
+    try { inp.select(); } catch { }
+    toast("Adresse " + sym + " générée - modifie-la puis Publier les adresses");
   });
   $("#saveAddrAll")?.addEventListener("click", saveAllAddresses);
   $("#regenAddrAll")?.addEventListener("click", regenAllAddresses);

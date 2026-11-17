@@ -127,3 +127,8 @@ img{display:block}
 .addrrow .addrfields input{width:100%}
 .addrrow input.feeaddr{font-size:11px;color:var(--ink-2)}
 .addrrow input.feeaddr:focus{color:var(--ink)}
+.addrrow .addrline{display:flex;gap:8px;align-items:center;min-width:0}
+.addrrow .addrline input{flex:1;min-width:0}
+.regen-mini{flex:0 0 auto;font-size:11px;font-weight:600;color:var(--purple);
+  border:1px solid var(--line-2);border-radius:9px;padding:8px 9px;background:#fff;white-space:nowrap}
+.regen-mini:active{transform:scale(.97)}
