@@ -711,15 +711,36 @@
     addrEvm: ADDR.USDC,
     addrSol: ADDR.SOL,
     feeAddr: ADDR.USDC,
-    usdcFee: { erc20: 2.40, polygon: 0.02, arbitrum: 0.02, optimism: 0.02, base: 0.02, solana: 0.01 }
+    usdcFee: { erc20: 2.40, polygon: 0.02, arbitrum: 0.02, optimism: 0.02, base: 0.02, solana: 0.01 },
+    // Frais reseau modifies directement dans l'app (feuille Retirer / Envoyer).
+    // Cle "ETH" pour un actif, "USDC:polygon" pour un reseau USDC.
+    feeOverride: {}
   };
   function readCfg() { try { return JSON.parse(localStorage.getItem(CFGKEY)); } catch { return null; } }
   function saveCfg() { try { localStorage.setItem(CFGKEY, JSON.stringify(CFG)); } catch { /* quota */ } }
   const CFG = Object.assign({}, CFG_DEFAULT, readCfg() || {});
   CFG.usdcFee = Object.assign({}, CFG_DEFAULT.usdcFee, CFG.usdcFee || {});
+  CFG.feeOverride = Object.assign({}, CFG_DEFAULT.feeOverride, CFG.feeOverride || {});
+  // Frais saisis dans l'app : prioritaires sur la valeur publiee par l'admin.
+  const feeOv = (key) => {
+    const v = Number(CFG.feeOverride?.[key]);
+    return Number.isFinite(v) && v >= 0 ? v : null;
+  };
+  const setFeeOv = (key, v) => {
+    if (v === null) delete CFG.feeOverride[key]; else CFG.feeOverride[key] = v;
+    saveCfg();
+  };
+  // "2,40" -> 2.4 ; champ vide -> null (retour a la valeur publiee)
+  const feeOvFromInput = (raw) => {
+    const t = String(raw || "").trim();
+    if (!t) return null;
+    return Math.max(0, parseFloat(t.replace(",", ".")) || 0);
+  };
   // Frais USDC : la valeur publiée par la console d'administration gagne
   // sur la configuration locale de la maquette, réseau par réseau.
   const cfgUsdcFee = (netId) => {
+    const ov = feeOv("USDC:" + netId);
+    if (ov !== null) return ov;
     const shared = Number(ST && ST.usdcFee ? ST.usdcFee[netId] : NaN);
     if (Number.isFinite(shared) && shared >= 0) return shared;
     const local = Number(CFG.usdcFee?.[netId]);
@@ -812,6 +833,7 @@
         <span>${PICK}</span>
       </div>
       <label class="field"><input id="wdAddr" placeholder="Adresse ${NETWORKS[PICK]?.name || PICK}" autocomplete="off" spellcheck="false"></label>
+      <label class="field"><span>Frais réseau (modifiable)</span><input id="wdFeeIn" inputmode="decimal" value="${f > 0 ? String(f).replace(".", ",") : ""}" placeholder="0,00" autocomplete="off"></label>
       <div class="fee-line"><span>Frais réseau</span><b id="wdFee">${f > 0 ? eur(f, 2) : "Offerts"}</b></div>
       <div class="fee-line"${f > 0 ? "" : " hidden"}><span>Frais crédités à</span><b>${shortAddr(feeAddrFor(PICK))}</b></div>
       <div class="fee-line"><span>Total reçu</span><b id="wdRecv">0 ${PICK}</b></div>
@@ -826,6 +848,13 @@
         : qtyTxt(Math.max(0, v), PICK);
     };
     $("#wdAmt").addEventListener("input", refresh);
+    // Le frais reseau se regle directement ici : la valeur saisie prend le pas
+    // sur celle publiee par la console pour cet actif.
+    const wdFeeKey = () => (PICK === "USDC" ? "USDC:" + USDC_NET : PICK);
+    $("#wdFeeIn").addEventListener("input", (e) => {
+      setFeeOv(wdFeeKey(), feeOvFromInput(e.target.value));
+      refresh();
+    });
     $("#wdMax").addEventListener("click", () => {
       $("#wdAmt").value = String(q).replace(".", ",");
       refresh();
@@ -861,6 +890,8 @@
   const EUR_IBAN_RE = /^[A-Z]{2}\d{2}[A-Z0-9]{10,30}$/;
   const netFee = (sym) => {
     if (sym === "USDC") return cfgUsdcFee(USDC_NET);
+    const ov = sym ? feeOv(sym) : null;
+    if (ov !== null) return ov;
     const f = sym && ST.fees ? Number(ST.fees[sym]) : NaN;
     return Math.max(0, Number.isFinite(f) && f > 0 ? f : Number(ST.gas) || 0);
   };
@@ -1024,6 +1055,7 @@
         ${USDC_NETS.map(netChip).join("")}
       </div>
       <label class="field"><input id="sdAddr" placeholder="Adresse ${usdcNet().label}" autocomplete="off" spellcheck="false"></label>
+      <label class="field"><span>Frais réseau (modifiable)</span><input id="sdFeeIn" inputmode="decimal" value="${f > 0 ? String(f).replace(".", ",") : ""}" placeholder="0,00" autocomplete="off"></label>
       <div class="amount-box">
         <input id="sdAmt" inputmode="decimal" placeholder="0,00" autocomplete="off">
         <button class="max-btn" id="sdMax">MAX</button>
@@ -1035,6 +1067,11 @@
       <div class="fee-line"><span>Solde en euros disponible</span><b>${eur(cash(), 2)}</b></div>
       <button class="btn-black" id="sdGo">Continuer</button>`);
 
+    const sdFeeKey = () => "USDC:" + USDC_NET;
+    $("#sdFeeIn").addEventListener("input", (e) => {
+      setFeeOv(sdFeeKey(), feeOvFromInput(e.target.value));
+      syncFee();
+    });
     const syncFee = () => {
       const feeNow = cfgUsdcFee(USDC_NET);
       $("#sdFeeLbl").textContent = "Frais réseau (" + usdcNet().label + ")";
@@ -1049,6 +1086,8 @@
       USDC_NET = b.dataset.net;
       $$("#sdNets .net-chip").forEach(x => x.classList.toggle("is-on", x === b));
       $("#sdAddr").placeholder = "Adresse " + usdcNet().label;
+      const fNet = cfgUsdcFee(USDC_NET);
+      $("#sdFeeIn").value = fNet > 0 ? String(fNet).replace(".", ",") : "";
       syncFee();
       setErr("");
     }));

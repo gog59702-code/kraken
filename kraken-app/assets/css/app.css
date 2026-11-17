@@ -318,7 +318,7 @@ img{display:block}
 }
 .sheet.on{transform:none}
 .grip{width:38px;height:4px;border-radius:99px;background:#dcdce2;margin:10px auto 2px;flex:0 0 auto}
-.sheet-body{overflow-y:auto;padding:10px 20px 24px}
+.sheet-body{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:10px 20px 24px}
 .sheet-title{font-family:"KrakenBrand";font-size:21px;font-weight:500;margin:2px 0 4px}
 .sheet-sub{font-size:14px;color:var(--ink-2);margin-bottom:14px}
 .err-box{
