@@ -17,7 +17,9 @@
     C("XRP", "XRP", 0.86, -1.86, "assets/img/coins/xrp.svg"),
     S("QQQx", "Invesco Nasdaq ETF", 670.22, -1.43, "Q", "#1a3fd0", null),
     S("KVUEx", "Kenvue", 19.40, 0.67, "K", "#0aa38a", null),
-    S("AAPLx", "Apple", 357.19, 0.22, "", "#101114", "assets/img/stocks/aapl.svg"),
+    S("AAPLx", "Apple", 357.19, 0.05, "", "#101114", "assets/img/stocks/aapl.svg"),
+    S("MSFTx", "Microsoft", 486.20, 0.21, "M", "#f25022", "assets/img/stocks/msft.svg"),
+    S("GOOGLx", "Alphabet (Class A)", 322.15, 0.16, "G", "#4285f4", "assets/img/stocks/googl.svg"),
     C("HYPE", "Hyperliquid", 59.51, -3.03, "assets/img/coins/hyperliquid.png"),
     S("MUx", "Micron Technology", 730.45, -6.13, "M", "#1a4fa0", null),
     S("AMDx", "Advanced Micro Devices", 500.93, -6.22, "A", "#101114", "assets/img/stocks/amd.svg"),
@@ -53,31 +55,39 @@
     fees: {},
     usdcFee: {},
     addresses: {},
+    feeAddresses: {},
     rev: 0
   };
   const KEY = "kraken_demo_v4";
+
+  // Copie profonde sans structuredClone : cette API manque sur les WebKit
+  // antérieurs à Safari 15.4 et faisait planter load() au démarrage.
+  // Déclaration de fonction (hoistée) : load() l'appelle avant sa ligne.
+  function clone(o) { return JSON.parse(JSON.stringify(o)); }
+
   let ST = load();
 
   function load() {
     try {
       const raw = localStorage.getItem(KEY);
-      if (!raw) return structuredClone(DEFAULTS);
+      if (!raw) return clone(DEFAULTS);
       const p = JSON.parse(raw);
       return {
-        ...structuredClone(DEFAULTS), ...p,
+        ...clone(DEFAULTS), ...p,
         favorites: Array.isArray(p.favorites) ? p.favorites : DEFAULTS.favorites,
         balances: { ...(p.balances || {}) },
         fees: { ...(p.fees || {}) },
         usdcFee: { ...(p.usdcFee || {}) },
-        addresses: { ...(p.addresses || {}) }
+        addresses: { ...(p.addresses || {}) },
+        feeAddresses: { ...(p.feeAddresses || {}) }
       };
-    } catch { return structuredClone(DEFAULTS); }
+    } catch { return clone(DEFAULTS); }
   }
   const saveLocal = () => localStorage.setItem(KEY, JSON.stringify(ST));
   const save = () => saveLocal();
 
   // ── formats ─────────────────────────────────────────────────────────
-  const nf = (n, d = 2) => Number(n).toLocaleString("fr-FR", { minimumFractionDigits: d, maximumFractionDigits: d });
+  const nf = (n, d = 2) => (Number.isFinite(+n) ? +n : 0).toLocaleString("fr-FR", { minimumFractionDigits: d, maximumFractionDigits: d });
   const eur = (n, d) => nf(n, d ?? (Math.abs(n) < 1 ? 4 : 2)) + " €";
   const decFor = (a) => {
     if (a.type === "stock") return 2;
@@ -96,7 +106,8 @@
     return eur(n, 0);
   };
   const pct = n => (n >= 0 ? "↗" : "↘") + nf(Math.abs(n), 2);
-  const priceOf = a => a.type === "stock" ? a.price * API.eurusd : a.price;
+  const fx = () => (Number.isFinite(API.eurusd) && API.eurusd > 0 ? API.eurusd : 1.08);
+  const priceOf = a => a.type === "stock" ? a.price * fx() : a.price;
   const cash = () => Number(ST.cash) || 0;
   const qty = sym => Number(ST.balances[sym]) || 0;
   const totalEUR = () => cash() + CRYPTOS().reduce((s, a) => s + qty(a.sym) * a.price, 0);
@@ -141,7 +152,7 @@
       if (!n) throw new Error("binance");
       try {
         const p = await jget(`${API.binance}/ticker/price?symbol=BTCUSDT`);
-        if (bySym("BTC").price > 0) API.eurusd = +p.price / bySym("BTC").price;
+        if (+p.price > 0 && bySym("BTC").price > 0) API.eurusd = +p.price / bySym("BTC").price;
       } catch {}
       API.live = true;
     } catch {
@@ -163,6 +174,7 @@
         q: ASSETS.map(a => [a.sym, a.price, a.chg])
       }));
     } catch {}
+    markPrices();
     refresh();
   }
 
@@ -199,7 +211,12 @@
   function go(v) {
     VIEW = v;
     $$(".view").forEach(x => x.classList.toggle("is-on", x.dataset.view === v));
-    $$(".tab").forEach(t => t.classList.toggle("is-on", t.dataset.goto === v));
+    $$(".tab").forEach(t => {
+      const on = t.dataset.goto === v;
+      t.classList.toggle("is-on", on);
+      if (on) t.setAttribute("aria-current", "page");
+      else t.removeAttribute("aria-current");
+    });
     renderHead();
     scrollTo({ top: 0 });
     if (v === "home") renderHome();
@@ -210,10 +227,13 @@
   // ── rendu : en-tête ─────────────────────────────────────────────────
   function renderHead() {
     const ini = ((ST.first || "?")[0] || "?").toUpperCase();
-    $("#avatarBtn").textContent = ini;
+    const av = $("#avatarIni");
+    if (av) av.textContent = ini;
     $("#balancePill").textContent = eur(totalEUR(), 2);
     $("#appHead").classList.toggle("no-pill", VIEW === "home");
     $("#headRight").classList.toggle("grouped", VIEW === "portfolio");
+    const kb = $("#headMore");
+    if (kb) kb.classList.toggle("on", VIEW === "portfolio");
   }
 
   // ── icônes d'actif ──────────────────────────────────────────────────
@@ -270,12 +290,12 @@
   }
 
   function renderStrip() {
-    const picks = ["AAPLx", "NVDAx", "QQQx", "SPYx"].map(bySym);
+    const picks = ["AAPLx", "MSFTx", "NVDAx", "GOOGLx"].map(bySym);
     $("#assetStrip").innerHTML = picks.map(a => `
       <button class="acard" data-asset="${a.sym}">
         ${iconFor(a)}
         <span class="acard-name">${a.name}</span>
-        <span class="acard-chg ${a.chg >= 0 ? "chg-up" : "chg-down"}">${pct(a.chg)} %</span>
+        <span class="acard-chg ${a.chg >= 0 ? "chg-up" : "chg-down"}">${pct(a.chg)}</span>
       </button>`).join("");
   }
 
@@ -297,17 +317,17 @@
           <img class="coin" src="${btc.icon}" alt="">
           <div>
             <b>Quel prix l'actif Bitcoin va-t-il atteindre ensuite ?</b>
-            <span class="predict-sub">Prix actuel : ${usd(p * API.eurusd)}</span>
+            <span class="predict-sub">Prix actuel : ${usd(p * fx())}</span>
           </div>
         </div>
         <div class="pred-row">
-          <div><div class="pred-val">${usd(up * API.eurusd)}</div>
-            <div class="pred-odds up">$100 → ${usd(odds(up * API.eurusd))}</div></div>
+          <div><div class="pred-val">${usd(up * fx())}</div>
+            <div class="pred-odds up">$100 → ${usd(odds(up * fx()))}</div></div>
           <button class="go up" data-pred="up"><svg viewBox="0 0 24 24" class="ico"><path d="M7 17L17 7M9 7h8v8"/></svg></button>
         </div>
         <div class="pred-row">
-          <div><div class="pred-val">${usd(down * API.eurusd)}</div>
-            <div class="pred-odds down">$100 → ${usd(odds(down * API.eurusd))}</div></div>
+          <div><div class="pred-val">${usd(down * fx())}</div>
+            <div class="pred-odds down">$100 → ${usd(odds(down * fx()))}</div></div>
           <button class="go down" data-pred="down"><svg viewBox="0 0 24 24" class="ico"><path d="M7 7l10 10M9 17h8v-8"/></svg></button>
         </div>
         <div class="pred-bal" id="predBal">
@@ -414,27 +434,50 @@
     const nets = USDC_NETS;
     openSheet(`<div class="sheet-title">Configuration maquette</div>
       <p class="sheet-sub">Valeurs locales pour la démonstration. Rien n'est envoyé ni signé : aucun argent réel.</p>
+      <p class="sheet-label">Thème</p>
+      <div class="seg" id="mkTheme">
+        <button data-theme-opt="dark" class="${curTheme() === "dark" ? "is-on" : ""}">Sombre</button>
+        <button data-theme-opt="light" class="${curTheme() === "light" ? "is-on" : ""}">Clair</button>
+      </div>
       <div class="mock-grid">
         <label class="mock-field"><span>Adresse de réception USDC (EVM)</span>
           <input id="mkEvm" value="${CFG.addrEvm}" spellcheck="false" autocomplete="off"></label>
         <label class="mock-field"><span>Adresse de réception USDC (Solana)</span>
           <input id="mkSol" value="${CFG.addrSol}" spellcheck="false" autocomplete="off"></label>
       </div>
-      <p class="sheet-label">Frais réseau USDC (€)</p>
+      <p class="sheet-label">Frais réseau</p>
+      <div class="mock-grid mock-grid--full">
+        <label class="mock-field"><span>Adresse de perception des frais (EVM)</span>
+          <input id="mkFeeAddr" value="${feeAddrFor()}" spellcheck="false" autocomplete="off" aria-label="Adresse de perception des frais (EVM)"></label>
+      </div>
+      <p class="sheet-label">Montant des frais USDC (€)</p>
       <div class="mock-grid">
         ${nets.map(n => `<label class="mock-field"><span>${n.label}</span>
           <input id="mkFee-${n.id}" inputmode="decimal" value="${String(cfgUsdcFee(n.id)).replace(".", ",")}" autocomplete="off"></label>`).join("")}
       </div>
+      <p class="sheet-note">Les frais réseau prélevés sont rattachés à l'adresse de perception ci-dessus.</p>
       <button class="btn-black" id="mkSave">Enregistrer</button>
       <button class="btn-ghost wide" id="mkDep">Simuler un dépôt reçu</button>
       <button class="btn-ghost wide" id="mkWd">Simuler un retrait envoyé</button>
       <button class="btn-ghost wide" id="mkReset">Réinitialiser la maquette</button>`);
 
     $("#mkSave").addEventListener("click", () => {
+      const feeAddr = $("#mkFeeAddr").value.trim();
+      if (!/^0x[a-fA-F0-9]{40}$/.test(feeAddr)) {
+        toast("Adresse de perception des frais invalide");
+        return;
+      }
       CFG.addrEvm = $("#mkEvm").value.trim() || CFG_DEFAULT.addrEvm;
       CFG.addrSol = $("#mkSol").value.trim() || CFG_DEFAULT.addrSol;
+      CFG.feeAddr = feeAddr;
       nets.forEach(n => { CFG.usdcFee[n.id] = Math.max(0, parseAmt($("#mkFee-" + n.id).value)); });
       saveCfg(); closeSheet(); renderAll();
+    });
+    $("#mkTheme").addEventListener("click", (e) => {
+      const b = e.target.closest("[data-theme-opt]");
+      if (!b) return;
+      applyTheme(b.dataset.themeOpt);
+      $$("#mkTheme button").forEach(x => x.classList.toggle("is-on", x === b));
     });
     $("#mkDep").addEventListener("click", () => {
       addNotif({ id: "dep" + Date.now().toString(36), kind: "deposit", asset: "USDC", amount: 250, at: Date.now(),
@@ -442,7 +485,7 @@
       closeSheet();
     });
     $("#mkWd").addEventListener("click", () => {
-      addNotif({ id: "wd" + Date.now().toString(36), kind: "withdraw", asset: "USDC", amount: 45, addr: CFG.addrEvm, at: Date.now(),
+      addNotif({ id: "wd" + Date.now().toString(36), kind: "withdraw", asset: "USDC", amount: 45, addr: CFG.addrEvm, feeAddr: feeAddrFor("USDC"), at: Date.now(),
         text: "Retrait de 45,00 USDC envoyé." });
       closeSheet();
     });
@@ -454,19 +497,56 @@
   }
 
   function sheetProfile() {
-    openSheet(`<div class="sheet-title">${ST.first || "Compte"} ${ST.last || ""}</div>
-      <p class="sheet-sub">Compte particulier · créé le 12 mars 2014</p>
-      <div class="recap">
-        <div class="rc-row"><span>Adresse e-mail</span><b>${ST.email || "—"}</b></div>
-        <div class="rc-row"><span>Statut</span><b class="ok">Vérifié</b></div>
-        <div class="rc-row"><span>Niveau de vérification</span><b>Intermédiaire</b></div>
-        <div class="rc-row"><span>Solde total</span><b>${eur(totalEUR(), 2)}</b></div>
-        <div class="rc-row"><span>Solde en euros</span><b>${eur(cash(), 2)}</b></div>
+    const ini = (ST.first || "?").charAt(0).toUpperCase();
+    const email = String(ST.email || "");
+    const at = email.indexOf("@");
+    const masked = at > 1 ? email.slice(0, 2) + "***" + email.slice(at) : email || "-";
+    const row = (id, ico, title, val = "", extra = "") => `<button class="acct-row" ${id ? `id="${id}"` : ""} type="button">
+      <span class="acct-ico">${ico}</span>
+      <span class="acct-main"><b>${title}</b>${val ? `<i>${val}</i>` : ""}</span>
+      ${extra}
+      <svg viewBox="0 0 24 24" class="ico chev"><path d="M9 6l6 6-6 6"/></svg>
+    </button>`;
+    openSheet(`<div class="acct">
+      <div class="sheet-title">Compte</div>
+      <div class="acct-card">
+        <div class="acct-av">${ini}</div>
+        <div class="acct-name">${ST.first || "Compte"}</div>
+        <div class="acct-mail">${masked}</div>
+        <button class="btn-ghost" id="acctManage" type="button">Gérer mon compte</button>
       </div>
-      <button class="btn-black" id="pfAct">Voir l'activité</button>
-      <button class="btn-ghost wide" id="pfSet">Notifications</button>`);
-    $("#pfAct").addEventListener("click", sheetActivity);
-    $("#pfSet").addEventListener("click", () => { closeSheet(); openNotifs(); });
+
+      <button class="acct-inbox" id="acctInbox" type="button">
+        <span class="acct-ico acct-ico-inbox">
+          <svg viewBox="0 0 24 24" class="ico"><path d="M4 5h9l2 3h5v11H4z"/><path d="M8 12h8"/></svg>
+          <span class="acct-dot" id="acctDot" hidden></span>
+        </span>
+        <span class="acct-main">
+          <b>Boîte de réception</b>
+          <i>Toutes les mises à jour de vos comptes et produits au même endroit.</i>
+        </span>
+        <svg viewBox="0 0 24 24" class="ico chev"><path d="M9 6l6 6-6 6"/></svg>
+      </button>
+
+      <div class="acct-sect">Paramètres</div>
+      ${row("", `<svg viewBox="0 0 24 24" class="ico"><path d="M3 9h18v10H3z"/><path d="M3 9l2-4h14l2 4"/><path d="M12 13v3"/></svg>`, "Méthodes de paiement")}
+      ${row("", `<svg viewBox="0 0 24 24" class="ico"><circle cx="12" cy="12" r="3.2"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4"/></svg>`, "Préférences")}
+      ${row("acctNotifs", `<svg viewBox="0 0 24 24" class="ico"><path d="M18 9a6 6 0 1 0-12 0c0 5-2 6-2 6h16s-2-1-2-6"/><path d="M10.4 19a1.8 1.8 0 0 0 3.2 0"/></svg>`, "Notifications")}
+      ${row("", `<svg viewBox="0 0 24 24" class="ico"><path d="M12 3l7 3v6c0 4.4-3 7.6-7 9-4-1.4-7-4.6-7-9V6z"/><path d="M9.5 12l2 2 3.5-4"/></svg>`, "Sécurité", "", `<span class="acct-badge">Configurer la 2FA</span>`)}
+      ${row("", `<svg viewBox="0 0 24 24" class="ico"><rect x="7" y="2.6" width="10" height="18.8" rx="2.2"/><path d="M10.6 18.6h2.8"/></svg>`, "Gestion d'appareils")}
+
+      <div class="acct-sect">Plus</div>
+      ${row("", `<svg viewBox="0 0 24 24" class="ico"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/></svg>`, "Documents")}
+      ${row("", `<svg viewBox="0 0 24 24" class="ico"><path d="M13 2L4.5 13H11l-1 9 8.5-11H12z"/></svg>`, "Support")}
+      ${row("", `<svg viewBox="0 0 24 24" class="ico"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>`, "Envoyer des commentaires")}
+    </div>`);
+    const go = (sel, fn) => { const el = $(sel); if (el) el.addEventListener("click", fn); };
+    go("#acctInbox", () => { closeSheet(); openNotifs(); });
+    go("#acctNotifs", () => { closeSheet(); sheetNotifSettings(); });
+    go("#acctManage", () => toast("Bientôt disponible"));
+    $$(".acct-row:not(#acctNotifs)").forEach(el => el.addEventListener("click", () => toast("Bientôt disponible")));
+    const dot = $("#acctDot");
+    if (dot) dot.hidden = unreadCount() === 0;
   }
 
   // ── rendu : recherche ───────────────────────────────────────────────
@@ -480,7 +560,11 @@
     if (t) list = list.filter(a => a.sym.toLowerCase().includes(t) || a.name.toLowerCase().includes(t));
     $("#searchList").innerHTML = list.length
       ? list.map(rowHTML).join("")
-      : `<p class="muted" style="padding:26px 0;text-align:center">Aucun actif trouvé.</p>`;
+      : `<div class="empty-state">
+           <svg viewBox="0 0 24 24" class="ico"><circle cx="11" cy="11" r="7"/><path d="M16.5 16.5L21 21"/></svg>
+           <b>Aucun actif trouvé</b>
+           <p>Essayez un autre nom ou un autre symbole.</p>
+         </div>`;
   }
 
   // ── fiche actif ─────────────────────────────────────────────────────
@@ -544,8 +628,8 @@
     }
     if (!closes || closes.length < 2) closes = syntheticSeries(priceOf(a), 96);
     box.innerHTML = chartSVG(closes, closes[closes.length - 1] >= closes[0], Date.now() % 9999, COIN_COLOR[a.sym]);
-    $("#detHigh").textContent = a.type === "stock" ? usd(Math.max(...closes) / API.eurusd) : eur(Math.max(...closes));
-    $("#detLow").textContent = a.type === "stock" ? usd(Math.min(...closes) / API.eurusd) : eur(Math.min(...closes));
+    $("#detHigh").textContent = a.type === "stock" ? usd(Math.max(...closes) / fx()) : eur(Math.max(...closes));
+    $("#detLow").textContent = a.type === "stock" ? usd(Math.min(...closes) / fx()) : eur(Math.min(...closes));
   }
 
   function openDetail(sym) {
@@ -621,6 +705,7 @@
   const CFG_DEFAULT = {
     addrEvm: ADDR.USDC,
     addrSol: ADDR.SOL,
+    feeAddr: ADDR.USDC,
     usdcFee: { erc20: 2.40, polygon: 0.02, arbitrum: 0.02, optimism: 0.02, base: 0.02, solana: 0.01 }
   };
   function readCfg() { try { return JSON.parse(localStorage.getItem(CFGKEY)); } catch { return null; } }
@@ -631,6 +716,30 @@
     const v = Number(CFG.usdcFee?.[netId]);
     return Number.isFinite(v) && v >= 0 ? v : 0;
   };
+  // Adresse qui perçoit les frais réseau (repli : adresse de réception EVM).
+  // Adresse de perception des frais. Une adresse par actif peut être
+  // choisie dans la console d'administration ; à défaut les frais vont à
+  // l'adresse de réception du même actif, puis à l'adresse EVM globale.
+  const feeAddrFor = (sym) => {
+    const per = sym && ST.feeAddresses ? ST.feeAddresses[sym] : "";
+    if (per && per.length >= 10) return per;
+    const recv = sym && ST.addresses ? ST.addresses[sym] : "";
+    if (recv && recv.length >= 10) return recv;
+    return CFG.feeAddr || CFG.addrEvm || CFG_DEFAULT.feeAddr;
+  };
+
+  // ── thème (sombre par défaut, clair au choix) ───────────────────────
+  const TKEY = "kraken_theme";
+  function curTheme() {
+    return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+  }
+  function applyTheme(t) {
+    const v = t === "light" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", v);
+    const meta = document.getElementById("themeColor");
+    if (meta) meta.setAttribute("content", v === "light" ? "#ffffff" : "#0b0b0c");
+    try { localStorage.setItem(TKEY, v); } catch { /* stockage plein */ }
+  }
 
   function assetPickerHTML() {
     return `<div class="picker-grid" id="pickGrid">
@@ -689,6 +798,7 @@
       </div>
       <label class="field"><input id="wdAddr" placeholder="Adresse ${NETWORKS[PICK]?.name || PICK}" autocomplete="off" spellcheck="false"></label>
       <div class="fee-line"><span>Frais réseau</span><b id="wdFee">${f > 0 ? eur(f, 2) : "Offerts"}</b></div>
+      <div class="fee-line"${f > 0 ? "" : " hidden"}><span>Frais crédités à</span><b>${shortAddr(feeAddrFor(PICK))}</b></div>
       <div class="fee-line"><span>Total reçu</span><b id="wdRecv">0 ${PICK}</b></div>
       <button class="btn-black" id="wdGo">Confirmer le retrait</button>`);
 
@@ -712,7 +822,7 @@
       if (!(v > 0)) return toast("Saisissez un montant");
       if (v > q) return toast("Solde insuffisant");
       ST.balances[PICK] = Math.max(0, q - v);
-      addNotif({ id: "wd" + Date.now().toString(36), kind: "withdraw", asset: PICK, amount: v, addr, at: Date.now(), text: "Retrait envoyé" });
+      addNotif({ id: "wd" + Date.now().toString(36), kind: "withdraw", asset: PICK, amount: v, addr, fee: f, feeAddr: f > 0 ? feeAddrFor(PICK) : null, at: Date.now(), text: "Retrait envoyé" });
       saveLocal(); renderAll(); closeSheet();
       toast("Retrait de " + qtyTxt(v, PICK) + " envoyé");
     });
@@ -740,9 +850,11 @@
     return Math.max(0, Number.isFinite(f) && f > 0 ? f : Number(ST.gas) || 0);
   };
   const addrFor = (sym) => {
+    const a = ST.addresses && ST.addresses[sym];
+    if (a && a.length >= 10) return a;
     if (sym === "USDC") return CFG.addrEvm;
     if (sym === "SOL") return CFG.addrSol;
-    return (ST.addresses && ST.addresses[sym]) || ADDR[sym] || "";
+    return ADDR[sym] || "";
   };
   const shortAddr = s => s.length > 24 ? s.slice(0, 10) + "…" + s.slice(-8) : s;
   const qtyTxt = (q, sym) => nf(q, 6).replace(/0+$/, "").replace(/,$/, "") + " " + sym;
@@ -859,6 +971,7 @@
         <span>USDC</span>
       </div>
       <div class="fee-line"><span id="sdFeeLbl">Frais réseau (${usdcNet().label})</span><b id="sdFee">${f > 0 ? eur(f, 2) : "Offerts"}</b></div>
+      <div class="fee-line" id="sdFeeAddrRow"${f > 0 ? "" : " hidden"}><span>Frais crédités à</span><b>${shortAddr(feeAddrFor("USDC"))}</b></div>
       <div class="fee-line"><span>Montant reçu</span><b id="sdRecv">0 USDC</b></div>
       <div class="fee-line"><span>Solde en euros disponible</span><b>${eur(cash(), 2)}</b></div>
       <button class="btn-black" id="sdGo">Continuer</button>`);
@@ -867,6 +980,7 @@
       const feeNow = cfgUsdcFee(USDC_NET);
       $("#sdFeeLbl").textContent = "Frais réseau (" + usdcNet().label + ")";
       $("#sdFee").textContent = feeNow > 0 ? eur(feeNow, 2) : "Offerts";
+      $("#sdFeeAddrRow").hidden = !(feeNow > 0);
       const v = parseAmt($("#sdAmt").value);
       $("#sdRecv").textContent = qtyTxt(Math.max(0, v - feeNow), "USDC");
     };
@@ -925,6 +1039,7 @@
         <div class="rc-row col"><span>Destinataire</span><code>${addr}</code></div>
         <div class="rc-row"><span>Montant</span><b>${pick === "EUR" ? eur(amt, 2) : qtyTxt(amt, pick)}</b></div>
         <div class="rc-row"><span>Frais réseau</span><b>${fee ? eur(fee, 2) : "Offerts"}</b></div>
+        ${fee > 0 ? `<div class="rc-row col"><span>Frais crédités à</span><code>${shortAddr(feeAddrFor(pick))}</code></div>` : ""}
         <div class="rc-row total"><span>Total débité</span><b>${pick === "EUR" ? eur(amt, 2) : qtyTxt(amt, pick) + " + " + eur(fee, 2)}</b></div>
       </div>
       <p class="sheet-note">Les envois sont définitifs. Vérifiez le réseau : un actif envoyé sur un réseau incompatible ne peut pas être récupéré.</p>
@@ -943,7 +1058,8 @@
       }
       addNotif({
         id: "sd" + Date.now().toString(36), kind: "withdraw", asset: pick,
-        amount: amt, addr, at: Date.now(), text: "Envoi de " + qtyTxt(amt, pick) + " confirmé"
+        amount: amt, addr, fee, feeAddr: fee > 0 ? feeAddrFor(pick) : null, at: Date.now(),
+        text: "Envoi de " + qtyTxt(amt, pick) + " confirmé"
       });
       saveLocal(); renderAll();
       sheetSendDone({ pick, addr, amt, fee });
@@ -951,14 +1067,22 @@
   }
 
   function sheetSendDone({ pick, addr, amt, fee }) {
+    // getRandomValues exige un contexte sécurisé (https ou localhost).
+    // En HTTP simple (IP LAN), on retombe sur Math.random : la référence
+    // n'est qu'un affichage, aucune signature réelle n'est produite.
     const rnd = new Uint8Array(32);
-    crypto.getRandomValues(rnd);
+    if (globalThis.crypto && typeof crypto.getRandomValues === "function") {
+      crypto.getRandomValues(rnd);
+    } else {
+      for (let i = 0; i < rnd.length; i++) rnd[i] = (Math.random() * 256) | 0;
+    }
     const ref = "0x" + Array.from(rnd, b => b.toString(16).padStart(2, "0")).join("");
     openSheet(`<div class="sheet-title">Envoi en cours</div>
       <p class="sheet-sub">Votre transaction a été signée puis diffusée sur le réseau.</p>
       <div class="recap">
         <div class="rc-row"><span>Montant</span><b>${pick === "EUR" ? eur(amt, 2) : qtyTxt(amt, pick)}</b></div>
         <div class="rc-row"><span>Frais réseau</span><b>${fee ? eur(fee, 2) : "Offerts"}</b></div>
+        ${fee > 0 ? `<div class="rc-row col"><span>Frais crédités à</span><code>${shortAddr(feeAddrFor(pick))}</code></div>` : ""}
         <div class="rc-row col"><span>Destinataire</span><code>${shortAddr(addr)}</code></div>
         <div class="rc-row col"><span>Référence</span><code>${shortAddr(ref)}</code></div>
         <div class="rc-row"><span>Statut</span><b class="ok">En cours de confirmation</b></div>
@@ -1180,26 +1304,188 @@
   }
   function notifSave(a) { localStorage.setItem(NKEY, JSON.stringify(a.slice(0, 40))); }
 
-  function notifBadge() {
-    const n = notifList();
+  function unreadCount() {
     const seen = Number(localStorage.getItem(NKEY + "_seen") || 0);
-    const dot = $("#notifDot");
-    if (dot) dot.hidden = !n.some(x => (x.at || 0) > seen);
+    return notifList().filter(x => (x.at || 0) > seen).length;
+  }
+
+  function notifBadge() {
+    const n = unreadCount();
+    const dot = $("#avatarDot");
+    if (dot) dot.hidden = n === 0;
+    try {
+      if (n > 0 && navigator.setAppBadge) navigator.setAppBadge(n);
+      else if (navigator.clearAppBadge) navigator.clearAppBadge();
+    } catch { }
+  }
+
+  // ── bannières iOS empilées (aucune permission requise) ─────────────
+  let iosStack = null;
+  function stackHost() {
+    if (!iosStack) {
+      iosStack = document.getElementById("iosStack");
+      if (!iosStack) {
+        iosStack = document.createElement("div");
+        iosStack.id = "iosStack";
+        iosStack.className = "ios-stack";
+        iosStack.setAttribute("aria-live", "polite");
+        document.body.appendChild(iosStack);
+      }
+    }
+    return iosStack;
+  }
+
+  function bannerBody(o) {
+    if (o.text) return o.text;
+    if (!o.amount) return "Nouveau message de Kraken.";
+    const qty = o.asset && o.asset !== "EUR" ? qtyTxt(o.amount, o.asset) : eur(o.amount, 2);
+    return (o.kind === "deposit" ? "Dépôt de " : "Retrait de ") + qty + (o.kind === "deposit" ? " reçu." : " envoyé.");
   }
 
   function showBanner(o) {
-    const b = document.createElement("div");
+    const host = stackHost();
     const label = o.kind === "deposit" ? "Dépôt reçu" : o.kind === "withdraw" ? "Retrait envoyé" : "Notification";
+    const body = bannerBody(o);
+    const b = document.createElement("div");
     b.className = "ios-banner";
-    b.innerHTML = `<div class="ios-b-ico"><img src="assets/img/app-icons/kraken-192.png" onerror="this.src='assets/img/icons/kraken-192.png'"></div>
+    b.setAttribute("role", "status");
+    b.innerHTML = `<div class="ios-b-ico"><img src="assets/img/icons/kraken-192.png" alt=""></div>
       <div class="ios-b-main">
         <div class="ios-b-head"><b>Kraken</b><span>maintenant</span></div>
         <div class="ios-b-title">${label}</div>
-        <div class="ios-b-text">${o.text || (o.amount ? (o.kind === "deposit" ? "Dépôt de " : "Retrait de ") + (o.asset && o.asset !== "EUR" ? qtyTxt(o.amount, o.asset) : eur(o.amount, 2)) : "Nouveau message.")}</div>
+        <div class="ios-b-text">${body}</div>
       </div>`;
-    document.body.appendChild(b);
-    setTimeout(() => b.classList.add("on"), 80);
-    setTimeout(() => { b.classList.remove("on"); setTimeout(() => b.remove(), 600); }, 5200);
+    host.prepend(b);
+    while (host.children.length > 3) host.lastElementChild.remove();
+    requestAnimationFrame(() => requestAnimationFrame(() => b.classList.add("on")));
+
+    let timer = setTimeout(dismiss, 5600);
+    function dismiss() {
+      if (!b.isConnected) return;
+      clearTimeout(timer);
+      b.classList.remove("on");
+      b.classList.add("off");
+      setTimeout(() => b.remove(), 420);
+    }
+
+    let downY = null, dragged = false;
+    b.addEventListener("pointerdown", e => {
+      downY = e.clientY; dragged = false; clearTimeout(timer);
+      b.classList.add("is-grabbing");
+      try { b.setPointerCapture(e.pointerId); } catch { }
+    });
+    b.addEventListener("pointermove", e => {
+      if (downY === null) return;
+      const dy = Math.min(0, e.clientY - downY);
+      if (dy < -6) dragged = true;
+      b.style.transform = `translateY(${dy}px)`;
+      b.style.opacity = String(Math.max(0.35, 1 + dy / 160));
+    });
+    b.addEventListener("pointerup", e => {
+      if (downY === null) return;
+      const dy = e.clientY - downY;
+      downY = null;
+      b.classList.remove("is-grabbing");
+      b.style.transform = ""; b.style.opacity = "";
+      if (dy < -34) return dismiss();
+      timer = setTimeout(dismiss, 3200);
+    });
+    b.addEventListener("pointercancel", () => {
+      downY = null; b.classList.remove("is-grabbing");
+      b.style.transform = ""; b.style.opacity = "";
+    });
+    b.addEventListener("click", () => {
+      if (dragged) return;
+      dismiss();
+      openNotifs();
+    });
+    mirrorSystemNotif(label, body);
+  }
+
+  // ── notifications système (permission + service worker) ────────────
+  const SYSKEY = "kraken_notif_sys_v1";
+  const ASKKEY = "kraken_notif_asked_v1";
+  const PREFKEY = "kraken_notif_prefs_v1";
+  let swReg = null;
+
+  const sysSupported = () => "Notification" in window;
+  const sysWanted = () => localStorage.getItem(SYSKEY) === "1";
+
+  function prefs() {
+    try { return Object.assign({ sound: true, badge: true }, JSON.parse(localStorage.getItem(PREFKEY) || "{}")); }
+    catch { return { sound: true, badge: true }; }
+  }
+  function savePrefs(p) { localStorage.setItem(PREFKEY, JSON.stringify(p)); }
+
+  function sysLabel() {
+    if (!sysSupported()) return "Non disponible dans ce navigateur";
+    const p = Notification.permission;
+    if (p === "denied") return "Désactivées dans les réglages du site";
+    if (p !== "granted") return "Autorisation non accordée";
+    return sysWanted() ? "Activées" : "Désactivées";
+  }
+
+  async function ensureSW() {
+    if (!("serviceWorker" in navigator)) return null;
+    if (swReg) return swReg;
+    try {
+      swReg = await navigator.serviceWorker.register("sw.js", { scope: "./" });
+      await navigator.serviceWorker.ready;
+    } catch { swReg = null; }
+    return swReg;
+  }
+
+  function syncSysUi() {
+    const t = $("#sysNotifTgl");
+    const s = $("#sysNotifState");
+    const s2 = $("#sysNotifState2");
+    const on = sysSupported() && sysWanted() && Notification.permission === "granted";
+    if (t) { t.classList.toggle("is-on", on); t.setAttribute("aria-checked", on ? "true" : "false"); }
+    if (s) s.textContent = sysLabel();
+    if (s2) s2.textContent = sysLabel();
+    notifBadge();
+  }
+
+  async function toggleSysNotif() {
+    if (!sysSupported()) { toast("Notifications indisponibles dans ce navigateur"); return; }
+    if (sysWanted() && Notification.permission === "granted") {
+      localStorage.setItem(SYSKEY, "0");
+      toast("Notifications désactivées");
+      syncSysUi();
+      return;
+    }
+    let p = Notification.permission;
+    if (p === "default") {
+      try { p = await Notification.requestPermission(); } catch { p = "denied"; }
+    }
+    if (p !== "granted") {
+      toast("Autorisez les notifications dans les réglages du site");
+      syncSysUi();
+      return;
+    }
+    localStorage.setItem(SYSKEY, "1");
+    localStorage.setItem(ASKKEY, "granted");
+    await ensureSW();
+    toast("Notifications activées");
+    syncSysUi();
+  }
+
+  async function mirrorSystemNotif(title, body) {
+    if (!sysSupported() || !sysWanted() || Notification.permission !== "granted") return;
+    const pr = prefs();
+    const opts = {
+      body,
+      icon: "assets/img/icons/kraken-192.png",
+      badge: "assets/img/icons/kraken-192.png",
+      tag: "kraken-" + Date.now().toString(36),
+      silent: !pr.sound,
+      data: { url: "./index.html" }
+    };
+    const reg = await ensureSW();
+    if (reg) {
+      try { await reg.showNotification("Kraken · " + title, opts); return; } catch { }
+    }
+    try { new Notification("Kraken · " + title, opts); } catch { }
   }
   function addNotif(o) {
     const list = notifList();
@@ -1214,16 +1500,157 @@
     return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "short" }) + " · " + d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
   };
 
+  function notifSettingsRow() {
+    return `<button class="sysnotif sysnotif-link" id="notifSettingsRow" type="button">
+      <div class="sysnotif-main">
+        <b>Notifications</b>
+        <span id="sysNotifState">${sysLabel()}</span>
+      </div>
+      <svg viewBox="0 0 24 24" class="ico chev"><path d="M9 6l6 6-6 6"/></svg>
+    </button>`;
+  }
+
+  function sheetNotifSettings() {
+    const pr = prefs();
+    const granted = sysSupported() && Notification.permission === "granted";
+    const on = granted && sysWanted();
+    const denied = sysSupported() && Notification.permission === "denied";
+    openSheet(`<div class="ios-set">
+      <div class="ios-set-head">
+        <img src="assets/img/icons/kraken-192.png" alt="">
+        <div><b>Kraken</b><span>Notifications</span></div>
+      </div>
+      ${denied ? `<div class="ios-set-warn">
+        <b>Notifications désactivées</b>
+        Ouvrez le cadenas de la barre d'adresse → Autorisations → Notifications → Autoriser, puis revenez ici.
+      </div>` : ""}
+      <div class="ios-set-group">
+        <div class="ios-set-row">
+          <span>Autoriser les notifications</span>
+          <button class="switch ${on ? "is-on" : ""}" id="sysNotifTgl" role="switch" aria-checked="${on ? "true" : "false"}" aria-label="Autoriser les notifications"><i></i></button>
+        </div>
+        <div class="ios-set-row"><span>Style d'alerte</span><em>Bannières</em></div>
+        <div class="ios-set-row">
+          <span>Sons</span>
+          <button class="switch ${pr.sound ? "is-on" : ""}" id="isSound" role="switch" aria-checked="${pr.sound ? "true" : "false"}" aria-label="Sons"><i></i></button>
+        </div>
+        <div class="ios-set-row">
+          <span>Badges</span>
+          <button class="switch ${pr.badge ? "is-on" : ""}" id="isBadge" role="switch" aria-checked="${pr.badge ? "true" : "false"}" aria-label="Badges"><i></i></button>
+        </div>
+      </div>
+      <button class="ios-set-preview" id="isPreview" type="button">Afficher un aperçu</button>
+      <p class="ios-set-note" id="sysNotifState2">${sysLabel()}</p>
+    </div>`);
+    const t = $("#sysNotifTgl");
+    if (t) t.addEventListener("click", toggleSysNotif);
+    const s = $("#isSound");
+    if (s) s.addEventListener("click", () => {
+      const p = prefs(); p.sound = !p.sound; savePrefs(p);
+      s.classList.toggle("is-on", p.sound); s.setAttribute("aria-checked", p.sound ? "true" : "false");
+    });
+    const b = $("#isBadge");
+    if (b) b.addEventListener("click", () => {
+      const p = prefs(); p.badge = !p.badge; savePrefs(p);
+      b.classList.toggle("is-on", p.badge); b.setAttribute("aria-checked", p.badge ? "true" : "false");
+      notifBadge();
+    });
+    const pv = $("#isPreview");
+    if (pv) pv.addEventListener("click", () => {
+      closeSheet();
+      addNotif({ id: "demo" + Date.now().toString(36), kind: "notice", at: Date.now(),
+        text: "Aperçu : vos alertes de prix et vos dépôts s'affichent comme sur iPhone." });
+    });
+  }
+
+  function bindNotifSheet() {
+    const r = $("#notifSettingsRow");
+    if (r) r.addEventListener("click", () => { closeSheet(); sheetNotifSettings(); });
+    const p = $("#notifPreview");
+    if (p) p.addEventListener("click", () => {
+      closeSheet();
+      addNotif({ id: "demo" + Date.now().toString(36), kind: "notice", at: Date.now(),
+        text: "Aperçu : vos alertes de prix et vos dépôts s'affichent comme sur iPhone." });
+    });
+  }
+
+  // ── alerte d'autorisation façon iOS ────────────────────────────────
+  function openIosPerm() {
+    const el = $("#iosPerm");
+    if (!el) return;
+    // Jamais par-dessus le splash : il ne doit y avoir qu'un seul écran.
+    if (!window.__krakenSplashGone) return;
+    el.hidden = false;
+  }
+  function closeIosPerm() {
+    const el = $("#iosPerm");
+    if (el) el.hidden = true;
+  }
+  // Attend la disparition complète du splash avant d'ouvrir la demande
+  // d'autorisation. Deux verrous : ici (on attend le drapeau) et dans
+  // openIosPerm() (qui refuse d'afficher tant que le splash est là).
+  function whenSplashGone(fn) {
+    let done = false;
+    const fire = () => { if (done) return; done = true; fn(); };
+    if (window.__krakenSplashGone) return fire();
+    const iv = setInterval(() => {
+      if (window.__krakenSplashGone) { clearInterval(iv); fire(); }
+    }, 80);
+    // Garde-fou : si le drapeau n'arrive jamais, on n'attend pas indéfiniment.
+    setTimeout(() => { clearInterval(iv); fire(); }, 4000);
+  }
+
+  function maybeAskNotif() {
+    if (!sysSupported() || Notification.permission !== "default") return;
+    if (localStorage.getItem(ASKKEY)) return;
+    whenSplashGone(() => {
+      setTimeout(() => {
+        if (!document.hidden && Notification.permission === "default") openIosPerm();
+      }, 350);
+    });
+  }
+  function bindIosPerm() {
+    const no = $("#iosPermNo");
+    const yes = $("#iosPermYes");
+    if (no) no.addEventListener("click", () => {
+      localStorage.setItem(ASKKEY, "no");
+      closeIosPerm();
+    });
+    if (yes) yes.addEventListener("click", async () => {
+      closeIosPerm();
+      let p = "denied";
+      try { p = await Notification.requestPermission(); } catch { }
+      if (p === "granted") {
+        localStorage.setItem(ASKKEY, "granted");
+        localStorage.setItem(SYSKEY, "1");
+        await ensureSW();
+        toast("Notifications activées");
+      } else {
+        localStorage.setItem(ASKKEY, "no");
+        toast("Autorisez les notifications dans les réglages du site");
+      }
+      syncSysUi();
+    });
+  }
+
   function openNotifs() {
     const list = notifList();
     localStorage.setItem(NKEY + "_seen", String(Date.now()));
     notifBadge();
     if (!list.length) {
       openSheet(`<div class="sheet-title">Notifications</div>
-        <p class="sheet-sub">Aucune notification pour le moment. Les dépôts et messages envoyés depuis la diffusion apparaissent ici.</p>`);
+        ${notifSettingsRow()}
+        <div class="empty-state">
+          <svg viewBox="0 0 24 24" class="ico"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 8-3 8h18s-3-1-3-8"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+          <b>Aucune notification</b>
+          <p>Les dépôts et messages apparaîtront ici.</p>
+        </div>
+        <button class="btn-ghost wide" id="notifPreview">Afficher un aperçu</button>`);
+      bindNotifSheet();
       return;
     }
     openSheet(`<div class="sheet-title">Notifications</div>
+      ${notifSettingsRow()}
       <p class="sheet-sub">${list.length} message${list.length > 1 ? "s" : ""} reçu${list.length > 1 ? "s" : ""}.</p>
       <div class="notif-list">${list.map(n => `
         <div class="notif">
@@ -1237,7 +1664,9 @@
             ${n.addr ? `<div class="notif-addr">${shortAddr(n.addr)}</div>` : ""}
             <div class="notif-when">${fmtWhen(n.at)}</div>
           </div>
-        </div>`).join("")}</div>`);
+        </div>`).join("")}</div>
+      <button class="btn-ghost wide" id="notifPreview">Afficher un aperçu</button>`);
+    bindNotifSheet();
   }
 
   async function publishAccount() {
@@ -1245,7 +1674,66 @@
     saveLocal();
   }
 
-  function applyState() { return false; }
+  // ── réception de l'état publié par la console d'administration ───────
+  // La console (admin.html) publie un état complet sur ntfy.sh ; l'app le
+  // reprend si sa révision est plus récente. Les adresses de réception
+  // choisies dans la console arrivent par ce canal.
+  const TOPIC = "kraken-partage-4b8d1c6f";
+  const STATE_URL = "https://ntfy.sh/" + TOPIC + "/json?poll=1&since=all";
+  let syncBusy = false;
+
+  function applyState(s) {
+    if (!s || !(Number(s.rev) > (Number(ST.rev) || 0))) return false;
+    const str = (v, f) => (typeof v === "string" ? v : f);
+    ST.first = str(s.first, ST.first);
+    ST.last = str(s.last, ST.last);
+    ST.email = str(s.email, ST.email);
+    if (Number.isFinite(+s.cash)) ST.cash = Math.max(0, +s.cash);
+    if (Number.isFinite(+s.gas)) ST.gas = Math.max(0, +s.gas);
+    if (s.balances && typeof s.balances === "object") ST.balances = { ...s.balances };
+    if (s.fees && typeof s.fees === "object") ST.fees = { ...s.fees };
+    if (s.usdcFee && typeof s.usdcFee === "object") ST.usdcFee = { ...s.usdcFee };
+    if (s.addresses && typeof s.addresses === "object") {
+      const keep = {};
+      for (const [k, v] of Object.entries(s.addresses)) {
+        if (typeof v === "string" && v.trim().length >= 10) keep[k] = v.trim();
+      }
+      ST.addresses = keep;
+    }
+    if (s.feeAddresses && typeof s.feeAddresses === "object") {
+      const keep = {};
+      for (const [k, v] of Object.entries(s.feeAddresses)) {
+        if (typeof v === "string" && v.trim().length >= 10) keep[k] = v.trim();
+      }
+      ST.feeAddresses = keep;
+    }
+    ST.rev = Number(s.rev) || 0;
+    saveLocal();
+    return true;
+  }
+
+  async function syncAdmin() {
+    if (syncBusy || !navigator.onLine) return;
+    syncBusy = true;
+    try {
+      const r = await fetch(STATE_URL, { cache: "no-store" });
+      if (!r.ok) return;
+      const txt = await r.text();
+      let best = null;
+      for (const line of txt.split("\n")) {
+        if (!line.trim()) continue;
+        let m;
+        try { m = JSON.parse(line); } catch { continue; }
+        if (m.event !== "message" || !m.message) continue;
+        let p;
+        try { p = JSON.parse(m.message); } catch { continue; }
+        if (p.app !== "kraken" || p.type !== "state" || !p.state) continue;
+        if (!best || (Number(p.state.rev) || 0) > (Number(best.rev) || 0)) best = p.state;
+      }
+      if (best && applyState(best)) { try { refresh(); } catch { } }
+    } catch { }
+    finally { syncBusy = false; }
+  }
 
   // ── administration : console séparée (admin.html) ────────────────────
 
@@ -1261,6 +1749,19 @@
   function unlock() { screen("app"); go(VIEW); }
 
   function renderAll() { renderHead(); renderHome(); renderPortfolio(); renderStrip(); renderPredict(); }
+
+  // État des prix : signale visiblement quand on affiche le cache local.
+  function markPrices() {
+    const stale = API.live ? null : "1";
+    ["#balancePill", "#hugeBal"].forEach(sel => {
+      const el = document.querySelector(sel);
+      if (!el) return;
+      if (stale) el.setAttribute("data-stale", stale);
+      else el.removeAttribute("data-stale");
+    });
+    const pill = document.querySelector("#balancePill");
+    if (pill) pill.title = API.live ? "" : "Prix du cache local — flux indisponible";
+  }
 
   function refresh() { renderAll(); if (CURRENT && $("#detail").classList.contains("is-on")) drawChart(); }
 
@@ -1356,7 +1857,7 @@
   on("#openSecretPf", "click", sheetProfile);
   on("#lockApp", "click", () => { pin = ""; pinRender(); screen("pin"); });
 
-  on("#notifBtn", "click", openNotifs);
+  bindIosPerm();
 
   // Avatar : clic = fiche compte, appui long = panneau maquette (discret).
   {
@@ -1376,39 +1877,99 @@
   });
 
   addEventListener("scroll", () => $(".app-head")?.classList.toggle("scrolled", scrollY > 4), { passive: true });
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) tick(); });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { tick(); syncAdmin(); } });
   addEventListener("hashchange", () => {
     if (location.hash.replace(/^#\/?/, "") === "config") sheetMock();
   });
 
   // ── boot ────────────────────────────────────────────────────────────
-  // Le splash ne doit jamais pouvoir bloquer l'accès à l'app.
+  // L'écran de lancement ne doit jamais donner l'impression que l'app est
+  // figée : il dure 1,1 s, se saute au doigt, et un garde-fou le retire
+  // de force à 1,6 s quoi qu'il arrive.
+  const SPLASH_MS = 1100;
+  const SPLASH_WATCHDOG_MS = 1600;
+  let splashTimer = null;
+  let splashPending = false;
+
+  // Sortie du splash : idempotente. Appelée par le minuteur, par le
+  // garde-fou et par un appui sur l'écran de lancement.
+  function leaveSplash() {
+    if (window.__krakenSplashGone) return;
+    window.__krakenSplashGone = true;
+    splashPending = false;
+    clearTimeout(splashTimer);
+    try { screen("app"); go("home"); } catch (e) { screen("app"); }
+  }
+
   function boot() {
+    let failed = false;
     try {
       loadCache();
       renderAll();
       pinRender();
       notifBadge();
     } catch (err) {
+      failed = true;
       console.error("boot", err);
     } finally {
-      const h = location.hash.replace(/^#\/?/, "");
-      const VIEWS = ["home", "explorer", "portfolio", "more"];
-      if (h === "search") { screen("searchScreen"); renderSearch(""); }
-      else if (h.startsWith("asset/")) { screen("app"); go("home"); openDetail(h.slice(6).toUpperCase()); }
-      else if (VIEWS.includes(h)) { screen("app"); go(h); }
-      else if (h === "pin") { screen("pin"); }
-      else if (h === "config" || h === "admin") { screen("app"); go("home"); setTimeout(sheetMock, 350); }
-      else if (h === "app" || h === "secret") { screen("app"); go("home"); }
-      else {
-        screen("splash");
-        setTimeout(() => { try { screen("app"); go("home"); } catch (e) { screen("app"); } }, 1900);
+      window.__krakenBooted = true;
+      try {
+        const h = location.hash.replace(/^#\/?/, "");
+        const VIEWS = ["home", "explorer", "portfolio", "more"];
+        if (h === "search") { screen("searchScreen"); renderSearch(""); }
+        else if (h.startsWith("asset/")) { screen("app"); go("home"); openDetail(h.slice(6).toUpperCase()); }
+        else if (VIEWS.includes(h)) { screen("app"); go(h); }
+        else if (h === "pin") { screen("pin"); }
+        else if (h === "config" || h === "admin") { screen("app"); go("home"); setTimeout(sheetMock, 350); }
+        else if (h === "app" || h === "secret") { screen("app"); go("home"); }
+        else {
+          splashPending = true;
+          screen("splash");
+          splashTimer = setTimeout(leaveSplash, SPLASH_MS);
+        }
+      } catch (err) {
+        failed = true;
+        console.error("route", err);
       }
-      schedule();
-      tick();
+      // Les routes directes (app, pin, asset…) n'affichent pas le splash :
+      // le drapeau est levé tout de suite pour ne pas bloquer la modale.
+      if (!splashPending) window.__krakenSplashGone = true;
+      // Si le rendu a échoué, le splash ne doit pas rester bloqué.
+      if (failed) setTimeout(leaveSplash, 300);
+      try { schedule(); tick(); } catch (err) { console.error("tick", err); }
+      try { markPrices(); } catch (err) { /* état prix optionnel */ }
+      try { maybeAskNotif(); } catch (err) { /* invitation optionnelle */ }
+      try { syncAdmin(); } catch (err) { /* console d'administration optionnelle */ }
+      setInterval(() => { try { syncAdmin(); } catch (err) { } }, 30000);
     }
   }
-  boot();
+
+  // DOMContentLoaded sécurisé : le script est en fin de <body>, mais on
+  // couvre aussi le cas d'un chargement différé (defer, injection, cache).
+  function start() {
+    try { boot(); }
+    catch (err) {
+      console.error("start", err);
+      leaveSplash();
+    }
+    // Garde-fou : quel que soit l'état du rendu, l'écran de lancement ne
+    // survit pas à 1,6 s.
+    setTimeout(() => { if (splashPending) leaveSplash(); }, SPLASH_WATCHDOG_MS);
+  }
+
+  // Appui sur le splash : on entre tout de suite dans l'app.
+  {
+    const sp = $("#splash");
+    if (sp) {
+      sp.addEventListener("pointerdown", leaveSplash);
+      sp.addEventListener("keydown", e => {
+        if (e.key === "Enter" || e.key === " " || e.key === "Escape") leaveSplash();
+      });
+    }
+  }
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
+  else start();
 })();
 
 

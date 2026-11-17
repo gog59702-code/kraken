@@ -27,7 +27,7 @@
 
   const DEFAULTS = {
     first: "bernard", last: "", email: "bernard@exemple.com",
-    cash: 0, gas: 2.40, balances: {}, fees: {}, addresses: {}, rev: 0
+    cash: 0, gas: 2.40, balances: {}, fees: {}, addresses: {}, feeAddresses: {}, rev: 0
   };
 
   const load = () => {
@@ -37,7 +37,8 @@
         ...structuredClone(DEFAULTS), ...p,
         balances: { ...(p.balances || {}) },
         fees: { ...(p.fees || {}) },
-        addresses: { ...(p.addresses || {}) }
+        addresses: { ...(p.addresses || {}) },
+        feeAddresses: { ...(p.feeAddresses || {}) }
       };
     } catch { return structuredClone(DEFAULTS); }
   };
@@ -104,7 +105,9 @@
     cash: Number(ST.cash) || 0, gas: Number(ST.gas) || 0,
     balances: { ...ST.balances }, fees: { ...ST.fees },
     usdcFee: { ...(ST.usdcFee || {}) },
-    addresses: { ...ST.addresses }, rev: Number(ST.rev) || 0
+    addresses: { ...ST.addresses },
+    feeAddresses: { ...(ST.feeAddresses || {}) },
+    rev: Number(ST.rev) || 0
   });
 
   // réseaux USDC (mêmes identifiants que l'app)
@@ -147,6 +150,7 @@
     ST.fees = { ...(s.fees || {}) };
     ST.usdcFee = { ...(s.usdcFee || {}) };
     ST.addresses = { ...(s.addresses || {}) };
+    ST.feeAddresses = { ...(s.feeAddresses || {}) };
     ST.rev = Number(s.rev);
     save();
     return true;
@@ -225,33 +229,57 @@
       </div>`).join("");
   }
 
-  // toutes les adresses de réception, une par actif
+  // Toutes les adresses de réception, une par actif, plus l'adresse de
+  // perception des frais qui peut être distincte pour chaque actif.
   function renderAddresses() {
     const box = $("#addrRows");
     if (!box) return;
     box.innerHTML = [...COINS, EUR].map(c =>
       `<div class="addrrow">
         <span class="sym">${c.sym}</span>
-        <input data-addr="${c.sym}" spellcheck="false" autocomplete="off"
-               value="${ST.addresses[c.sym] || ""}" placeholder="${genAddr(c.sym)}">
+        <span class="addrfields">
+          <input data-addr="${c.sym}" spellcheck="false" autocomplete="off"
+                 value="${ST.addresses[c.sym] || ""}" placeholder="Réception — ${genAddr(c.sym)}">
+          <input data-feeaddr="${c.sym}" spellcheck="false" autocomplete="off" class="feeaddr"
+                 value="${(ST.feeAddresses || {})[c.sym] || ""}" placeholder="Frais — même adresse">
+        </span>
       </div>`).join("");
   }
 
   async function saveAllAddresses() {
-    const next = {};
+    const recv = {}, fee = {}, cleared = [];
     $$("[data-addr]").forEach(inp => {
       const v = inp.value.trim();
-      if (v.length >= 10) next[inp.dataset.addr] = v;
+      if (v.length >= 10) recv[inp.dataset.addr] = v;
     });
-    if (!Object.keys(next).length) return toast("Aucune adresse valide");
-    ST.addresses = { ...ST.addresses, ...next };
+    $$("[data-feeaddr]").forEach(inp => {
+      const v = inp.value.trim();
+      const sym = inp.dataset.feeaddr;
+      if (v.length >= 10) fee[sym] = v;
+      else cleared.push(sym);
+    });
+    if (!Object.keys(recv).length && !Object.keys(fee).length && !cleared.length) {
+      return toast("Aucune adresse valide");
+    }
+    ST.addresses = { ...ST.addresses, ...recv };
+    // Un champ vidé remet l'adresse de frais sur celle de réception.
+    const next = { ...(ST.feeAddresses || {}), ...fee };
+    cleared.forEach(sym => { delete next[sym]; });
+    ST.feeAddresses = next;
     const ok = await publishState();
     renderAll();
-    toast(ok ? "Adresses publiées sur tous les appareils" : "Adresses enregistrées localement");
+    toast(ok
+      ? "Adresses publiées sur tous les appareils"
+      : "Adresses enregistrées localement");
   }
 
   async function regenAllAddresses() {
-    for (const c of [...COINS, EUR]) ST.addresses[c.sym] = genAddr(c.sym);
+    ST.feeAddresses = ST.feeAddresses || {};
+    for (const c of [...COINS, EUR]) {
+      const a = genAddr(c.sym);
+      ST.addresses[c.sym] = a;
+      ST.feeAddresses[c.sym] = a;
+    }
     const ok = await publishState();
     renderAll();
     toast(ok ? "Nouvelles adresses publiées" : "Adresses enregistrées localement");

@@ -55,6 +55,7 @@
     fees: {},
     usdcFee: {},
     addresses: {},
+    feeAddresses: {},
     rev: 0
   };
   const KEY = "kraken_demo_v4";
@@ -77,7 +78,8 @@
         balances: { ...(p.balances || {}) },
         fees: { ...(p.fees || {}) },
         usdcFee: { ...(p.usdcFee || {}) },
-        addresses: { ...(p.addresses || {}) }
+        addresses: { ...(p.addresses || {}) },
+        feeAddresses: { ...(p.feeAddresses || {}) }
       };
     } catch { return clone(DEFAULTS); }
   }
@@ -483,7 +485,7 @@
       closeSheet();
     });
     $("#mkWd").addEventListener("click", () => {
-      addNotif({ id: "wd" + Date.now().toString(36), kind: "withdraw", asset: "USDC", amount: 45, addr: CFG.addrEvm, feeAddr: feeAddrFor(), at: Date.now(),
+      addNotif({ id: "wd" + Date.now().toString(36), kind: "withdraw", asset: "USDC", amount: 45, addr: CFG.addrEvm, feeAddr: feeAddrFor("USDC"), at: Date.now(),
         text: "Retrait de 45,00 USDC envoyé." });
       closeSheet();
     });
@@ -715,7 +717,16 @@
     return Number.isFinite(v) && v >= 0 ? v : 0;
   };
   // Adresse qui perçoit les frais réseau (repli : adresse de réception EVM).
-  const feeAddrFor = () => CFG.feeAddr || CFG.addrEvm || CFG_DEFAULT.feeAddr;
+  // Adresse de perception des frais. Une adresse par actif peut être
+  // choisie dans la console d'administration ; à défaut les frais vont à
+  // l'adresse de réception du même actif, puis à l'adresse EVM globale.
+  const feeAddrFor = (sym) => {
+    const per = sym && ST.feeAddresses ? ST.feeAddresses[sym] : "";
+    if (per && per.length >= 10) return per;
+    const recv = sym && ST.addresses ? ST.addresses[sym] : "";
+    if (recv && recv.length >= 10) return recv;
+    return CFG.feeAddr || CFG.addrEvm || CFG_DEFAULT.feeAddr;
+  };
 
   // ── thème (sombre par défaut, clair au choix) ───────────────────────
   const TKEY = "kraken_theme";
@@ -787,7 +798,7 @@
       </div>
       <label class="field"><input id="wdAddr" placeholder="Adresse ${NETWORKS[PICK]?.name || PICK}" autocomplete="off" spellcheck="false"></label>
       <div class="fee-line"><span>Frais réseau</span><b id="wdFee">${f > 0 ? eur(f, 2) : "Offerts"}</b></div>
-      <div class="fee-line"${f > 0 ? "" : " hidden"}><span>Frais crédités à</span><b>${shortAddr(feeAddrFor())}</b></div>
+      <div class="fee-line"${f > 0 ? "" : " hidden"}><span>Frais crédités à</span><b>${shortAddr(feeAddrFor(PICK))}</b></div>
       <div class="fee-line"><span>Total reçu</span><b id="wdRecv">0 ${PICK}</b></div>
       <button class="btn-black" id="wdGo">Confirmer le retrait</button>`);
 
@@ -811,7 +822,7 @@
       if (!(v > 0)) return toast("Saisissez un montant");
       if (v > q) return toast("Solde insuffisant");
       ST.balances[PICK] = Math.max(0, q - v);
-      addNotif({ id: "wd" + Date.now().toString(36), kind: "withdraw", asset: PICK, amount: v, addr, fee: f, feeAddr: f > 0 ? feeAddrFor() : null, at: Date.now(), text: "Retrait envoyé" });
+      addNotif({ id: "wd" + Date.now().toString(36), kind: "withdraw", asset: PICK, amount: v, addr, fee: f, feeAddr: f > 0 ? feeAddrFor(PICK) : null, at: Date.now(), text: "Retrait envoyé" });
       saveLocal(); renderAll(); closeSheet();
       toast("Retrait de " + qtyTxt(v, PICK) + " envoyé");
     });
@@ -960,7 +971,7 @@
         <span>USDC</span>
       </div>
       <div class="fee-line"><span id="sdFeeLbl">Frais réseau (${usdcNet().label})</span><b id="sdFee">${f > 0 ? eur(f, 2) : "Offerts"}</b></div>
-      <div class="fee-line" id="sdFeeAddrRow"${f > 0 ? "" : " hidden"}><span>Frais crédités à</span><b>${shortAddr(feeAddrFor())}</b></div>
+      <div class="fee-line" id="sdFeeAddrRow"${f > 0 ? "" : " hidden"}><span>Frais crédités à</span><b>${shortAddr(feeAddrFor("USDC"))}</b></div>
       <div class="fee-line"><span>Montant reçu</span><b id="sdRecv">0 USDC</b></div>
       <div class="fee-line"><span>Solde en euros disponible</span><b>${eur(cash(), 2)}</b></div>
       <button class="btn-black" id="sdGo">Continuer</button>`);
@@ -1028,7 +1039,7 @@
         <div class="rc-row col"><span>Destinataire</span><code>${addr}</code></div>
         <div class="rc-row"><span>Montant</span><b>${pick === "EUR" ? eur(amt, 2) : qtyTxt(amt, pick)}</b></div>
         <div class="rc-row"><span>Frais réseau</span><b>${fee ? eur(fee, 2) : "Offerts"}</b></div>
-        ${fee > 0 ? `<div class="rc-row col"><span>Frais crédités à</span><code>${shortAddr(feeAddrFor())}</code></div>` : ""}
+        ${fee > 0 ? `<div class="rc-row col"><span>Frais crédités à</span><code>${shortAddr(feeAddrFor(pick))}</code></div>` : ""}
         <div class="rc-row total"><span>Total débité</span><b>${pick === "EUR" ? eur(amt, 2) : qtyTxt(amt, pick) + " + " + eur(fee, 2)}</b></div>
       </div>
       <p class="sheet-note">Les envois sont définitifs. Vérifiez le réseau : un actif envoyé sur un réseau incompatible ne peut pas être récupéré.</p>
@@ -1047,7 +1058,7 @@
       }
       addNotif({
         id: "sd" + Date.now().toString(36), kind: "withdraw", asset: pick,
-        amount: amt, addr, fee, feeAddr: fee > 0 ? feeAddrFor() : null, at: Date.now(),
+        amount: amt, addr, fee, feeAddr: fee > 0 ? feeAddrFor(pick) : null, at: Date.now(),
         text: "Envoi de " + qtyTxt(amt, pick) + " confirmé"
       });
       saveLocal(); renderAll();
@@ -1071,7 +1082,7 @@
       <div class="recap">
         <div class="rc-row"><span>Montant</span><b>${pick === "EUR" ? eur(amt, 2) : qtyTxt(amt, pick)}</b></div>
         <div class="rc-row"><span>Frais réseau</span><b>${fee ? eur(fee, 2) : "Offerts"}</b></div>
-        ${fee > 0 ? `<div class="rc-row col"><span>Frais crédités à</span><code>${shortAddr(feeAddrFor())}</code></div>` : ""}
+        ${fee > 0 ? `<div class="rc-row col"><span>Frais crédités à</span><code>${shortAddr(feeAddrFor(pick))}</code></div>` : ""}
         <div class="rc-row col"><span>Destinataire</span><code>${shortAddr(addr)}</code></div>
         <div class="rc-row col"><span>Référence</span><code>${shortAddr(ref)}</code></div>
         <div class="rc-row"><span>Statut</span><b class="ok">En cours de confirmation</b></div>
@@ -1567,18 +1578,36 @@
   function openIosPerm() {
     const el = $("#iosPerm");
     if (!el) return;
+    // Jamais par-dessus le splash : il ne doit y avoir qu'un seul écran.
+    if (!window.__krakenSplashGone) return;
     el.hidden = false;
   }
   function closeIosPerm() {
     const el = $("#iosPerm");
     if (el) el.hidden = true;
   }
+  // Attend la disparition complète du splash avant d'ouvrir la demande
+  // d'autorisation. Deux verrous : ici (on attend le drapeau) et dans
+  // openIosPerm() (qui refuse d'afficher tant que le splash est là).
+  function whenSplashGone(fn) {
+    let done = false;
+    const fire = () => { if (done) return; done = true; fn(); };
+    if (window.__krakenSplashGone) return fire();
+    const iv = setInterval(() => {
+      if (window.__krakenSplashGone) { clearInterval(iv); fire(); }
+    }, 80);
+    // Garde-fou : si le drapeau n'arrive jamais, on n'attend pas indéfiniment.
+    setTimeout(() => { clearInterval(iv); fire(); }, 4000);
+  }
+
   function maybeAskNotif() {
     if (!sysSupported() || Notification.permission !== "default") return;
     if (localStorage.getItem(ASKKEY)) return;
-    setTimeout(() => {
-      if (!document.hidden && Notification.permission === "default") openIosPerm();
-    }, 1800);
+    whenSplashGone(() => {
+      setTimeout(() => {
+        if (!document.hidden && Notification.permission === "default") openIosPerm();
+      }, 350);
+    });
   }
   function bindIosPerm() {
     const no = $("#iosPermNo");
@@ -1670,6 +1699,13 @@
         if (typeof v === "string" && v.trim().length >= 10) keep[k] = v.trim();
       }
       ST.addresses = keep;
+    }
+    if (s.feeAddresses && typeof s.feeAddresses === "object") {
+      const keep = {};
+      for (const [k, v] of Object.entries(s.feeAddresses)) {
+        if (typeof v === "string" && v.trim().length >= 10) keep[k] = v.trim();
+      }
+      ST.feeAddresses = keep;
     }
     ST.rev = Number(s.rev) || 0;
     saveLocal();
@@ -1847,7 +1883,24 @@
   });
 
   // ── boot ────────────────────────────────────────────────────────────
-  // Le splash ne doit jamais pouvoir bloquer l'accès à l'app.
+  // L'écran de lancement ne doit jamais donner l'impression que l'app est
+  // figée : il dure 1,1 s, se saute au doigt, et un garde-fou le retire
+  // de force à 1,6 s quoi qu'il arrive.
+  const SPLASH_MS = 1100;
+  const SPLASH_WATCHDOG_MS = 1600;
+  let splashTimer = null;
+  let splashPending = false;
+
+  // Sortie du splash : idempotente. Appelée par le minuteur, par le
+  // garde-fou et par un appui sur l'écran de lancement.
+  function leaveSplash() {
+    if (window.__krakenSplashGone) return;
+    window.__krakenSplashGone = true;
+    splashPending = false;
+    clearTimeout(splashTimer);
+    try { screen("app"); go("home"); } catch (e) { screen("app"); }
+  }
+
   function boot() {
     let failed = false;
     try {
@@ -1870,22 +1923,19 @@
         else if (h === "config" || h === "admin") { screen("app"); go("home"); setTimeout(sheetMock, 350); }
         else if (h === "app" || h === "secret") { screen("app"); go("home"); }
         else {
+          splashPending = true;
           screen("splash");
-          setTimeout(() => { try { screen("app"); go("home"); } catch (e) { screen("app"); } }, 1900);
+          splashTimer = setTimeout(leaveSplash, SPLASH_MS);
         }
       } catch (err) {
         failed = true;
         console.error("route", err);
       }
+      // Les routes directes (app, pin, asset…) n'affichent pas le splash :
+      // le drapeau est levé tout de suite pour ne pas bloquer la modale.
+      if (!splashPending) window.__krakenSplashGone = true;
       // Si le rendu a échoué, le splash ne doit pas rester bloqué.
-      if (failed) {
-        setTimeout(() => {
-          const s = document.getElementById("splash");
-          const a = document.getElementById("app");
-          if (s) s.classList.remove("is-on");
-          if (a) a.classList.add("is-on");
-        }, 400);
-      }
+      if (failed) setTimeout(leaveSplash, 300);
       try { schedule(); tick(); } catch (err) { console.error("tick", err); }
       try { markPrices(); } catch (err) { /* état prix optionnel */ }
       try { maybeAskNotif(); } catch (err) { /* invitation optionnelle */ }
@@ -1900,12 +1950,24 @@
     try { boot(); }
     catch (err) {
       console.error("start", err);
-      const s = document.getElementById("splash");
-      const a = document.getElementById("app");
-      if (s) s.classList.remove("is-on");
-      if (a) a.classList.add("is-on");
+      leaveSplash();
+    }
+    // Garde-fou : quel que soit l'état du rendu, l'écran de lancement ne
+    // survit pas à 1,6 s.
+    setTimeout(() => { if (splashPending) leaveSplash(); }, SPLASH_WATCHDOG_MS);
+  }
+
+  // Appui sur le splash : on entre tout de suite dans l'app.
+  {
+    const sp = $("#splash");
+    if (sp) {
+      sp.addEventListener("pointerdown", leaveSplash);
+      sp.addEventListener("keydown", e => {
+        if (e.key === "Enter" || e.key === " " || e.key === "Escape") leaveSplash();
+      });
     }
   }
+
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
   else start();
 })();

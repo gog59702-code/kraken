@@ -3,7 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
-<meta name="theme-color" content="#ffffff">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#0b0b0c" id="themeColor">
+<script>
+// Thème appliqué avant le premier rendu (pas de flash blanc au chargement).
+(function () {
+  var t = "dark";
+  try { t = localStorage.getItem("kraken_theme") || "dark"; } catch (e) {}
+  document.documentElement.setAttribute("data-theme", t === "light" ? "light" : "dark");
+})();
+</script>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -12,17 +21,20 @@
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="assets/img/icons/kraken-180.png">
 <link rel="icon" href="assets/img/icons/kraken-192.png">
-<link rel="stylesheet" href="assets/css/app.css">
+<link rel="stylesheet" href="assets/css/app.css?v=8.8">
+<link rel="stylesheet" href="assets/css/v8.css?v=8.8">
+<link rel="stylesheet" href="assets/css/dark.css?v=8.8">
+<link rel="stylesheet" href="assets/css/polish.css?v=8.8">
 </head>
 <body>
 
-<!-- ═════════ SPLASH ═════════ -->
-<section class="screen splash is-on" id="splash">
+<!-- â•â•â•â•â•â•â•â•â• SPLASH â•â•â•â•â•â•â•â•â• -->
+<section class="screen splash is-on" id="splash" role="button" tabindex="0" aria-label="Passer l'écran de lancement">
   <div class="splash-mark" id="splashMark"><img src="assets/img/kraken.svg" alt="Kraken"></div>
   <div class="splash-credit">by <b>PAYWARD</b></div>
 </section>
 
-<!-- ═════════ CODE PIN ═════════ -->
+<!-- â•â•â•â•â•â•â•â•â• CODE PIN â•â•â•â•â•â•â•â•â• -->
 <section class="screen pin" id="pin">
   <div class="pin-top">
     <img src="assets/img/kraken.svg" class="pin-logo" alt="">
@@ -41,19 +53,18 @@
   </div>
 </section>
 
-<!-- ═════════ APPLICATION ═════════ -->
+<!-- â•â•â•â•â•â•â•â•â• APPLICATION â•â•â•â•â•â•â•â•â• -->
 <main class="screen app" id="app">
 
   <header class="app-head" id="appHead">
     <div class="head-left">
-      <button class="avatar" id="avatarBtn">B</button>
+      <button class="avatar" id="avatarBtn" aria-label="Compte">
+        <span id="avatarIni">B</span>
+        <span class="avatar-dot" id="avatarDot" hidden></span>
+      </button>
       <button class="balance-pill" id="balancePill">0,00 €</button>
     </div>
     <div class="head-right" id="headRight">
-      <button class="round-btn bell" id="notifBtn" aria-label="Notifications">
-        <svg viewBox="0 0 24 24" class="ico"><path d="M18 9a6 6 0 1 0-12 0c0 5-2 6-2 6h16s-2-1-2-6"/><path d="M10.4 19a1.8 1.8 0 0 0 3.2 0"/></svg>
-        <span class="bell-dot" id="notifDot" hidden></span>
-      </button>
       <span class="head-sep" id="headSep0"></span>
       <button class="round-btn kebab" id="headMore" aria-label="Plus d'options">
         <svg viewBox="0 0 24 24" class="ico"><circle cx="12" cy="5" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="19" r="1.6" fill="currentColor" stroke="none"/></svg>
@@ -67,7 +78,7 @@
 
   <div class="views">
 
-    <!-- ═════ ACCUEIL ═════ -->
+    <!-- â•â•â•â•â• ACCUEIL â•â•â•â•â• -->
     <div class="view is-on" data-view="home">
       <div class="acc" data-acc="learn">
         <span>Apprenez les notions essentielles</span>
@@ -109,7 +120,7 @@
       </div>
     </div>
 
-    <!-- ═════ EXPLORER ═════ -->
+    <!-- â•â•â•â•â• EXPLORER â•â•â•â•â• -->
     <div class="view" data-view="explorer">
       <div class="cats row-icons" id="exCats">
         <button class="cat is-on" data-ecat="all">
@@ -171,7 +182,7 @@
       </section>
     </div>
 
-    <!-- ═════ PORTEFEUILLE ═════ -->
+    <!-- â•â•â•â•â• PORTEFEUILLE â•â•â•â•â• -->
     <div class="view" data-view="portfolio">
       <div class="huge-bal pf-bal" id="pfBal">0,00 €</div>
       <div class="wave"><svg viewBox="0 0 600 220" preserveAspectRatio="none"><path d="M0 155 C 45 40, 95 40, 150 155 S 255 270, 310 155 S 415 40, 470 155 S 575 270, 600 170" fill="none" stroke="#ededf0" stroke-width="4"/></svg></div>
@@ -183,10 +194,10 @@
           <svg viewBox="0 0 24 24" class="ico"><circle cx="12" cy="12" r="9" fill="currentColor" stroke="none"/><path d="M12 7.5v8M8.6 12.2l3.4 3.4 3.4-3.4" stroke="#fff" stroke-width="1.9"/></svg>Retirer
         </button>
         <button class="chip-line" data-sheet="send">
-          <svg viewBox="0 0 24 24" class="ico"><circle cx="12" cy="12" r="9" fill="currentColor" stroke="none"/><path d="M8.2 15.8L15.8 8.2M9.6 8.2h6.2v6.2" stroke="#fff" stroke-width="1.9"/></svg>Envoyer
+          <svg viewBox="0 0 24 24" class="ico"><circle cx="12" cy="12" r="9" fill="currentColor" stroke="none"/><path d="M8.2 15.8L15.8 8.2M9.6 8.2h6.2v6.2" stroke="#fff" stroke-width="1.9"/></svg>Envoyer de la crypto
         </button>
         <button class="chip-line" data-sheet="receive">
-          <svg viewBox="0 0 24 24" class="ico"><circle cx="12" cy="12" r="9" fill="currentColor" stroke="none"/><path d="M15.8 8.2L8.2 15.8M14.4 15.8H8.2V9.6" stroke="#fff" stroke-width="1.9"/></svg>Recevoir
+          <svg viewBox="0 0 24 24" class="ico"><circle cx="12" cy="12" r="9" fill="currentColor" stroke="none"/><path d="M15.8 8.2L8.2 15.8M14.4 15.8H8.2V9.6" stroke="#fff" stroke-width="1.9"/></svg>Recevoir de la crypto
         </button>
       </div>
 
@@ -219,17 +230,25 @@
         <svg viewBox="0 0 24 24" class="ico chev"><path d="M9 6l6 6-6 6"/></svg>
       </button>
 
+      <section class="card fiat" id="activityCard">
+        <div class="fiat-head">
+          <h3>Activité</h3>
+          <button class="sec-link" id="seeActivity">Tout voir</button>
+        </div>
+        <div class="activity-list" id="activityRows"></div>
+      </section>
+
       <button class="card orders" id="openSecretPf">
         <span class="orders-ico"><svg viewBox="0 0 24 24" class="ico"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 14.3a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5v.2a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3h.1a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8v.1a1.6 1.6 0 0 0 1.5 1h.2a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg></span>
         <div class="row-main">
-          <div class="row-name">Réglages du compte</div>
-          <div class="row-sub">Identité, soldes et frais réseau</div>
+          <div class="row-name">Informations du compte</div>
+          <div class="row-sub">Identité et soldes de démonstration</div>
         </div>
         <svg viewBox="0 0 24 24" class="ico chev"><path d="M9 6l6 6-6 6"/></svg>
       </button>
     </div>
 
-    <!-- ═════ PLUS ═════ -->
+    <!-- â•â•â•â•â• PLUS â•â•â•â•â• -->
     <div class="view" data-view="more">
       <h2 class="page-h">En savoir plus</h2>
       <div class="list-card menu">
@@ -284,13 +303,13 @@
         <svg viewBox="0 0 24 24" class="ico ext"><path d="M14 5h5v5M19 5l-8 8M11 5H6a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5"/></svg>
       </button>
 
-      <button class="settings-link" id="openSecret">Réglages du compte</button>
+      <button class="settings-link" id="openSecret">Informations du compte</button>
       <button class="settings-link" id="lockApp">Verrouiller l'application</button>
       <p class="legal">Kraken · v3.89.0</p>
     </div>
   </div>
 
-  <nav class="tabbar" id="tabbar">
+  <nav class="tabbar" id="tabbar" role="navigation" aria-label="Navigation principale">
     <button class="tab is-on" data-goto="home">
       <svg viewBox="0 0 24 24" class="tab-svg"><path d="M11.36 3.4a1 1 0 0 1 1.28 0l7.28 6.06a1 1 0 0 1 .36.77V19a2 2 0 0 1-2 2h-3.1a1 1 0 0 1-1-1v-4.2a2.18 2.18 0 0 0-4.36 0V20a1 1 0 0 1-1 1h-3.1a2 2 0 0 1-2-2v-8.77a1 1 0 0 1 .36-.77z"/></svg><span>Accueil</span>
     </button>
@@ -320,9 +339,9 @@
 
 <div class="scrim" id="scrim"></div>
 <div class="sheet" id="sheet"><div class="grip"></div><div class="sheet-body" id="sheetBody"></div></div>
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
-<!-- ═════════ FICHE ACTIF ═════════ -->
+<!-- â•â•â•â•â•â•â•â•â• FICHE ACTIF â•â•â•â•â•â•â•â•â• -->
 <section class="screen detail" id="detail">
   <header class="det-head">
     <button class="round-btn" id="detBack" aria-label="Retour">
@@ -348,12 +367,12 @@
     <div class="det-chart" id="detChart"></div>
 
     <div class="det-hl">
-      <div><span class="up">↑ Élevé</span><b id="detHigh">—</b></div>
+      <div><span class="up">â†‘ Élevé</span><b id="detHigh">—</b></div>
       <div class="det-toggle">
         <button class="is-on" data-style="line" aria-label="Ligne"></button>
         <button data-style="candle" aria-label="Chandeliers"></button>
       </div>
-      <div class="right"><span class="down">↓ Bas</span><b id="detLow">—</b></div>
+      <div class="right"><span class="down">â†“ Bas</span><b id="detLow">—</b></div>
     </div>
 
     <div class="det-ranges" id="detRanges">
@@ -402,7 +421,7 @@
   </div>
 </section>
 
-<!-- ═════════ RECHERCHE ═════════ -->
+<!-- â•â•â•â•â•â•â•â•â• RECHERCHE â•â•â•â•â•â•â•â•â• -->
 <section class="screen search" id="searchScreen">
   <header class="search-head">
     <button class="round-btn" id="searchBack" aria-label="Retour">
@@ -412,7 +431,7 @@
   </header>
   <div class="search-field">
     <svg viewBox="0 0 24 24" class="ico"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M19 19l-4.6-4.6"/></svg>
-    <input id="searchInput" placeholder="Rechercher" autocomplete="off">
+    <input id="searchInput" type="search" enterkeyhint="search" placeholder="Rechercher" autocomplete="off" aria-label="Rechercher un actif">
   </div>
   <div class="chips" id="searchChips">
     <button class="chip-ico"><svg viewBox="0 0 24 24" class="ico"><path d="M12 3.6l2.6 5.3 5.9.8-4.3 4.1 1 5.8-5.2-2.8-5.2 2.8 1-5.8L3.5 9.7l5.9-.8z"/></svg></button>
@@ -425,46 +444,33 @@
   <div class="list search-list" id="searchList"></div>
 </section>
 
-<!-- ═════════ PAGE PRIVÉE ═════════ -->
-<section class="screen secret" id="secret">
-  <header class="secret-head">
-    <button class="round-btn" id="secretBack" aria-label="Retour">
-      <svg viewBox="0 0 24 24" class="ico"><path d="M15 6l-6 6 6 6"/></svg>
-    </button>
-    <h1>Réglages du compte</h1>
-    <span class="secret-tag">Admin</span>
-  </header>
-
-  <div class="secret-body">
-    <div class="scard">
-      <h3>Identité</h3>
-      <label class="sf"><span>Prénom</span><input id="sFirst" placeholder="Prénom"></label>
-      <label class="sf"><span>Nom</span><input id="sLast" placeholder="Nom"></label>
-      <label class="sf"><span>Adresse e-mail</span><input id="sMail" placeholder="email"></label>
-      <label class="sf"><span>Date de création du compte</span><input id="sCreated" type="date"></label>
-      <div class="srow"><span>Statut du compte</span><strong class="ok">Vérifié</strong></div>
+<!-- ══════════════════════ AUTORISATION iOS ══════════════════════ -->
+<div class="ios-perm" id="iosPerm" hidden>
+  <div class="ios-perm-card" role="alertdialog" aria-modal="true" aria-labelledby="iosPermTitle" aria-describedby="iosPermBody">
+    <div class="ios-perm-ico"><img src="assets/img/icons/kraken-192.png" alt=""></div>
+    <b id="iosPermTitle">« Kraken » souhaite vous envoyer des notifications</b>
+    <p id="iosPermBody">Les notifications peuvent inclure des alertes, des sons et des badges. Vous pouvez les configurer dans Réglages.</p>
+    <div class="ios-perm-actions">
+      <button id="iosPermNo">Ne pas autoriser</button>
+      <button id="iosPermYes">Autoriser</button>
     </div>
-
-    <div class="scard">
-      <h3>Soldes en crypto</h3>
-      <div id="balanceFields"></div>
-    </div>
-
-    <div class="scard">
-      <h3>Solde en euros</h3>
-      <label class="sf"><span>Monnaie fiduciaire (EUR)</span><input id="sCash" inputmode="decimal" placeholder="0,00"></label>
-      <h3 style="margin-top:14px">Frais réseau (gas)</h3>
-      <label class="sf"><span>Montant par transaction</span><input id="sGas" inputmode="decimal" placeholder="2,40"></label>
-      <div class="srow"><span>Aperçu</span><strong id="gasPreview">2,40 €</strong></div>
-    </div>
-
-    <button class="btn-black wide" id="secretSave">Enregistrer</button>
-    <button class="btn-ghost wide" id="goAdmin">Console d'administration</button>
-    <button class="btn-ghost wide" id="secretReset">Réinitialiser les données</button>
-    <p class="legal">Le compte est partagé et synchronisé entre tous les appareils connectés.</p>
   </div>
-</section>
+</div>
 
-<script src="assets/js/app.js"></script>
+<script>
+// Filet de sécurité : si app.js ne s'exécute pas (erreur, script bloqué,
+// cache corrompu), le splash ne doit jamais rester bloqué plein écran.
+(function () {
+  setTimeout(function () {
+    if (window.__krakenBooted) return;
+    var s = document.getElementById("splash");
+    if (!s || !s.classList.contains("is-on")) return;
+    s.classList.remove("is-on");
+    var a = document.getElementById("app");
+    if (a) a.classList.add("is-on");
+  }, 6000);
+})();
+</script>
+<script src="assets/js/app.js?v=8.8"></script>
 </body>
 </html>
