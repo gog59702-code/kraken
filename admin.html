@@ -12,7 +12,7 @@
 <link rel="manifest" href="admin-manifest.json">
 <link rel="apple-touch-icon" href="assets/img/icons/admin-180.png">
 <link rel="icon" href="assets/img/icons/admin-192.png">
-<link rel="stylesheet" href="assets/css/admin.css?v=17">
+<link rel="stylesheet" href="assets/css/admin.css?v=18">
 </head>
 <body>
 
@@ -74,7 +74,7 @@
       <div id="addrRows"></div>
       <div class="row2">
         <button class="btn" id="saveAddrAll">Publier les adresses</button>
-        <button class="btn ghost" id="regenAddrAll">Régénérer tout</button>
+        <button class="btn ghost" id="regenAddrAll">Générer (modifiable)</button>
       </div>
     </div>
 
@@ -104,10 +104,10 @@
 
     <div class="card">
       <h3>Adresse de réception active (modifiable)</h3>
-      <label class="field"><span>Adresse publiée pour l'app</span><input id="dEdit" spellcheck="false" autocomplete="off" placeholder="Adresse de réception"></label>
+      <label class="field"><span>Adresse de réception (colle la tienne ou modifie)</span><input id="dEdit" spellcheck="false" autocomplete="off" placeholder="Adresse de réception"></label>
       <button class="btn" id="dSaveAddr">Enregistrer l'adresse</button>
       <div class="addr" style="margin-top:12px"><code id="dOwn">—</code><button id="dCopy">Copier</button></div>
-      <button class="btn ghost" id="dRegen">Régénérer l'adresse</button>
+      <button class="btn ghost" id="dRegen">Générer (modifiable)</button>
     </div>
 
     <div class="card">
@@ -147,6 +147,6 @@
 </nav>
 
 <div class="toast" id="toast"></div>
-<script src="assets/js/admin.js?v=17"></script>
+<script src="assets/js/admin.js?v=18"></script>
 </body>
 </html>

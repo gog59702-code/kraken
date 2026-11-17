@@ -324,16 +324,13 @@
       : "Adresses enregistrées localement");
   }
 
-  async function regenAllAddresses() {
-    ST.feeAddresses = ST.feeAddresses || {};
-    for (const c of [...COINS, EUR]) {
-      const a = genAddr(c.sym);
-      ST.addresses[c.sym] = a;
-      ST.feeAddresses[c.sym] = a;
-    }
-    const ok = await publishState();
-    renderAll();
-    toast(ok ? "Nouvelles adresses publiées" : "Adresses enregistrées localement");
+  // Genere des adresses dans les champs, sans rien publier : l'utilisateur
+  // peut les remplacer par sa propre adresse avant d'enregistrer.
+  function regenAllAddresses() {
+    $$("[data-addr]").forEach(inp => { inp.value = genAddr(inp.dataset.addr); });
+    const first = $("[data-addr]");
+    if (first) { first.focus(); try { first.select(); } catch { } }
+    toast("Adresses générées - modifie-les puis Publier les adresses");
   }
 
   function renderDeposit() {
@@ -495,11 +492,12 @@
     navigator.clipboard?.writeText(ST.addresses[DSYM] || "");
     toast("Adresse copiée");
   });
-  $("#dRegen").addEventListener("click", async () => {
-    ST.addresses[DSYM] = genAddr(DSYM);
-    const ok = await publishState();
-    renderAll();
-    toast(ok ? "Nouvelle adresse de réception" : "Adresse enregistrée localement");
+  $("#dRegen").addEventListener("click", () => {
+    const inp = $("#dEdit");
+    inp.value = genAddr(DSYM);
+    inp.focus();
+    try { inp.select(); } catch { }
+    toast("Adresse générée - modifie-la puis Enregistrer");
   });
   $("#dSaveAddr")?.addEventListener("click", async () => {
     const v = $("#dEdit").value.trim();
