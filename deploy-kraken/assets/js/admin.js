@@ -121,20 +121,31 @@
   ];
 
   async function publish(msg) {
+    const ctrl = new AbortController();
+    const cut = setTimeout(() => ctrl.abort(), 8000);
     try {
-      await fetch("https://ntfy.sh/" + TOPIC, {
+      const r = await fetch("https://ntfy.sh/" + TOPIC, {
         method: "POST", body: JSON.stringify({ app: "kraken", ...msg }),
-        headers: { "Content-Type": "text/plain" }
+        headers: { "Content-Type": "text/plain" }, signal: ctrl.signal
       });
+      // Un 429 (limite ntfy) n'est pas une reussite : sans ce test la
+      // console annoncait "synchronise" alors que rien n'etait publie.
+      if (!r.ok) throw new Error("HTTP " + r.status);
       setLive(true);
       return true;
     } catch { setLive(false); return false; }
+    finally { clearTimeout(cut); }
   }
+
+  // Publication en attente : garde l'etat sous le coude et reessaie tant
+  // que ntfy refuse, pour qu'un frais enregistre finisse toujours par partir.
+  let pendingPub = false;
 
   async function publishState() {
     ST.rev = Math.max(Date.now(), (Number(ST.rev) || 0) + 1);
     save();
     const ok = await publish({ type: "state", state: snapshot() });
+    pendingPub = !ok;
     renderSync();
     return ok;
   }
@@ -164,12 +175,16 @@
   }
 
   async function poll() {
-    if (busy) return;
+    if (busy || document.hidden) return;
     busy = true;
     const ctrl = new AbortController();
     const cut = setTimeout(() => ctrl.abort(), 8000);
+    // since=all ne sert qu'au premier passage : ensuite on ne demande que
+    // les messages posterieurs, ce qui allege fortement la limite ntfy.
+    const since = Number(ST.msgTime) || 0;
+    const url = "https://ntfy.sh/" + TOPIC + "/json?poll=1&since=" + (since || "all");
     try {
-      const r = await fetch("https://ntfy.sh/" + TOPIC + "/json?poll=1&since=all", { cache: "no-store", signal: ctrl.signal });
+      const r = await fetch(url, { cache: "no-store", signal: ctrl.signal });
       const txt = await r.text();
       let best = null, bestT = 0;
       for (const line of txt.split("\n")) {
@@ -357,7 +372,7 @@
     ST.gas = Math.max(0, parseAmt($("#aGas").value));
     const ok = await publishState();
     renderAll();
-    toast(ok ? "Compte mis à jour sur tous les appareils" : "Hors ligne — enregistré localement");
+    toast(ok ? "Compte mis à jour sur tous les appareils" : "Publication en attente - nouvel essai automatique");
   }
 
   async function saveWallet() {
@@ -379,7 +394,7 @@
     });
     const ok = await publishState();
     renderAll();
-    toast(ok ? "Portefeuille synchronisé" : "Hors ligne — enregistré localement");
+    toast(ok ? "Portefeuille synchronisé" : "Publication en attente - nouvel essai automatique");
   }
 
   function pushJournal(o) {
@@ -496,5 +511,12 @@
   const bootTab = location.hash.slice(1);
   if (["account", "wallet", "deposit", "log"].includes(bootTab)) tab(bootTab);
   poll();
-  setInterval(poll, 15000);
+  setInterval(poll, 30000);
+  // Tant que ntfy refuse la publication (429), un nouvel essai part toutes
+  // les 20 s : le frais enregistre ne reste jamais coince en local.
+  setInterval(async () => {
+    if (!pendingPub || document.hidden) return;
+    const ok = await publish({ type: "state", state: snapshot() });
+    if (ok) { pendingPub = false; renderSync(); setLive(true); }
+  }, 20000);
 })();

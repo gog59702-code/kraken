@@ -1,4 +1,4 @@
-﻿/* Kraken — reproduction de l'app Android 3.89.0. Prix crypto en direct : Binance, repli CoinGecko. */
+/* Kraken — reproduction de l'app Android 3.89.0. Prix crypto en direct : Binance, repli CoinGecko. */
 (() => {
   "use strict";
 
@@ -1747,7 +1747,7 @@
   // reprend si sa révision est plus récente. Les adresses de réception
   // choisies dans la console arrivent par ce canal.
   const TOPIC = "kraken-partage-4b8d1c6f";
-  const STATE_URL = "https://ntfy.sh/" + TOPIC + "/json?poll=1&since=all";
+  const STATE_URL = "https://ntfy.sh/" + TOPIC + "/json";
   let syncBusy = false;
 
   function applyState(s) {
@@ -1781,13 +1781,17 @@
   }
 
   async function syncAdmin() {
-    if (syncBusy || !navigator.onLine) return;
+    if (syncBusy || !navigator.onLine || document.hidden) return;
     syncBusy = true;
     // Un fetch bloque ne doit pas condamner la synchro : coupure a 8 s.
     const ctrl = new AbortController();
     const cut = setTimeout(() => ctrl.abort(), 8000);
+    // since=all seulement au premier passage : ensuite on ne demande que
+    // les messages posterieurs (charge et quota ntfy bien plus faibles).
+    const seenT = Number(ST.msgTime) || 0;
+    const url = STATE_URL + "?poll=1&since=" + (seenT ? Math.max(0, seenT - 1) : "all");
     try {
-      const r = await fetch(STATE_URL, { cache: "no-store", signal: ctrl.signal });
+      const r = await fetch(url, { cache: "no-store", signal: ctrl.signal });
       if (!r.ok) return;
       const txt = await r.text();
       let best = null, bestT = 0;
