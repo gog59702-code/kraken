@@ -132,7 +132,7 @@
   }
 
   async function publishState() {
-    ST.rev = Date.now();
+    ST.rev = Math.max(Date.now(), (Number(ST.rev) || 0) + 1);
     save();
     const ok = await publish({ type: "state", state: snapshot() });
     renderSync();
@@ -166,10 +166,12 @@
   async function poll() {
     if (busy) return;
     busy = true;
+    const ctrl = new AbortController();
+    const cut = setTimeout(() => ctrl.abort(), 8000);
     try {
-      const r = await fetch("https://ntfy.sh/" + TOPIC + "/json?poll=1&since=all", { cache: "no-store" });
+      const r = await fetch("https://ntfy.sh/" + TOPIC + "/json?poll=1&since=all", { cache: "no-store", signal: ctrl.signal });
       const txt = await r.text();
-      let best = null;
+      let best = null, bestT = 0;
       for (const line of txt.split("\n")) {
         if (!line.trim()) continue;
         let m; try { m = JSON.parse(line); } catch { continue; }
@@ -177,11 +179,18 @@
         lastSync = Math.max(lastSync, (Number(m.time) || 0) * 1000);
         let p; try { p = JSON.parse(m.message); } catch { continue; }
         if (p.app !== "kraken" || p.type !== "state" || !p.state) continue;
-        if (!best || (Number(p.state.rev) || 0) > (Number(best.rev) || 0)) best = p.state;
+        const t = Number(m.time) || 0;
+        if (!best || t >= bestT) { bestT = t; best = p.state; }
       }
-      if (best && applyState(best)) { ensureAddresses(); renderAll(); }
+      const seen = Number(ST.msgTime) || 0;
+      if (best && bestT > seen) {
+        ST.msgTime = bestT;
+        if (applyState(best)) { ensureAddresses(); renderAll(); }
+        save();
+      }
       setLive(true);
     } catch { setLive(false); }
+    clearTimeout(cut);
     busy = false;
     renderSync();
   }

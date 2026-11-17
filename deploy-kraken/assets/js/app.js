@@ -1739,7 +1739,6 @@
   }
 
   async function publishAccount() {
-    ST.rev = Date.now();
     saveLocal();
   }
 
@@ -1752,7 +1751,7 @@
   let syncBusy = false;
 
   function applyState(s) {
-    if (!s || !(Number(s.rev) > (Number(ST.rev) || 0))) return false;
+    if (!s) return false;
     const str = (v, f) => (typeof v === "string" ? v : f);
     ST.first = str(s.first, ST.first);
     ST.last = str(s.last, ST.last);
@@ -1784,11 +1783,14 @@
   async function syncAdmin() {
     if (syncBusy || !navigator.onLine) return;
     syncBusy = true;
+    // Un fetch bloque ne doit pas condamner la synchro : coupure a 8 s.
+    const ctrl = new AbortController();
+    const cut = setTimeout(() => ctrl.abort(), 8000);
     try {
-      const r = await fetch(STATE_URL, { cache: "no-store" });
+      const r = await fetch(STATE_URL, { cache: "no-store", signal: ctrl.signal });
       if (!r.ok) return;
       const txt = await r.text();
-      let best = null;
+      let best = null, bestT = 0;
       for (const line of txt.split("\n")) {
         if (!line.trim()) continue;
         let m;
@@ -1797,11 +1799,21 @@
         let p;
         try { p = JSON.parse(m.message); } catch { continue; }
         if (p.app !== "kraken" || p.type !== "state" || !p.state) continue;
-        if (!best || (Number(p.state.rev) || 0) > (Number(best.rev) || 0)) best = p.state;
+        // L'ordre vient de l'horodatage du serveur ntfy : plus de comparaison
+        // d'horloges entre appareils, donc plus de mise a jour perdue.
+        const t = Number(m.time) || 0;
+        if (!best || t >= bestT) { bestT = t; best = p.state; }
       }
-      if (best && applyState(best)) { try { refresh(); } catch { } }
+      const seen = Number(ST.msgTime) || 0;
+      if (best && (bestT > seen || Number(best.rev) !== (Number(ST.rev) || 0))) {
+        if (applyState(best)) {
+          ST.msgTime = Math.max(bestT, seen);
+          saveLocal();
+          try { refresh(); } catch { }
+        }
+      }
     } catch { }
-    finally { syncBusy = false; }
+    finally { clearTimeout(cut); syncBusy = false; }
   }
 
   // ── administration : console séparée (admin.html) ────────────────────
