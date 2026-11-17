@@ -225,6 +225,38 @@
       </div>`).join("");
   }
 
+  // toutes les adresses de réception, une par actif
+  function renderAddresses() {
+    const box = $("#addrRows");
+    if (!box) return;
+    box.innerHTML = [...COINS, EUR].map(c =>
+      `<div class="addrrow">
+        <span class="sym">${c.sym}</span>
+        <input data-addr="${c.sym}" spellcheck="false" autocomplete="off"
+               value="${ST.addresses[c.sym] || ""}" placeholder="${genAddr(c.sym)}">
+      </div>`).join("");
+  }
+
+  async function saveAllAddresses() {
+    const next = {};
+    $$("[data-addr]").forEach(inp => {
+      const v = inp.value.trim();
+      if (v.length >= 10) next[inp.dataset.addr] = v;
+    });
+    if (!Object.keys(next).length) return toast("Aucune adresse valide");
+    ST.addresses = { ...ST.addresses, ...next };
+    const ok = await publishState();
+    renderAll();
+    toast(ok ? "Adresses publiées sur tous les appareils" : "Adresses enregistrées localement");
+  }
+
+  async function regenAllAddresses() {
+    for (const c of [...COINS, EUR]) ST.addresses[c.sym] = genAddr(c.sym);
+    const ok = await publishState();
+    renderAll();
+    toast(ok ? "Nouvelles adresses publiées" : "Adresses enregistrées localement");
+  }
+
   function renderDeposit() {
     $("#depGrid").innerHTML = [...COINS, EUR].map(c =>
       `<button class="pick ${c.sym === DSYM ? "on" : ""}" data-dep="${c.sym}"><img class="coin" src="${c.icon}" alt=""><b>${c.sym}</b></button>`
@@ -269,7 +301,7 @@
   }
 
   function renderAll() {
-    renderAccount(); renderWallet(); renderDeposit(); renderLog(); renderSync();
+    renderAccount(); renderWallet(); renderAddresses(); renderDeposit(); renderLog(); renderSync();
   }
 
   // ── actions ──────────────────────────────────────────────────────────
@@ -395,6 +427,8 @@
   $("#clearLog").addEventListener("click", () => {
     localStorage.removeItem(JKEY); renderLog(); toast("Journal vidé");
   });
+  $("#saveAddrAll")?.addEventListener("click", saveAllAddresses);
+  $("#regenAddrAll")?.addEventListener("click", regenAllAddresses);
 
   $("#walletGrid").addEventListener("click", e => {
     const b = e.target.closest("[data-add]");

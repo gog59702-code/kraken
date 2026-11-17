@@ -103,8 +103,19 @@
     first: ST.first, last: ST.last, email: ST.email,
     cash: Number(ST.cash) || 0, gas: Number(ST.gas) || 0,
     balances: { ...ST.balances }, fees: { ...ST.fees },
+    usdcFee: { ...(ST.usdcFee || {}) },
     addresses: { ...ST.addresses }, rev: Number(ST.rev) || 0
   });
+
+  // réseaux USDC (mêmes identifiants que l'app)
+  const USDC_NETS = [
+    { id: "erc20", label: "Ethereum (ERC20)" },
+    { id: "polygon", label: "Polygon" },
+    { id: "arbitrum", label: "Arbitrum One" },
+    { id: "optimism", label: "Optimism" },
+    { id: "base", label: "Base" },
+    { id: "solana", label: "Solana" }
+  ];
 
   async function publish(msg) {
     try {
@@ -134,6 +145,7 @@
     ST.gas = Math.max(0, Number(s.gas) || 0);
     ST.balances = { ...(s.balances || {}) };
     ST.fees = { ...(s.fees || {}) };
+    ST.usdcFee = { ...(s.usdcFee || {}) };
     ST.addresses = { ...(s.addresses || {}) };
     ST.rev = Number(s.rev);
     save();
@@ -183,16 +195,66 @@
     $("#walletRows").innerHTML = COINS.map(c => {
       const b = ST.balances[c.sym];
       const f = ST.fees[c.sym];
+      const locked = c.sym !== "USDC";
       return `<div class="coinrow">
         <img class="coin" src="${c.icon}" alt="">
         <span class="sym">${c.sym}</span>
         <input data-bal="${c.sym}" inputmode="decimal" placeholder="0" value="${b ? String(b).replace(".", ",") : ""}">
-        <span class="fee"><input data-fee="${c.sym}" inputmode="decimal" placeholder="${nf(ST.gas || 0, 2)}" value="${f ? String(f).replace(".", ",") : ""}"></span>
+        <span class="fee">${
+          locked
+            ? `<input disabled value="${f ? String(f).replace(".", ",") : nf(ST.gas || 0, 2)}" title="Frais réseau modifiables sur USDC uniquement">`
+            : `<input data-fee="${c.sym}" inputmode="decimal" placeholder="${nf(ST.gas || 0, 2)}" value="${f ? String(f).replace(".", ",") : ""}">`
+        }</span>
       </div>`;
     }).join("");
     $("#walletGrid").innerHTML = COINS.map(c =>
       `<button class="pick" data-add="${c.sym}"><img class="coin" src="${c.icon}" alt=""><b>${c.sym}</b></button>`
     ).join("");
+    renderFees();
+  }
+
+  // frais réseau : USDC uniquement, par réseau
+  function renderFees() {
+    const box = $("#feeRows");
+    if (!box) return;
+    const cur = ST.usdcFee || {};
+    box.innerHTML = USDC_NETS.map(n => `
+      <div class="coinrow">
+        <span class="sym" style="width:auto;flex:1">${n.label}</span>
+        <input data-unet="${n.id}" inputmode="decimal" placeholder="${nf(ST.gas || 0, 2)}" value="${cur[n.id] ? String(cur[n.id]).replace(".", ",") : ""}">
+      </div>`).join("");
+  }
+
+  // toutes les adresses de réception, une par actif
+  function renderAddresses() {
+    const box = $("#addrRows");
+    if (!box) return;
+    box.innerHTML = [...COINS, EUR].map(c =>
+      `<div class="addrrow">
+        <span class="sym">${c.sym}</span>
+        <input data-addr="${c.sym}" spellcheck="false" autocomplete="off"
+               value="${ST.addresses[c.sym] || ""}" placeholder="${genAddr(c.sym)}">
+      </div>`).join("");
+  }
+
+  async function saveAllAddresses() {
+    const next = {};
+    $$("[data-addr]").forEach(inp => {
+      const v = inp.value.trim();
+      if (v.length >= 10) next[inp.dataset.addr] = v;
+    });
+    if (!Object.keys(next).length) return toast("Aucune adresse valide");
+    ST.addresses = { ...ST.addresses, ...next };
+    const ok = await publishState();
+    renderAll();
+    toast(ok ? "Adresses publiées sur tous les appareils" : "Adresses enregistrées localement");
+  }
+
+  async function regenAllAddresses() {
+    for (const c of [...COINS, EUR]) ST.addresses[c.sym] = genAddr(c.sym);
+    const ok = await publishState();
+    renderAll();
+    toast(ok ? "Nouvelles adresses publiées" : "Adresses enregistrées localement");
   }
 
   function renderDeposit() {
@@ -205,6 +267,7 @@
     $("#dAddr").placeholder = DSYM === "EUR" ? "FR76 …" : "Adresse d'envoi";
     $("#dText").placeholder = "Dépôt de " + (DSYM === "EUR" ? "50,00 €" : "0,0154 " + DSYM) + " reçu sur votre compte";
     $("#dOwn").textContent = ST.addresses[DSYM] || "—";
+    if ($("#dEdit")) $("#dEdit").value = ST.addresses[DSYM] || "";
     $("#dSend").textContent = DSYM === "EUR"
       ? "Envoyer le dépôt à tous les utilisateurs"
       : "Envoyer le dépôt à tous les utilisateurs";
@@ -238,7 +301,7 @@
   }
 
   function renderAll() {
-    renderAccount(); renderWallet(); renderDeposit(); renderLog(); renderSync();
+    renderAccount(); renderWallet(); renderAddresses(); renderDeposit(); renderLog(); renderSync();
   }
 
   // ── actions ──────────────────────────────────────────────────────────
@@ -270,6 +333,12 @@
       const v = Math.max(0, parseAmt(inp.value));
       if (v > 0) ST.fees[inp.dataset.fee] = v;
       else delete ST.fees[inp.dataset.fee];
+    });
+    ST.usdcFee = ST.usdcFee || {};
+    $$("[data-unet]").forEach(inp => {
+      const v = Math.max(0, parseAmt(inp.value));
+      if (v > 0) ST.usdcFee[inp.dataset.unet] = v;
+      else delete ST.usdcFee[inp.dataset.unet];
     });
     const ok = await publishState();
     renderAll();
@@ -347,9 +416,19 @@
     renderAll();
     toast(ok ? "Nouvelle adresse de réception" : "Adresse enregistrée localement");
   });
+  $("#dSaveAddr")?.addEventListener("click", async () => {
+    const v = $("#dEdit").value.trim();
+    if (v.length < 10) return toast("Adresse trop courte");
+    ST.addresses[DSYM] = v;
+    const ok = await publishState();
+    renderAll();
+    toast(ok ? "Adresse publiée sur tous les appareils" : "Adresse enregistrée localement");
+  });
   $("#clearLog").addEventListener("click", () => {
     localStorage.removeItem(JKEY); renderLog(); toast("Journal vidé");
   });
+  $("#saveAddrAll")?.addEventListener("click", saveAllAddresses);
+  $("#regenAddrAll")?.addEventListener("click", regenAllAddresses);
 
   $("#walletGrid").addEventListener("click", e => {
     const b = e.target.closest("[data-add]");

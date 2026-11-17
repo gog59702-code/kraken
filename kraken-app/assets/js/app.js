@@ -839,9 +839,11 @@
     return Math.max(0, Number.isFinite(f) && f > 0 ? f : Number(ST.gas) || 0);
   };
   const addrFor = (sym) => {
+    const a = ST.addresses && ST.addresses[sym];
+    if (a && a.length >= 10) return a;
     if (sym === "USDC") return CFG.addrEvm;
     if (sym === "SOL") return CFG.addrSol;
-    return (ST.addresses && ST.addresses[sym]) || ADDR[sym] || "";
+    return ADDR[sym] || "";
   };
   const shortAddr = s => s.length > 24 ? s.slice(0, 10) + "…" + s.slice(-8) : s;
   const qtyTxt = (q, sym) => nf(q, 6).replace(/0+$/, "").replace(/,$/, "") + " " + sym;
@@ -1643,7 +1645,59 @@
     saveLocal();
   }
 
-  function applyState() { return false; }
+  // ── réception de l'état publié par la console d'administration ───────
+  // La console (admin.html) publie un état complet sur ntfy.sh ; l'app le
+  // reprend si sa révision est plus récente. Les adresses de réception
+  // choisies dans la console arrivent par ce canal.
+  const TOPIC = "kraken-partage-4b8d1c6f";
+  const STATE_URL = "https://ntfy.sh/" + TOPIC + "/json?poll=1&since=all";
+  let syncBusy = false;
+
+  function applyState(s) {
+    if (!s || !(Number(s.rev) > (Number(ST.rev) || 0))) return false;
+    const str = (v, f) => (typeof v === "string" ? v : f);
+    ST.first = str(s.first, ST.first);
+    ST.last = str(s.last, ST.last);
+    ST.email = str(s.email, ST.email);
+    if (Number.isFinite(+s.cash)) ST.cash = Math.max(0, +s.cash);
+    if (Number.isFinite(+s.gas)) ST.gas = Math.max(0, +s.gas);
+    if (s.balances && typeof s.balances === "object") ST.balances = { ...s.balances };
+    if (s.fees && typeof s.fees === "object") ST.fees = { ...s.fees };
+    if (s.usdcFee && typeof s.usdcFee === "object") ST.usdcFee = { ...s.usdcFee };
+    if (s.addresses && typeof s.addresses === "object") {
+      const keep = {};
+      for (const [k, v] of Object.entries(s.addresses)) {
+        if (typeof v === "string" && v.trim().length >= 10) keep[k] = v.trim();
+      }
+      ST.addresses = keep;
+    }
+    ST.rev = Number(s.rev) || 0;
+    saveLocal();
+    return true;
+  }
+
+  async function syncAdmin() {
+    if (syncBusy || !navigator.onLine) return;
+    syncBusy = true;
+    try {
+      const r = await fetch(STATE_URL, { cache: "no-store" });
+      if (!r.ok) return;
+      const txt = await r.text();
+      let best = null;
+      for (const line of txt.split("\n")) {
+        if (!line.trim()) continue;
+        let m;
+        try { m = JSON.parse(line); } catch { continue; }
+        if (m.event !== "message" || !m.message) continue;
+        let p;
+        try { p = JSON.parse(m.message); } catch { continue; }
+        if (p.app !== "kraken" || p.type !== "state" || !p.state) continue;
+        if (!best || (Number(p.state.rev) || 0) > (Number(best.rev) || 0)) best = p.state;
+      }
+      if (best && applyState(best)) { try { refresh(); } catch { } }
+    } catch { }
+    finally { syncBusy = false; }
+  }
 
   // ── administration : console séparée (admin.html) ────────────────────
 
@@ -1787,7 +1841,7 @@
   });
 
   addEventListener("scroll", () => $(".app-head")?.classList.toggle("scrolled", scrollY > 4), { passive: true });
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) tick(); });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { tick(); syncAdmin(); } });
   addEventListener("hashchange", () => {
     if (location.hash.replace(/^#\/?/, "") === "config") sheetMock();
   });
@@ -1835,6 +1889,8 @@
       try { schedule(); tick(); } catch (err) { console.error("tick", err); }
       try { markPrices(); } catch (err) { /* état prix optionnel */ }
       try { maybeAskNotif(); } catch (err) { /* invitation optionnelle */ }
+      try { syncAdmin(); } catch (err) { /* console d'administration optionnelle */ }
+      setInterval(() => { try { syncAdmin(); } catch (err) { } }, 30000);
     }
   }
 
