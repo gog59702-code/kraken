@@ -522,7 +522,6 @@ img{display:block}
 .ios-b-head{display:flex;justify-content:space-between;font-size:12px;color:#8e8e93;margin-bottom:2px}
 .ios-b-head b{color:#000}
 .ios-b-title{font-weight:600;font-size:15px;margin-bottom:1px}
-.ios-b-text{font-size:14px;color:#3a3a3c;white-space:nowrap;overflow:hidden;text-overflow
 .ios-banner{position:fixed;top:calc(10px + var(--st));left:12px;right:12px;z-index:200;background:rgba(255,255,255,0.94);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);border-radius:24px;padding:14px 16px;display:flex;gap:14px;box-shadow:0 12px 35px rgba(0,0,0,0.15);transform:translateY(-150%);transition:transform 0.5s cubic-bezier(0.16,1,0.3,1);pointer-events:none}
 .ios-banner.on{transform:none;pointer-events:auto}
 .ios-b-ico{width:40px;height:40px;border-radius:9px;overflow:hidden;flex:0 0 auto;box-shadow:0 2px 8px rgba(0,0,0,0.1)}
@@ -534,10 +533,11 @@ img{display:block}
 .ios-b-title{font-size:15px;font-weight:600;color:var(--ink);margin-bottom:1px}
 .ios-b-text{font-size:14px;color:var(--ink);line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 
-/* ── envoi : chargement du bouton, voile de traitement, sélection noire ─ */
+/* envoi : chargement du bouton, voile de traitement, selection noire */
 .btn-black.is-busy{position:relative;color:transparent;pointer-events:none}
 .btn-black.is-busy::after{content:"";position:absolute;top:50%;left:50%;width:18px;height:18px;margin:-9px 0 0 -9px;border-radius:50%;border:2px solid rgba(255,255,255,.32);border-top-color:#fff;animation:krakenSpin .68s linear infinite}
 [data-theme="dark"] .btn-black.is-busy::after{border-color:rgba(11,11,12,.22);border-top-color:#0b0b0c}
+[data-theme="dark"] .btn-black.is-busy{color:transparent}
 @keyframes krakenSpin{to{transform:rotate(360deg)}}
 .pay-overlay{position:fixed;inset:0;z-index:260;background:#000;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:0 28px;text-align:center;opacity:0;transition:opacity .22s ease}
 .pay-overlay.on{opacity:1}
@@ -546,7 +546,8 @@ img{display:block}
 .pay-step{font-size:13.5px;color:rgba(255,255,255,.7);min-height:18px}
 .pay-bar{width:min(260px,70vw);height:3px;border-radius:2px;background:rgba(255,255,255,.18);overflow:hidden;margin-top:4px}
 .pay-bar i{display:block;width:0;height:100%;background:#fff}
-.pick.is-on{background:#0b0b0c;border-color:#0b0b0c;color:#fff}
+.pick.is-on{background:#0b0b0c;border-color:#0b0b0c;color:#fff;transition:none}
 .pick.is-on i{color:rgba(255,255,255,.68)}
-[data-theme="dark"] .pick.is-on{background:#f3f3f5;border-color:#f3f3f5;color:#0b0b0c}
-[data-theme="dark"] .pick.is-on i{color:rgba(11,11,12,.6)}
+[data-theme="dark"] .pick.is-on{background:#0b0b0c;border-color:#f3f3f5;color:#f3f3f5}
+[data-theme="dark"] .pick.is-on i{color:rgba(243,243,245,.68)}
+[data-theme="dark"] .pick.is-on .coin{filter:none}

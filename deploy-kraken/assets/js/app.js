@@ -768,7 +768,8 @@
     // avant que la feuille ne se referme.
     $$("#pickGrid .pick").forEach(b => b.addEventListener("click", () => {
       $$("#pickGrid .pick").forEach(x => x.classList.toggle("is-on", x === b));
-      setTimeout(() => { closeSheet(); cb(b.dataset.pick); }, 240);
+      // 420 ms : la tuile a le temps de se voir en noir avant la fermeture.
+      setTimeout(() => { closeSheet(); cb(b.dataset.pick); }, 420);
     }));
   }
 
@@ -958,6 +959,7 @@
     const stepEl = el.querySelector(".pay-step");
     const barEl = el.querySelector(".pay-bar i");
     barEl.style.transition = `width ${ms}ms linear`;
+    void el.offsetWidth; // la barre est peinte a 0 avant de demarrer
     requestAnimationFrame(() => el.classList.add("on"));
     requestAnimationFrame(() => { barEl.style.width = "100%"; });
     const slice = Math.max(700, Math.round(ms / steps.length));
