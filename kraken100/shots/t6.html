@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>run</title></head>
+<body><pre id="out">screen.app=true
+home rows=4
+bundle coins=6
+sheet.title=Actions
+fab send row=true
+send.title=Envoyer
+send pickLine=true
+picker items=13
+send EUR placeholder=IBAN du destinataire
+toast=Solde insuffisant
+MISS #sheetBody [data-sheet="receive"]
+receive addr=
+pf visible=true
+pf settings=true
+search rows=1
+detail on=true
+detail name=Bitcoin
+chart paths=2
+recurring title=Achat récurrent
+recurring freqs=3
+recurring toast=Achat récurrent programmé
+limit title=Achat à cours limité
+limit toast=Solde insuffisant
+detail receive=bc1qh4
+convert title=Convertir
+convert target=Ethereum
+secret on=true
+bal fields=12
+after save pf=30 813,23 €
+avatar=B
+pin on=true
+after pin app=true
+DONE</pre>
+<iframe id="f" src="index.html#app" style="width:600px;height:1000px;border:0"></iframe>
+<script>
+const log = [];
+const out = document.getElementById("out");
+const f = document.getElementById("f");
+function say(s){ log.push(s); out.textContent = log.join("\n"); }
+window.addEventListener("error", e => say("ERR " + e.message));
+
+f.addEventListener("load", () => {
+  const d = f.contentDocument, w = f.contentWindow;
+  const q = s => d.querySelector(s);
+  const qa = s => Array.from(d.querySelectorAll(s));
+  const click = s => { const el = q(s); if (!el) { say("MISS " + s); return false; } el.click(); return true; };
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  const txt = s => (q(s) || {}).textContent || "";
+
+  (async () => {
+    await wait(300);
+    say("screen.app=" + (q("#app").classList.contains("is-on")));
+    say("home rows=" + qa("#homeList .row").length);
+    say("bundle coins=" + qa("#homeList .mini-coin").length);
+
+    // fab -> actions
+    click("#fab"); await wait(60);
+    say("sheet.title=" + txt(".sheet-title"));
+    say("fab send row=" + !!q('[data-sheet="send"]'));
+
+    // send
+    click('#sheetBody [data-sheet="send"]'); await wait(60);
+    say("send.title=" + txt(".sheet-title"));
+    say("send pickLine=" + !!q("#sdPick"));
+    click("#sdPick"); await wait(60);
+    say("picker items=" + qa("#pickGrid .pick").length);
+
+    click('#pickGrid [data-pick="EUR"]'); await wait(60);
+    say("send EUR placeholder=" + (q("#sdAddr")||{}).placeholder);
+    q("#sdAddr").value = "FR76 3000 4000 0300 0000 4821 264";
+    q("#sdAmt").value = "5";
+    click("#sdGo"); await wait(60);
+    say("toast=" + txt("#toast"));
+
+    // receive
+    click('#sheetBody [data-sheet="receive"]'); await wait(60);
+    say("receive addr=" + (txt("#rcAddr") || "").slice(0, 8));
+    click("#scrim"); await wait(60);
+
+    // portfolio
+    click('[data-goto="portfolio"]'); await wait(80);
+    say("pf visible=" + (q('[data-view="portfolio"]').classList.contains("is-on")));
+    say("pf settings=" + !!q("#openSecretPf"));
+
+    // detail
+    click("#searchBtn"); await wait(60);
+    q("#searchInput").value = "btc";
+    q("#searchInput").dispatchEvent(new w.Event("input"));
+    await wait(60);
+    say("search rows=" + qa("#searchList .row").length);
+    click('#searchList [data-asset="BTC"]'); await wait(80);
+    say("detail on=" + q("#detail").classList.contains("is-on"));
+    say("detail name=" + txt("#detName"));
+    say("chart paths=" + qa("#detChart path").length);
+
+    click('[data-sheet="recurring"]'); await wait(60);
+    say("recurring title=" + txt(".sheet-title"));
+    say("recurring freqs=" + qa("#rcrFreq button").length);
+    q("#rcrAmt").value = "10";
+    click("#rcrGo"); await wait(60);
+    say("recurring toast=" + txt("#toast"));
+
+    click('#detail [data-sheet="limit"]'); await wait(60);
+    say("limit title=" + txt(".sheet-title"));
+    q("#lmPrice").value = "1000";
+    q("#lmAmt").value = "10";
+    click("#lmGo"); await wait(60);
+    say("limit toast=" + txt("#toast"));
+
+    click('#detail [data-sheet="receive"]'); await wait(60);
+    say("detail receive=" + (txt("#rcAddr") || "").slice(0, 6));
+    click("#scrim"); await wait(60);
+
+    // convert
+    click('[data-goto="more"]'); await wait(60);
+    click('[data-sheet="convert"]'); await wait(60);
+    say("convert title=" + txt(".sheet-title"));
+    click("#cvPick"); await wait(60);
+    click('#pickGrid [data-pick="ETH"]'); await wait(60);
+    say("convert target=" + txt(".pick-main b"));
+    click("#scrim"); await wait(60);
+
+    // admin
+    click('[data-goto="portfolio"]'); await wait(80);
+    click("#openSecretPf"); await wait(80);
+    say("secret on=" + q("#secret").classList.contains("is-on"));
+    say("bal fields=" + qa("[data-bal]").length);
+    q("#sCash").value = "1234,50";
+    q('[data-bal="BTC"]').value = "0,5";
+    click("#secretSave"); await wait(80);
+    say("after save pf=" + txt("#pfBal"));
+    say("avatar=" + txt("#avatarBtn"));
+
+    // lock + pin
+    click('[data-goto="more"]'); await wait(60);
+    click("#lockApp"); await wait(60);
+    say("pin on=" + q("#pin").classList.contains("is-on"));
+    for (let i = 0; i < 6; i++) click('[data-k="1"]');
+    await wait(300);
+    say("after pin app=" + q("#app").classList.contains("is-on"));
+
+    say("DONE");
+  })();
+});
+</script>
+
+</body></html>

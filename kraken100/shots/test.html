@@ -1,0 +1,162 @@
+﻿<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>DONE</title></head>
+<body>
+<pre id="log">PASS app visible on #app
+FAIL pill visible
+PASS explorer tab switches
+PASS explorer tab active state
+PASS portfolio header grouped
+PASS kebab shows on portfolio
+PASS more tab switches
+PASS sheet opens
+PASS sheet closes on scrim
+PASS home hides pill
+PASS crypto tab lists rows (12)
+PASS xstocks tab lists rows
+PASS favorites list restored
+PASS detail opens
+PASS detail name
+PASS one range active
+PASS range 1M active
+PASS chart rendered
+FAIL star toggles
+PASS back to app
+PASS search opens
+PASS search filters to 1
+PASS crypto filter (12)
+PASS secret opens
+PASS avatar initial updates
+PASS cash updates (123,45 Γé¼)
+PASS returns to app after save
+PASS pin screen opens
+PASS pin dots fill
+PASS skip unlocks</pre>
+<iframe id="fr" src="/index.html#app" style="width:600px;height:900px;border:0"></iframe>
+<script>
+const out = [];
+const log = (ok, m) => { out.push((ok ? "PASS " : "FAIL ") + m); };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const fr = document.getElementById("fr");
+
+fr.onload = async () => {
+  const w = fr.contentWindow, d = fr.contentDocument;
+  await sleep(2500);
+  const q = s => d.querySelector(s);
+  const qa = s => Array.from(d.querySelectorAll(s));
+  const visible = el => el && el.classList.contains("is-on");
+  const click = el => el.dispatchEvent(new w.MouseEvent("click", { bubbles: true }));
+
+  try {
+    log(visible(q("#app")), "app visible on #app");
+    log(!q("#appHead").classList.contains("no-pill"), "pill visible");
+
+    // tabs
+    click(q('.tab[data-goto="explorer"]'));
+    await sleep(200);
+    log(visible(q('[data-view="explorer"]')), "explorer tab switches");
+    log(q('.tab[data-goto="explorer"]').classList.contains("is-on"), "explorer tab active state");
+
+    click(q('.tab[data-goto="portfolio"]'));
+    await sleep(200);
+    log(q("#headRight").classList.contains("grouped"), "portfolio header grouped");
+    log(q("#headMore").classList.contains("on"), "kebab shows on portfolio");
+
+    click(q('.tab[data-goto="more"]'));
+    await sleep(200);
+    log(visible(q('[data-view="more"]')), "more tab switches");
+
+    // sheet open/close
+    click(q('[data-sheet="funded"]'));
+    await sleep(300);
+    log(q("#sheet").classList.contains("on"), "sheet opens");
+    click(q("#scrim"));
+    await sleep(300);
+    log(!q("#sheet").classList.contains("on"), "sheet closes on scrim");
+
+    // back home + category tabs
+    click(q('.tab[data-goto="home"]'));
+    await sleep(200);
+    log(q("#appHead").classList.contains("no-pill"), "home hides pill");
+    click(q('.cat-tab[data-cat="crypto"]'));
+    await sleep(200);
+    const cryptoRows = qa("#homeList .row").length;
+    log(cryptoRows > 5, "crypto tab lists rows (" + cryptoRows + ")");
+    click(q('.cat-tab[data-cat="xstocks"]'));
+    await sleep(200);
+    log(qa("#homeList .row").length >= 5, "xstocks tab lists rows");
+    click(q('.cat-tab[data-cat="fav"]'));
+    await sleep(200);
+    log(qa("#homeList .row").length >= 3, "favorites list restored");
+
+    // asset detail
+    click(q('#homeList .row[data-asset="BTC"]'));
+    await sleep(600);
+    log(visible(q("#detail")), "detail opens");
+    log(/Bitcoin/.test(q("#detName").textContent), "detail name");
+    log(qa("#detRanges button.is-on").length === 1, "one range active");
+    click(q('#detRanges button[data-range="1M"]'));
+    await sleep(500);
+    log(q('#detRanges button[data-range="1M"]').classList.contains("is-on"), "range 1M active");
+    log(q("#detChart svg") !== null, "chart rendered");
+    click(q("#detStar"));
+    await sleep(200);
+    log(q("#detStar").classList.contains("is-on"), "star toggles");
+    click(q("#detBack"));
+    await sleep(300);
+    log(visible(q("#app")), "back to app");
+
+    // search
+    click(q("#searchBtn"));
+    await sleep(300);
+    log(visible(q("#searchScreen")), "search opens");
+    const inp = q("#searchInput");
+    inp.value = "sol";
+    inp.dispatchEvent(new w.Event("input", { bubbles: true }));
+    await sleep(200);
+    log(qa("#searchList .row").length === 1, "search filters to 1");
+    inp.value = "";
+    inp.dispatchEvent(new w.Event("input", { bubbles: true }));
+    click(q('.chip[data-f="crypto"]'));
+    await sleep(200);
+    const n = qa("#searchList .row").length;
+    log(n >= 10 && qa('#searchList .row[data-asset="NVDAx"]').length === 0, "crypto filter (" + n + ")");
+    click(q("#searchBack"));
+    await sleep(300);
+
+    // secret page
+    click(q('.tab[data-goto="more"]'));
+    await sleep(200);
+    click(q("#openSecret"));
+    await sleep(300);
+    log(visible(q("#secret")), "secret opens");
+    q("#sFirst").value = "testeur";
+    q("#sCash").value = "123,45";
+    click(q("#secretSave"));
+    await sleep(300);
+    log(q("#avatarBtn").textContent === "T", "avatar initial updates");
+    log(/123,45/.test(q("#balancePill").textContent), "cash updates (" + q("#balancePill").textContent + ")");
+    log(visible(q("#app")), "returns to app after save");
+
+    // pin
+    click(q('.tab[data-goto="more"]'));
+    await sleep(200);
+    click(q("#lockApp"));
+    await sleep(300);
+    log(visible(q("#pin")), "pin screen opens");
+    for (const k of ["1","2","3","4"]) {
+      click(qa('#pinPad button[data-k]').find(b => b.dataset.k === k));
+      await sleep(40);
+    }
+    log(qa("#pinDots i.on").length === 4, "pin dots fill");
+    click(q("#pinSkip"));
+    await sleep(300);
+    log(visible(q("#app")), "skip unlocks");
+  } catch (e) {
+    out.push("ERROR " + e.message + "\n" + e.stack);
+  }
+  document.getElementById("log").textContent = out.join("\n");
+  document.title = "DONE";
+};
+</script>
+
+</body></html>

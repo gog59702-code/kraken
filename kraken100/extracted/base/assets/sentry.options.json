@@ -1,0 +1,1 @@
+{"dsn":"https://ad9d460d79834662a1719ead3052fc57@o552333.ingest.sentry.io/5690849","environment":"production","maxBreadcrumbs":50,"attachStacktrace":false,"enableNdkScopeSync":true,"enableAppHangTracking":false,"release":"com.kraken.invest.app@3.89.0+14771240","dist":"14771240"}

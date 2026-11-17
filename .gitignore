@@ -1,0 +1,9 @@
+# GitHub refuse tout fichier > 100 Mo (limite dure, non contournable en push classique).
+# Ces deux APK sources dépassent la limite : ils restent en local.
+kraken100/extracted/apk/base.apk
+kraken100/extracted/apk/split_config.x86_64.apk
+
+# artefacts locaux
+Thumbs.db
+desktop.ini
+node_modules/
