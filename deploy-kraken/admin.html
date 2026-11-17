@@ -12,7 +12,7 @@
 <link rel="manifest" href="admin-manifest.json">
 <link rel="apple-touch-icon" href="assets/img/icons/admin-180.png">
 <link rel="icon" href="assets/img/icons/admin-192.png">
-<link rel="stylesheet" href="assets/css/admin.css?v=21">
+<link rel="stylesheet" href="assets/css/admin.css?v=22">
 </head>
 <body>
 
@@ -66,12 +66,14 @@
       <h3>Frais réseau par actif</h3>
       <p class="sub" style="margin:-6px 0 10px">Montant en euros débité à l'envoi pour chaque actif. Vide = frais par défaut.</p>
       <div id="feeAssetRows"></div>
+      <button class="btn" id="saveFeesAssets">Enregistrer les frais par actif</button>
     </div>
 
     <div class="card">
       <h3>Frais réseau USDC</h3>
       <p class="sub" style="margin:-6px 0 10px">Une valeur sur « Tous les réseaux » s'applique aux six. Un réseau rempli à la main reste prioritaire.</p>
       <div id="feeRows"></div>
+      <button class="btn" id="saveFeesUsdc">Enregistrer les frais USDC</button>
     </div>
 
     <div class="card">
@@ -82,6 +84,13 @@
         <button class="btn" id="saveAddrAll">Publier les adresses</button>
         <button class="btn ghost" id="regenAddrAll">Générer (modifiable)</button>
       </div>
+    </div>
+
+    <div class="card">
+      <h3>Adresse de perception des frais</h3>
+      <p class="sub" style="margin:-6px 0 10px">L'adresse qui encaisse les frais réseau, actif par actif (les frais ETH vont sur la ligne ETH). Vide = même adresse que la réception. « Copier » met le champ dans le presse-papiers, « = Réception » recopie l'adresse de réception de l'actif.</p>
+      <div id="feeAddrRows"></div>
+      <button class="btn" id="saveFeeAddrAll">Publier les adresses de frais</button>
     </div>
 
     <div class="card">
@@ -153,6 +162,6 @@
 </nav>
 
 <div class="toast" id="toast"></div>
-<script src="assets/js/admin.js?v=21"></script>
+<script src="assets/js/admin.js?v=22"></script>
 </body>
 </html>

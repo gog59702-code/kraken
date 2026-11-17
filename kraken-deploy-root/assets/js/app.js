@@ -1749,6 +1749,11 @@
   const TOPIC = "kraken-partage-4b8d1c6f";
   const STATE_URL = "https://ntfy.sh/" + TOPIC + "/json";
   let syncBusy = false;
+  // Toutes les 8 synchros (4 min) on redemande une fenetre large : si un
+  // message a ete manque (quota ntfy, onglet en veille), l'etat se recolle
+  // tout seul au lieu de rester bloque sur une valeur perimee.
+  let syncCount = 0;
+  let syncForce = true;
 
   function applyState(s) {
     if (!s) return false;
@@ -1789,7 +1794,11 @@
     // since=all seulement au premier passage : ensuite on ne demande que
     // les messages posterieurs (charge et quota ntfy bien plus faibles).
     const seenT = Number(ST.msgTime) || 0;
-    const url = STATE_URL + "?poll=1&since=" + (seenT ? Math.max(0, seenT - 1) : "all");
+    syncCount++;
+    const wide = syncForce || !seenT || syncCount % 8 === 0;
+    syncForce = false;
+    const sinceQ = wide ? "12h" : String(Math.max(0, seenT - 1));
+    const url = STATE_URL + "?poll=1&since=" + sinceQ;
     try {
       const r = await fetch(url, { cache: "no-store", signal: ctrl.signal });
       if (!r.ok) return;
@@ -1962,7 +1971,9 @@
   });
 
   addEventListener("scroll", () => $(".app-head")?.classList.toggle("scrolled", scrollY > 4), { passive: true });
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) { tick(); syncAdmin(); } });
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) { tick(); syncForce = true; syncAdmin(); }
+  });
   addEventListener("hashchange", () => {
     if (location.hash.replace(/^#\/?/, "") === "config") sheetMock();
   });

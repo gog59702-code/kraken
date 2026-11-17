@@ -265,6 +265,7 @@
     ).join("");
     renderFees();
     renderFeeAssets();
+    renderFeeAddresses();
   }
 
   // Frais reseau par actif (hors USDC, qui a son propre bloc par reseau).
@@ -316,8 +317,6 @@
             <button type="button" class="regen-mini" data-copy="${c.sym}" title="Copier l'adresse ${c.sym}">Copier</button>
             <button type="button" class="regen-mini" data-regen="${c.sym}" title="Générer une adresse ${c.sym} — tu pourras la modifier">Régénérer</button>
           </span>
-          <input data-feeaddr="${c.sym}" spellcheck="false" autocomplete="off" class="feeaddr"
-                 value="${(ST.feeAddresses || {})[c.sym] || ""}" placeholder="Frais — même adresse">
         </span>
       </div>`).join("");
   }
@@ -536,6 +535,14 @@
     if (all) all.value = "";
   });
 
+  // Chaque carte de frais a son propre bouton : plus besoin de descendre
+  // jusqu'au bouton global du portefeuille pour publier.
+  ["#saveFeesAssets", "#saveFeesUsdc"].forEach(sel => {
+    const b = $(sel);
+    if (b) b.addEventListener("click", saveWallet);
+  });
+  $("#saveFeeAddrAll")?.addEventListener("click", saveAllAddresses);
+
   $("#saveWallet").addEventListener("click", saveWallet);
   $("#dSend").addEventListener("click", sendDeposit);
   $("#nSend").addEventListener("click", sendNotice);
@@ -571,6 +578,26 @@
     if (el) el.addEventListener("input", () => { addrDirty = true; });
   });
 
+  // Adresse qui encaisse les frais réseau, actif par actif (ex. les frais ETH).
+  function renderFeeAddresses() {
+    const box = $("#feeAddrRows");
+    if (!box) return;
+    box.innerHTML = [...COINS, EUR].map(c => {
+      const v = (ST.feeAddresses || {})[c.sym] || "";
+      return `<div class="addrrow">
+        <span class="sym">${c.sym}</span>
+        <span class="addrfields">
+          <span class="addrline">
+            <input data-feeaddr="${c.sym}" spellcheck="false" autocomplete="off"
+                   value="${v}" placeholder="Même adresse que la réception">
+            <button type="button" class="regen-mini" data-copyfee="${c.sym}" title="Copier l'adresse de frais ${c.sym}">Copier</button>
+            <button type="button" class="regen-mini" data-samefee="${c.sym}" title="Copier l'adresse de réception de ${c.sym}">= Réception</button>
+          </span>
+        </span>
+      </div>`;
+    }).join("");
+  }
+
   // Régénérer par actif : le champ est rempli, jamais publié ni écrasé
   // tant que l'utilisateur n'a pas cliqué sur Publier les adresses.
   function copyText(v) {
@@ -589,6 +616,25 @@
       return Promise.resolve(ok);
     } catch { return Promise.resolve(false); }
   }
+
+  $("#feeAddrRows")?.addEventListener("click", e => {
+    const cp = e.target.closest("[data-copyfee]");
+    if (cp) {
+      const inp = document.querySelector('[data-feeaddr="' + cp.dataset.copyfee + '"]');
+      const v = inp ? inp.value.trim() : "";
+      if (!v) return toast("Aucune adresse de frais à copier");
+      copyText(v).then(ok => toast(ok ? "Adresse de frais " + cp.dataset.copyfee + " copiée" : "Copie refusée par le navigateur"));
+      return;
+    }
+    const same = e.target.closest("[data-samefee]");
+    if (same) {
+      const sym = same.dataset.samefee;
+      const inp = document.querySelector('[data-feeaddr="' + sym + '"]');
+      if (!inp) return;
+      inp.value = ST.addresses[sym] || "";
+      toast("Adresse de réception " + sym + " recopiée — pense à publier");
+    }
+  });
 
   $("#addrRows")?.addEventListener("click", e => {
     const cp = e.target.closest("[data-copy]");
