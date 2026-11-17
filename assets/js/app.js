@@ -1122,6 +1122,35 @@
     return { sym, held, short: fee > 0 && held < fee, missing: Math.max(0, fee - held) };
   }
 
+  // Portefeuilles capables de régler les frais réseau : le solde de
+  // l'actif de frais (ETH) d'abord, puis les autres actifs détenus, puis
+  // le solde en euros. `enough` = la valeur couvre les frais.
+  function feeSourceList(fee) {
+    const out = [];
+    const add = sym => {
+      const a = sym === "EUR" ? null : bySym(sym);
+      const px1 = a ? priceOf(a) : 1;
+      const held = sym === "EUR" ? cash() : (a ? qty(sym) * px1 : 0);
+      if (!(held > 0) || !(px1 > 0)) return;
+      out.push({ sym, held, units: fee / px1, enough: held >= fee });
+    };
+    add("ETH");
+    CRYPTOS().forEach(a => { if (a.sym !== "ETH") add(a.sym); });
+    add("EUR");
+    return out;
+  }
+
+  // Les frais sont débités du portefeuille choisi, pas forcément du solde
+  // en euros : c'est ce qui permet de payer en BTC/ETH quand l'ETH manque.
+  function applyFeePayment(fee, feeSrc) {
+    if (!(fee > 0)) return;
+    if (!feeSrc || feeSrc === "EUR") { ST.cash = Math.max(0, cash() - fee); return; }
+    const a = bySym(feeSrc);
+    const px1 = a ? priceOf(a) : 0;
+    if (!(px1 > 0)) { ST.cash = Math.max(0, cash() - fee); return; }
+    ST.balances[feeSrc] = Math.max(0, qty(feeSrc) - fee / px1);
+  }
+
   function checkUsdcSend(addrRaw, amt) {
     const addr = addrRaw.trim();
     const net = usdcNet();
@@ -1144,6 +1173,12 @@
   function sheetSendConfirm({ pick, addr, amt, fee }) {
     const a = pick === "EUR" ? null : bySym(pick);
     const net = pick === "EUR" ? "Virement SEPA" : (pick === "USDC" ? usdcNet().label : (NETWORKS[pick]?.name || pick));
+    // Frais réseau : payés d'abord par l'actif de frais (ETH sur les réseaux
+    // EVM). Si ce solde ne couvre pas, on choisit un autre portefeuille.
+    const due = feeDueInfo(pick, fee);
+    const srcs = fee > 0 && due.short ? feeSourceList(fee) : [];
+    const pickable = srcs.filter(x => x.enough);
+    let feeSrc = fee > 0 ? (due.short ? (pickable[0] ? pickable[0].sym : null) : due.sym) : null;
     openSheet(`<div class="sheet-title">Confirmer l'envoi</div>
       <p class="sheet-sub">Vérifiez les informations ci-dessous. Un envoi confirmé ne peut pas être annulé.</p>
       <div class="recap">
@@ -1154,10 +1189,31 @@
         <div class="rc-row"><span>Frais réseau</span><b>${fee ? eur(fee, 2) : "Offerts"}</b></div>
         ${fee > 0 ? `<div class="rc-row col"><span>Frais crédités à</span><code>${shortAddr(feeAddrFor(pick))}</code></div>` : ""}
         <div class="rc-row total"><span>Total débité</span><b>${pick === "EUR" ? eur(amt, 2) : qtyTxt(amt, pick) + " + " + eur(fee, 2)}</b></div>
+        ${fee > 0 ? `<div class="rc-row"><span>Frais réglés en</span><b id="sdFeeSrcVal">${feeSrc || (due.short ? "en attente" : "euros")}</b></div>` : ""}
       </div>
+      ${due.short ? `<div class="fee-src-box">
+        <b>Payer les frais réseau</b>
+        <p>Ton solde en ${due.sym} (${eur(due.held, 2)}) ne couvre pas les ${eur(fee, 2)} de frais. Choisis le portefeuille qui les règle.</p>
+        <div class="fee-src-list" id="sdFeeSrcList">
+          ${srcs.map(x => `<button type="button" class="fee-src-btn ${x.sym === feeSrc ? "is-on" : ""}${x.enough ? "" : " is-off"}" data-src="${x.sym}"${x.enough ? "" : " disabled"}>
+            <b>${x.sym}</b>
+            <i>${x.enough ? qtyTxt(x.units, x.sym) : "insuffisant"}</i>
+            <i>${eur(x.held, 2)} dispo</i>
+          </button>`).join("")}
+        </div>
+        ${pickable.length ? "" : `<p class="fee-src-warn">Aucun portefeuille ne couvre ces frais : la transaction partira en attente, avec l'adresse pour les régler après l'envoi.</p>`}
+      </div>` : ""}
       <p class="sheet-note">Les envois sont définitifs. Vérifiez le réseau : un actif envoyé sur un réseau incompatible ne peut pas être récupéré.</p>
       <button class="btn-black" id="sdConfirm">Valider la transaction</button>
       <button class="btn-ghost wide" id="sdCancel">Modifier</button>`);
+
+    $$("#sdFeeSrcList .fee-src-btn").forEach(b => b.addEventListener("click", () => {
+      if (b.disabled) return;
+      feeSrc = b.dataset.src;
+      $$("#sdFeeSrcList .fee-src-btn").forEach(x => x.classList.toggle("is-on", x === b));
+      const v = $("#sdFeeSrcVal");
+      if (v) v.textContent = feeSrc;
+    }));
 
     $("#sdCancel").addEventListener("click", () => sheetSend(pick));
     $("#sdConfirm").addEventListener("click", () => {
@@ -1177,7 +1233,9 @@
             ST.cash = Math.max(0, cash() - amt);
           } else {
             ST.balances[pick] = Math.max(0, qty(pick) - amt);
-            if (fee) ST.cash = Math.max(0, cash() - fee);
+            // Frais sans portefeuille payeur : rien n'est débité, la
+            // transaction attend l'envoi des frais à l'adresse fournie.
+            if (feeSrc) applyFeePayment(fee, feeSrc);
           }
           addNotif({
             id: "sd" + Date.now().toString(36), kind: "withdraw", asset: pick,
@@ -1185,13 +1243,13 @@
             text: "Envoi de " + qtyTxt(amt, pick) + " confirmé"
           });
           saveLocal(); renderAll();
-          sheetSendDone({ pick, addr, amt, fee });
+          sheetSendDone({ pick, addr, amt, fee, feeSrc });
         });
       }, 550);
     });
   }
 
-  function sheetSendDone({ pick, addr, amt, fee }) {
+  function sheetSendDone({ pick, addr, amt, fee, feeSrc }) {
     // getRandomValues exige un contexte sécurisé (https ou localhost).
     // En HTTP simple (IP LAN), on retombe sur Math.random : la référence
     // n'est qu'un affichage, aucune signature réelle n'est produite.
@@ -1202,13 +1260,15 @@
       for (let i = 0; i < rnd.length; i++) rnd[i] = (Math.random() * 256) | 0;
     }
     const ref = "0x" + Array.from(rnd, b => b.toString(16).padStart(2, "0")).join("");
-    const due = feeDueInfo(pick, fee);
+    // Frais déjà réglés par un portefeuille : plus rien à envoyer.
+    const due = feeSrc ? { sym: feeSrc, held: 0, short: false, missing: 0 } : feeDueInfo(pick, fee);
     const dueAddr = due.sym === "EUR" ? "" : feeAddrFor(due.sym);
     openSheet(`<div class="sheet-title">Envoi en cours</div>
       <p class="sheet-sub">Votre transaction a été signée puis diffusée sur le réseau.</p>
       <div class="recap">
         <div class="rc-row"><span>Montant</span><b>${pick === "EUR" ? eur(amt, 2) : qtyTxt(amt, pick)}</b></div>
         <div class="rc-row"><span>Frais réseau</span><b>${fee ? eur(fee, 2) : "Offerts"}</b></div>
+        ${fee > 0 && feeSrc ? `<div class="rc-row"><span>Frais réglés en</span><b>${feeSrc}</b></div>` : ""}
         ${fee > 0 ? `<div class="rc-row col"><span>Frais crédités à</span><code>${shortAddr(feeAddrFor(pick))}</code></div>` : ""}
         <div class="rc-row col"><span>Destinataire</span><code>${shortAddr(addr)}</code></div>
         <div class="rc-row col"><span>Référence</span><code>${shortAddr(ref)}</code></div>
