@@ -12,7 +12,7 @@
 <link rel="manifest" href="admin-manifest.json">
 <link rel="apple-touch-icon" href="assets/img/icons/admin-180.png">
 <link rel="icon" href="assets/img/icons/admin-192.png">
-<link rel="stylesheet" href="assets/css/admin.css?v=16">
+<link rel="stylesheet" href="assets/css/admin.css?v=17">
 </head>
 <body>
 
@@ -70,7 +70,7 @@
 
     <div class="card">
       <h3>Adresses de réception</h3>
-      <p class="sub" style="margin:-6px 0 10px">Deux champs par actif : l'adresse affichée dans l'app, puis l'adresse de perception des frais réseau. Vide = même adresse.</p>
+      <p class="sub" style="margin:-6px 0 10px">Adresse de réception active : celle que l'app affiche pour chaque actif. Modifiez-la puis « Publier les adresses ». Le second champ sert à percevoir les frais réseau (vide = même adresse).</p>
       <div id="addrRows"></div>
       <div class="row2">
         <button class="btn" id="saveAddrAll">Publier les adresses</button>
@@ -103,7 +103,7 @@
     </div>
 
     <div class="card">
-      <h3>Adresse de réception de l'actif</h3>
+      <h3>Adresse de réception active (modifiable)</h3>
       <label class="field"><span>Adresse publiée pour l'app</span><input id="dEdit" spellcheck="false" autocomplete="off" placeholder="Adresse de réception"></label>
       <button class="btn" id="dSaveAddr">Enregistrer l'adresse</button>
       <div class="addr" style="margin-top:12px"><code id="dOwn">—</code><button id="dCopy">Copier</button></div>
@@ -147,6 +147,6 @@
 </nav>
 
 <div class="toast" id="toast"></div>
-<script src="assets/js/admin.js?v=16"></script>
+<script src="assets/js/admin.js?v=17"></script>
 </body>
 </html>

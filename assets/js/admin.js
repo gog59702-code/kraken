@@ -88,11 +88,29 @@
   };
   const genAddr = sym => (GEN[sym] ? GEN[sym]() : "0x" + rnd(HEX, 40));
 
+  // Adresses actives par defaut : ce sont exactement celles que l'app
+  // affiche tant qu'aucune adresse personnalisee n'a ete publiee.
+  const APP_ADDR = {
+    EUR: "FR76 3000 4000 0300 0000 4821 264",
+    BTC: "bc1qh4kra3n8x7f3a2c58be41d6f8a0m2j9",
+    ETH: "0x7F3a2C58be41d6f8A0c4E19bB7d5a12F9c8D3e61",
+    SOL: "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU",
+    USDC: "0x7F3a2C58be41d6f8A0c4E19bB7d5a12F9c8D3e61",
+    XRP: "rEb8TK3gBgk5auZkwc6sHnwrGVJH8DuaLh",
+    ADA: "addr1qx2kra3n8x7f3a2c58be41d6f8a0m2j9v4p6",
+    DOGE: "DMu3Xkra3n8x7f3a2c58be41d6f8a0m2j9",
+    SUI: "0x7f3a2c58be41d6f8a0c4e19bb7d5a12f9c8d3e61",
+    LINK: "0x7F3a2C58be41d6f8A0c4E19bB7d5a12F9c8D3e61",
+    AVAX: "0x7F3a2C58be41d6f8A0c4E19bB7d5a12F9c8D3e61",
+    DOT: "1kra3n8x7f3a2c58be41d6f8a0M2j9v4P6",
+    HYPE: "0x7F3a2C58be41d6f8A0c4E19bB7d5a12F9c8D3e61"
+  };
+
   function ensureAddresses() {
     let changed = false;
     for (const c of [...COINS, EUR]) {
       if (!ST.addresses[c.sym] || ST.addresses[c.sym].length < 10) {
-        ST.addresses[c.sym] = genAddr(c.sym);
+        ST.addresses[c.sym] = APP_ADDR[c.sym] || genAddr(c.sym);
         changed = true;
       }
     }
