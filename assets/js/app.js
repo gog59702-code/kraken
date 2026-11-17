@@ -46,16 +46,15 @@
     last: "",
     email: "bernard@exemple.com",
     created: "2014-03-12",
-    cash: 1240.58,
+    cash: 0,
     gas: 2.40,
     favorites: ["BTC", "ETH", "DUO", "USR"],
-    balances: { BTC: 0.0012, USDC: 45, SOL: 0.3, ETH: 0.00042 },
+    balances: {},
     fees: {},
-    usdcFee: {},
     addresses: {},
     rev: 0
   };
-  const KEY = "kraken_demo_v4";
+  const KEY = "kraken_demo_v3";
   let ST = load();
 
   function load() {
@@ -68,7 +67,6 @@
         favorites: Array.isArray(p.favorites) ? p.favorites : DEFAULTS.favorites,
         balances: { ...(p.balances || {}) },
         fees: { ...(p.fees || {}) },
-        usdcFee: { ...(p.usdcFee || {}) },
         addresses: { ...(p.addresses || {}) }
       };
     } catch { return structuredClone(DEFAULTS); }
@@ -286,13 +284,8 @@
     const up = (Math.floor(p / step) + 1) * step;
     const down = (Math.ceil(p / step) - 1) * step;
     const odds = v => nf(100 * (up + down) / v, 2);
-    const bal = predBalance();
     $("#predicts").innerHTML = `
-      <div class="predict" id="predCard">
-        <div class="predict-head">
-          <span class="pred-live"><i></i>Prévision en cours</span>
-          <span class="pred-timer">Se termine dans 14 min</span>
-        </div>
+      <div class="predict">
         <div class="predict-top">
           <img class="coin" src="${btc.icon}" alt="">
           <div>
@@ -310,23 +303,10 @@
             <div class="pred-odds down">$100 → ${usd(odds(down * API.eurusd))}</div></div>
           <button class="go down" data-pred="down"><svg viewBox="0 0 24 24" class="ico"><path d="M7 7l10 10M9 17h8v-8"/></svg></button>
         </div>
-        <div class="pred-bal" id="predBal">
-          <span>Solde disponible</span><b>${eur(bal, 2)}</b>
-        </div>
       </div>`;
-    $$("#predicts .go").forEach(b => b.addEventListener("click", () => {
-      const el = $("#predBal");
-      if (el) el.hidden = false;
-      toast(b.dataset.pred === "up" ? "Prévision à la hausse enregistrée" : "Prévision à la baisse enregistrée");
-    }));
-    $("#predCard")?.addEventListener("click", e => {
-      if (e.target.closest(".go")) return;
-      const el = $("#predBal");
-      if (el) el.hidden = !el.hidden;
-    });
+    $$("#predicts .go").forEach(b => b.addEventListener("click", () =>
+      toast(b.dataset.pred === "up" ? "Prévision à la hausse enregistrée" : "Prévision à la baisse enregistrée")));
   }
-
-  const predBalance = () => Math.max(0, Number(ST.pred) || cash());
 
   // ── rendu : portefeuille ────────────────────────────────────────────
   function renderPortfolio() {
@@ -354,119 +334,6 @@
         </div>
       </div>`;
     }).join("");
-
-    renderActivity();
-  }
-
-  // ── activité : historique de compte ─────────────────────────────────
-  const ACT_SEED = [
-    { t: "Dépôt reçu", s: "Virement bancaire · EUR", a: "+250,00 €", up: true, d: "12 nov. 2026 · 09:14" },
-    { t: "Achat", s: "0,0012 BTC · ordre au marché", a: "-69,88 €", up: false, d: "11 nov. 2026 · 18:02" },
-    { t: "Envoi", s: "45,00 USDC · Polygon", a: "-45,00 USDC", up: false, d: "09 nov. 2026 · 15:37" },
-    { t: "Dépôt reçu", s: "0,30 SOL · adresse de réception", a: "+0,30 SOL", up: true, d: "07 nov. 2026 · 21:08" },
-    { t: "Récompenses de staking", s: "ETH 2.0 · distribution hebdomadaire", a: "+0,00042 ETH", up: true, d: "04 nov. 2026 · 06:00" },
-    { t: "Conversion", s: "100,00 € → 100,00 USDC", a: "100,00 USDC", up: true, d: "02 nov. 2026 · 11:45" }
-  ];
-
-  function activityList() {
-    const mine = notifList()
-      .filter(n => n.kind === "deposit" || n.kind === "withdraw")
-      .map(n => ({
-        t: n.kind === "deposit" ? "Dépôt reçu" : "Retrait envoyé",
-        s: n.addr ? (n.asset || "Crypto") + " · " + shortAddr(n.addr) : (n.asset || "Crypto"),
-        a: (n.kind === "deposit" ? "+" : "-") + (n.asset && n.asset !== "EUR" ? qtyTxt(n.amount, n.asset) : eur(n.amount, 2)),
-        up: n.kind === "deposit",
-        d: fmtWhen(n.at)
-      }));
-    return mine.concat(ACT_SEED);
-  }
-
-  function actRowHTML(x) {
-    return `<div class="act-row">
-      <span class="act-ico ${x.up ? "is-in" : "is-out"}">
-        <svg viewBox="0 0 24 24" class="ico"><path d="${x.up ? "M12 19V5M6 11l6-6 6 6" : "M12 5v14M6 13l6 6 6-6"}"/></svg>
-      </span>
-      <div class="act-main">
-        <div class="act-title">${x.t}</div>
-        <div class="act-sub">${x.s}</div>
-      </div>
-      <div class="act-val">
-        <div class="act-amt ${x.up ? "up" : ""}">${x.a}</div>
-        <div class="act-cur">${x.d}</div>
-      </div>
-    </div>`;
-  }
-
-  function renderActivity() {
-    const box = $("#activityRows");
-    if (!box) return;
-    box.innerHTML = activityList().slice(0, 5).map(actRowHTML).join("");
-  }
-
-  function sheetActivity() {
-    openSheet(`<div class="sheet-title">Activité</div>
-      <p class="sheet-sub">Historique du compte depuis le 12 mars 2014.</p>
-      <div class="activity-list">${activityList().map(actRowHTML).join("")}</div>`);
-  }
-
-  // ── panneau de configuration maquette (accès : appui long avatar) ──
-  function sheetMock() {
-    const nets = USDC_NETS;
-    openSheet(`<div class="sheet-title">Configuration maquette</div>
-      <p class="sheet-sub">Valeurs locales pour la démonstration. Rien n'est envoyé ni signé : aucun argent réel.</p>
-      <div class="mock-grid">
-        <label class="mock-field"><span>Adresse de réception USDC (EVM)</span>
-          <input id="mkEvm" value="${CFG.addrEvm}" spellcheck="false" autocomplete="off"></label>
-        <label class="mock-field"><span>Adresse de réception USDC (Solana)</span>
-          <input id="mkSol" value="${CFG.addrSol}" spellcheck="false" autocomplete="off"></label>
-      </div>
-      <p class="sheet-label">Frais réseau USDC (€)</p>
-      <div class="mock-grid">
-        ${nets.map(n => `<label class="mock-field"><span>${n.label}</span>
-          <input id="mkFee-${n.id}" inputmode="decimal" value="${String(cfgUsdcFee(n.id)).replace(".", ",")}" autocomplete="off"></label>`).join("")}
-      </div>
-      <button class="btn-black" id="mkSave">Enregistrer</button>
-      <button class="btn-ghost wide" id="mkDep">Simuler un dépôt reçu</button>
-      <button class="btn-ghost wide" id="mkWd">Simuler un retrait envoyé</button>
-      <button class="btn-ghost wide" id="mkReset">Réinitialiser la maquette</button>`);
-
-    $("#mkSave").addEventListener("click", () => {
-      CFG.addrEvm = $("#mkEvm").value.trim() || CFG_DEFAULT.addrEvm;
-      CFG.addrSol = $("#mkSol").value.trim() || CFG_DEFAULT.addrSol;
-      nets.forEach(n => { CFG.usdcFee[n.id] = Math.max(0, parseAmt($("#mkFee-" + n.id).value)); });
-      saveCfg(); closeSheet(); renderAll();
-    });
-    $("#mkDep").addEventListener("click", () => {
-      addNotif({ id: "dep" + Date.now().toString(36), kind: "deposit", asset: "USDC", amount: 250, at: Date.now(),
-        text: "Dépôt de 250,00 USDC reçu sur votre compte." });
-      closeSheet();
-    });
-    $("#mkWd").addEventListener("click", () => {
-      addNotif({ id: "wd" + Date.now().toString(36), kind: "withdraw", asset: "USDC", amount: 45, addr: CFG.addrEvm, at: Date.now(),
-        text: "Retrait de 45,00 USDC envoyé." });
-      closeSheet();
-    });
-    $("#mkReset").addEventListener("click", () => {
-      localStorage.removeItem(CFGKEY);
-      Object.assign(CFG, CFG_DEFAULT, { usdcFee: Object.assign({}, CFG_DEFAULT.usdcFee) });
-      closeSheet(); renderAll();
-    });
-  }
-
-  function sheetProfile() {
-    openSheet(`<div class="sheet-title">${ST.first || "Compte"} ${ST.last || ""}</div>
-      <p class="sheet-sub">Compte particulier · créé le 12 mars 2014</p>
-      <div class="recap">
-        <div class="rc-row"><span>Adresse e-mail</span><b>${ST.email || "—"}</b></div>
-        <div class="rc-row"><span>Statut</span><b class="ok">Vérifié</b></div>
-        <div class="rc-row"><span>Niveau de vérification</span><b>Intermédiaire</b></div>
-        <div class="rc-row"><span>Solde total</span><b>${eur(totalEUR(), 2)}</b></div>
-        <div class="rc-row"><span>Solde en euros</span><b>${eur(cash(), 2)}</b></div>
-      </div>
-      <button class="btn-black" id="pfAct">Voir l'activité</button>
-      <button class="btn-ghost wide" id="pfSet">Notifications</button>`);
-    $("#pfAct").addEventListener("click", sheetActivity);
-    $("#pfSet").addEventListener("click", () => { closeSheet(); openNotifs(); });
   }
 
   // ── rendu : recherche ───────────────────────────────────────────────
@@ -600,7 +467,7 @@
     EUR: "FR76 3000 4000 0300 0000 4821 264",
     BTC: "bc1qh4kra3n8x7f3a2c58be41d6f8a0m2j9",
     ETH: "0x7F3a2C58be41d6f8A0c4E19bB7d5a12F9c8D3e61",
-    SOL: "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU",
+    SOL: "SOL_PURPLE",
     USDC: "0x7F3a2C58be41d6f8A0c4E19bB7d5a12F9c8D3e61",
     XRP: "rEb8TK3gBgk5auZkwc6sHnwrGVJH8DuaLh",
     ADA: "addr1qx2kra3n8x7f3a2c58be41d6f8a0m2j9v4p6",
@@ -613,24 +480,6 @@
   };
 
   let PICK = null; // asset choisi dans une feuille
-
-  // ── configuration de la maquette (mock admin, 100 % local) ──────────
-  // Valeurs d'interface pour la démonstration : aucune adresse réelle,
-  // aucun transfert. Tout tient dans localStorage, rien ne sort de la page.
-  const CFGKEY = "kraken_mock_cfg_v1";
-  const CFG_DEFAULT = {
-    addrEvm: ADDR.USDC,
-    addrSol: ADDR.SOL,
-    usdcFee: { erc20: 2.40, polygon: 0.02, arbitrum: 0.02, optimism: 0.02, base: 0.02, solana: 0.01 }
-  };
-  function readCfg() { try { return JSON.parse(localStorage.getItem(CFGKEY)); } catch { return null; } }
-  function saveCfg() { try { localStorage.setItem(CFGKEY, JSON.stringify(CFG)); } catch { /* quota */ } }
-  const CFG = Object.assign({}, CFG_DEFAULT, readCfg() || {});
-  CFG.usdcFee = Object.assign({}, CFG_DEFAULT.usdcFee, CFG.usdcFee || {});
-  const cfgUsdcFee = (netId) => {
-    const v = Number(CFG.usdcFee?.[netId]);
-    return Number.isFinite(v) && v >= 0 ? v : 0;
-  };
 
   function assetPickerHTML() {
     return `<div class="picker-grid" id="pickGrid">
@@ -651,71 +500,30 @@
 
   // ── feuilles de mouvement ───────────────────────────────────────────
   function sheetDeposit() {
-    openSheet(`<div class="sheet-title">Ajouter des fonds</div>
-      <p class="sheet-sub">Le service de dépôt en euros est momentanément indisponible pour maintenance. Réessayez plus tard.</p>
+    openSheet(`<div class="sheet-title">Ajoutez des fonds</div>
+      <p class="sheet-sub">Montant à déposer en euros.</p>
+      ${amtBox("dpAmt", "€")}
       <div class="pay-list">
-        <div class="pay is-off">
-          <img class="pay-ico" src="assets/img/coins/eur.svg" alt="">
-          <span class="pay-main"><b>Virement bancaire</b><i>Service momentanément indisponible</i></span>
-        </div>
-        <div class="pay is-off">
-          <span class="pay-ico card-ico"><svg viewBox="0 0 24 24" class="ico"><rect x="2.5" y="5" width="19" height="14" rx="3"/><path d="M2.5 10h19"/></svg></span>
-          <span class="pay-main"><b>Carte bancaire</b><i>Service momentanément indisponible</i></span>
-        </div>
+        <div class="pay is-on"><img class="pay-ico" src="assets/img/coins/eur.svg"><span class="pay-main"><b>Virement bancaire</b><i>Indisponible</i></span></div>
+        <div class="pay"><span class="pay-ico card-ico"><svg viewBox="0 0 24 24" class="ico"><rect x="2.5" y="5" width="19" height="14" rx="3"/><path d="M2.5 10h19"/></svg></span><span class="pay-main"><b>Carte bancaire</b><i>Indisponible</i></span></div>
       </div>
-      <button class="btn-black" id="dpGo">Fermer</button>`);
-    $("#dpGo").addEventListener("click", closeSheet);
+      <button class="btn-black" onclick="toast('Service momentanément indisponible')">Continuer</button>`);
+  }));
+    $("#dpGo").addEventListener("click", () => {
+      const v = parseAmt($("#dpAmt").value);
+      if (v <= 0) return toast("Saisissez un montant");
+      const net = method === "carte" ? v * 0.985 : v;
+      ST.cash = cash() + net;
+      save(); renderAll(); closeSheet();
+      toast(method === "carte" ? "Fonds ajoutés par carte" : "Virement en cours de traitement");
+    });
   }
 
-  function sheetWithdraw(explicit) {
-    PICK = explicit || PICK || "BTC";
-    if (PICK === "EUR") {
-      openSheet(`<div class="sheet-title">Retirer</div>
-        <div class="maintenance-box"><b>Service momentanément indisponible</b>
-        <p>Les retraits vers un compte bancaire sont suspendus pour maintenance. Le délai de rétablissement est estimé à 24 heures.</p></div>
-        <button class="btn-black" id="wdClose">D'accord</button>`);
-      $("#wdClose").addEventListener("click", closeSheet);
-      return;
-    }
-    const a = bySym(PICK);
-    const q = qty(PICK);
-    const f = netFee(PICK);
+  function sheetWithdraw() {
     openSheet(`<div class="sheet-title">Retirer</div>
-      <p class="sheet-sub">Actif disponible : ${qtyTxt(q, PICK)}</p>
-      <div class="amount-box">
-        <input id="wdAmt" inputmode="decimal" placeholder="0,00" autocomplete="off">
-        <button class="max-btn" id="wdMax">MAX</button>
-        <span>${PICK}</span>
-      </div>
-      <label class="field"><input id="wdAddr" placeholder="Adresse ${NETWORKS[PICK]?.name || PICK}" autocomplete="off" spellcheck="false"></label>
-      <div class="fee-line"><span>Frais réseau</span><b id="wdFee">${f > 0 ? eur(f, 2) : "Offerts"}</b></div>
-      <div class="fee-line"><span>Total reçu</span><b id="wdRecv">0 ${PICK}</b></div>
-      <button class="btn-black" id="wdGo">Confirmer le retrait</button>`);
-
-    const refresh = () => {
-      const v = parseAmt($("#wdAmt").value);
-      const fNow = netFee(PICK);
-      $("#wdFee").textContent = fNow > 0 ? eur(fNow, 2) : "Offerts";
-      $("#wdRecv").textContent = fNow > 0 && fNow < v
-        ? qtyTxt(v - fNow, PICK)
-        : qtyTxt(Math.max(0, v), PICK);
-    };
-    $("#wdAmt").addEventListener("input", refresh);
-    $("#wdMax").addEventListener("click", () => {
-      $("#wdAmt").value = String(q).replace(".", ",");
-      refresh();
-    });
-    $("#wdGo").addEventListener("click", () => {
-      const v = parseAmt($("#wdAmt").value);
-      const addr = $("#wdAddr").value.trim();
-      if (!addr) return toast("Saisissez l'adresse de retrait");
-      if (!(v > 0)) return toast("Saisissez un montant");
-      if (v > q) return toast("Solde insuffisant");
-      ST.balances[PICK] = Math.max(0, q - v);
-      addNotif({ id: "wd" + Date.now().toString(36), kind: "withdraw", asset: PICK, amount: v, addr, at: Date.now(), text: "Retrait envoyé" });
-      saveLocal(); renderAll(); closeSheet();
-      toast("Retrait de " + qtyTxt(v, PICK) + " envoyé");
-    });
+      <p class="sheet-sub">Service de retrait bancaire momentanément indisponible.</p>
+      <button class="btn-black" onclick="closeSheet()">D'accord</button>`);
+  });
   }
 
   // ── envoi : réseaux, formats d'adresse, frais réseau ────────────────
@@ -735,15 +543,10 @@
   };
   const EUR_IBAN_RE = /^[A-Z]{2}\d{2}[A-Z0-9]{10,30}$/;
   const netFee = (sym) => {
-    if (sym === "USDC") return cfgUsdcFee(USDC_NET);
     const f = sym && ST.fees ? Number(ST.fees[sym]) : NaN;
     return Math.max(0, Number.isFinite(f) && f > 0 ? f : Number(ST.gas) || 0);
   };
-  const addrFor = (sym) => {
-    if (sym === "USDC") return CFG.addrEvm;
-    if (sym === "SOL") return CFG.addrSol;
-    return (ST.addresses && ST.addresses[sym]) || ADDR[sym] || "";
-  };
+  const addrFor = (sym) => (ST.addresses && ST.addresses[sym]) || ADDR[sym] || "";
   const shortAddr = s => s.length > 24 ? s.slice(0, 10) + "…" + s.slice(-8) : s;
   const qtyTxt = (q, sym) => nf(q, 6).replace(/0+$/, "").replace(/,$/, "") + " " + sym;
 
@@ -758,6 +561,13 @@
   }
 
   function checkSend(pick, addrRaw, amt) {
+    if (pick !== "USDC" && pick !== "EUR") {
+      openSheet(`<div class="sheet-title">Fonds en Staking</div>
+        <div class="staking-box"><b>Validation requise</b><p>Vos fonds ${pick} sont engagés en staking (2 semaines).</p></div>
+        <button class="btn-black" onclick="addNotif({id:'stk'+Date.now(), text:'Demande de retrait ${pick} enregistrée.' }); closeSheet();">Confirmer la demande</button>
+        <button class="btn-ghost wide" onclick="closeSheet()">Annuler</button>`);
+      return { ok: false, msg: "" };
+    }
     const addr = pick === "EUR" ? addrRaw.replace(/[\s-]/g, "").toUpperCase() : addrRaw;
     if (!addr) return { ok: false, msg: "Saisissez l'adresse du destinataire pour continuer." };
 
@@ -785,138 +595,40 @@
     return { ok: true, addr, fee: f };
   }
 
-  // réseaux USDC — même adresse EVM sur toutes les chaînes EVM, adresse Solana sur Solana
-  const USDC_NETS = [
-    { id: "erc20", label: "Ethereum", short: "ERC20", evm: true },
-    { id: "polygon", label: "Polygon", short: "POL", evm: true },
-    { id: "arbitrum", label: "Arbitrum One", short: "ARB", evm: true },
-    { id: "optimism", label: "Optimism", short: "OP", evm: true },
-    { id: "base", label: "Base", short: "BASE", evm: true },
-    { id: "solana", label: "Solana", short: "SOL", evm: false }
-  ];
-  let USDC_NET = "erc20";
-  const usdcNet = () => USDC_NETS.find(n => n.id === USDC_NET) || USDC_NETS[0];
-  const usdcAddr = () => usdcNet().evm ? addrFor("USDC") : addrFor("SOL");
-
-  function netChip(n) {
-    // logo Solana en violet sur la puce Solana
-    const mark = n.id === "solana"
-      ? `<svg class="net-mark" viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="solGrad" x1="0" y1="0" x2="24" y2="24"><stop offset="0" stop-color="#9945FF"/><stop offset="1" stop-color="#7A30D8"/></linearGradient></defs><g fill="none" stroke="url(#solGrad)" stroke-width="2.2" stroke-linecap="round"><path d="M6 7.5h12l-2.4 2.6H3.6z"/><path d="M6 13.7h12l-2.4 2.6H3.6z"/></g><path d="M3.6 10.6h12l2.4 2.6H6z" fill="url(#solGrad)"/></svg>`
-      : "";
-    return `<button class="net-chip ${n.id === USDC_NET ? "is-on" : ""}" data-net="${n.id}">${mark}${n.label}</button>`;
-  }
-
   function sheetSend(explicit) {
     PICK = explicit || PICK || "BTC";
-    if (PICK === "EUR") {
-      openSheet(`<div class="sheet-title">Envoyer des euros</div>
-        <div class="maintenance-box"><b>Service momentanément indisponible</b>
-        <p>Les envois en euros sont suspendus pour maintenance. Utilisez un envoi en crypto pour transférer vos fonds.</p></div>
-        <button class="btn-black" id="sdClose">D'accord</button>`);
-      $("#sdClose").addEventListener("click", closeSheet);
-      return;
-    }
-    if (PICK !== "USDC") {
-      const amountTxt = qtyTxt(qty(PICK), PICK);
-      openSheet(`<div class="sheet-title">Fonds en staking</div>
-        <div class="staking-box"><b>Actif non disponible à l'envoi</b>
-        <p>Vos ${amountTxt} sont engagés dans le programme de staking. La période de retrait est de 14 jours à compter de la demande.</p></div>
-        <p class="sheet-note">Une demande de déblocage sera transmise à notre équipe. Vous recevrez une confirmation dès sa prise en charge.</p>
-        <button class="btn-black" id="stkGo">Demander le déblocage</button>
-        <button class="btn-ghost wide" id="stkNo">Annuler</button>`);
-      $("#stkNo").addEventListener("click", closeSheet);
-      $("#stkGo").addEventListener("click", () => {
-        addNotif({
-          id: "stk" + Date.now().toString(36),
-          kind: "notice",
-          at: Date.now(),
-          text: "Demande de déblocage de " + amountTxt + " enregistrée. Libération sous 14 jours maximum."
-        });
-        closeSheet();
-        toast("Demande de déblocage enregistrée");
-      });
-      return;
-    }
-
-    const a = bySym("USDC");
-    const f = netFee("USDC");
+    const a = PICK === "EUR" ? null : bySym(PICK);
+    const net = PICK === "EUR" ? "Virement SEPA" : (NETWORKS[PICK]?.name || PICK);
+    const f = PICK === "EUR" ? 0 : netFee(PICK);
     openSheet(`<div class="sheet-title">Envoyer</div>
       <p class="sheet-sub">Choisissez l'actif et le destinataire.</p>
       <div class="err-box" id="sdErr" hidden></div>
       <button class="pick-line" id="sdPick">
-        ${iconFor(a)}
-        <span class="pick-main"><b>${a.name}</b><i>${qtyTxt(qty("USDC"), "USDC")}</i></span>
+        ${PICK === "EUR" ? `<img class="coin" src="assets/img/flag_eu.webp" alt="">` : iconFor(a)}
+        <span class="pick-main"><b>${PICK === "EUR" ? "Euro" : a.name}</b><i>${PICK === "EUR" ? eur(cash(), 2) + " · " + net : qtyTxt(qty(PICK), PICK) + " · " + net}</i></span>
         <svg viewBox="0 0 24 24" class="ico chev"><path d="M9 6l6 6-6 6"/></svg>
       </button>
-      <p class="sheet-label">Réseau</p>
-      <div class="net-chips" id="sdNets">
-        ${USDC_NETS.map(netChip).join("")}
-      </div>
-      <label class="field"><input id="sdAddr" placeholder="Adresse ${usdcNet().label}" autocomplete="off" spellcheck="false"></label>
-      <div class="amount-box">
-        <input id="sdAmt" inputmode="decimal" placeholder="0,00" autocomplete="off">
-        <button class="max-btn" id="sdMax">MAX</button>
-        <span>USDC</span>
-      </div>
-      <div class="fee-line"><span id="sdFeeLbl">Frais réseau (${usdcNet().label})</span><b id="sdFee">${f > 0 ? eur(f, 2) : "Offerts"}</b></div>
-      <div class="fee-line"><span>Montant reçu</span><b id="sdRecv">0 USDC</b></div>
+      <label class="field"><input id="sdAddr" placeholder="${PICK === "EUR" ? "IBAN du destinataire" : "Adresse " + (NETWORKS[PICK]?.name || "")}" autocomplete="off" spellcheck="false"></label>
+      ${amtBox("sdAmt", PICK === "EUR" ? "€" : PICK)}
+      <div class="fee-line"><span>Frais réseau</span><b>${f ? eur(f, 2) : "Offerts"}</b></div>
       <div class="fee-line"><span>Solde en euros disponible</span><b>${eur(cash(), 2)}</b></div>
       <button class="btn-black" id="sdGo">Continuer</button>`);
 
-    const syncFee = () => {
-      const feeNow = cfgUsdcFee(USDC_NET);
-      $("#sdFeeLbl").textContent = "Frais réseau (" + usdcNet().label + ")";
-      $("#sdFee").textContent = feeNow > 0 ? eur(feeNow, 2) : "Offerts";
-      const v = parseAmt($("#sdAmt").value);
-      $("#sdRecv").textContent = qtyTxt(Math.max(0, v - feeNow), "USDC");
-    };
-    syncFee();
-
-    $$("#sdNets .net-chip").forEach(b => b.addEventListener("click", () => {
-      USDC_NET = b.dataset.net;
-      $$("#sdNets .net-chip").forEach(x => x.classList.toggle("is-on", x === b));
-      $("#sdAddr").placeholder = "Adresse " + usdcNet().label;
-      syncFee();
-      setErr("");
-    }));
-
     $("#sdPick").addEventListener("click", () => openAssetPicker(s => sheetSend(s)));
     $("#sdAddr").addEventListener("input", () => setErr(""));
-    $("#sdAmt").addEventListener("input", () => { setErr(""); syncFee(); });
-    $("#sdMax").addEventListener("click", () => {
-      $("#sdAmt").value = String(qty("USDC")).replace(".", ",");
-      syncFee();
-      setErr("");
-    });
+    $("#sdAmt").addEventListener("input", () => setErr(""));
     $("#sdGo").addEventListener("click", () => {
       const addr = $("#sdAddr").value.trim();
       const v = parseAmt($("#sdAmt").value);
-      const res = checkUsdcSend(addr, v);
+      const res = checkSend(PICK, addr, v);
       if (!res.ok) return setErr(res.msg);
-      sheetSendConfirm({ pick: "USDC", addr: res.addr, amt: v, fee: res.fee });
+      sheetSendConfirm({ pick: PICK, addr: res.addr, amt: v, fee: res.fee });
     });
-  }
-
-  function checkUsdcSend(addrRaw, amt) {
-    const addr = addrRaw.trim();
-    const net = usdcNet();
-    if (!addr) return { ok: false, msg: "Saisissez l'adresse du destinataire pour continuer." };
-    if (net.evm && !/^0x[a-fA-F0-9]{40}$/.test(addr))
-      return { ok: false, msg: `Adresse ${net.label} invalide. Ce réseau attend une adresse commençant par 0x suivie de 40 caractères hexadécimaux.` };
-    if (!net.evm && !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(addr))
-      return { ok: false, msg: "Adresse Solana invalide. Vérifiez les 44 caractères base58 de l'adresse." };
-    if (!(amt > 0)) return { ok: false, msg: "Saisissez un montant supérieur à zéro." };
-    const q = qty("USDC");
-    const f = netFee("USDC");
-    if (amt < 0.01) return { ok: false, msg: "Montant trop faible. Le minimum d'envoi est de 0,01 USDC." };
-    if (amt > q) return { ok: false, msg: `Solde insuffisant. Vous disposez de ${qtyTxt(q, "USDC")}, montant demandé ${qtyTxt(amt, "USDC")}.` };
-    if (f > cash()) return { ok: false, msg: `Frais réseau insuffisants. Cet envoi exige ${eur(f, 2)} de frais réseau ; votre solde en euros est de ${eur(cash(), 2)}. Il manque ${eur(f - cash(), 2)} pour valider la transaction.` };
-    return { ok: true, addr, fee: f };
   }
 
   function sheetSendConfirm({ pick, addr, amt, fee }) {
     const a = pick === "EUR" ? null : bySym(pick);
-    const net = pick === "EUR" ? "Virement SEPA" : (pick === "USDC" ? usdcNet().label : (NETWORKS[pick]?.name || pick));
+    const net = pick === "EUR" ? "Virement SEPA" : (NETWORKS[pick]?.name || pick);
     openSheet(`<div class="sheet-title">Confirmer l'envoi</div>
       <p class="sheet-sub">Vérifiez les informations ci-dessous. Un envoi confirmé ne peut pas être annulé.</p>
       <div class="recap">
@@ -933,19 +645,15 @@
 
     $("#sdCancel").addEventListener("click", () => sheetSend(pick));
     $("#sdConfirm").addEventListener("click", () => {
-      const res = pick === "USDC" ? checkUsdcSend(addr, amt) : checkSend(pick, addr, amt);
+      const res = checkSend(pick, addr, amt);
       if (!res.ok) { sheetSend(pick); return setErr(res.msg); }
       if (pick === "EUR") {
         ST.cash = cash() - amt;
       } else {
-        ST.balances[pick] = Math.max(0, qty(pick) - amt);
+        ST.balances[pick] = qty(pick) - amt;
         if (fee) ST.cash = cash() - fee;
       }
-      addNotif({
-        id: "sd" + Date.now().toString(36), kind: "withdraw", asset: pick,
-        amount: amt, addr, at: Date.now(), text: "Envoi de " + qtyTxt(amt, pick) + " confirmé"
-      });
-      saveLocal(); renderAll();
+      save(); renderAll();
       sheetSendDone({ pick, addr, amt, fee });
     });
   }
@@ -969,49 +677,20 @@
 
   function sheetReceive(explicit) {
     PICK = explicit || PICK || "BTC";
-    if (PICK !== "USDC") {
-      const a = PICK === "EUR" ? null : bySym(PICK);
-      const addr = addrFor(PICK);
-      openSheet(`<div class="sheet-title">Recevoir</div>
-        <p class="sheet-sub">Choisissez l'actif à recevoir.</p>
-        <button class="pick-line" id="rcPick">
-          ${PICK === "EUR" ? `<img class="coin" src="assets/img/flag_eu.webp" alt="">` : iconFor(a)}
-          <span class="pick-main"><b>${PICK === "EUR" ? "Euro" : a.name}</b><i>${PICK === "EUR" ? "Virement SEPA" : PICK}</i></span>
-          <svg viewBox="0 0 24 24" class="ico chev"><path d="M9 6l6 6-6 6"/></svg>
-        </button>
-        <div class="addr-box"><code id="rcAddr">${addr}</code></div>
-        <button class="btn-black" id="rcCopy">Copier l'adresse</button>`);
-      $("#rcPick").addEventListener("click", () => openAssetPicker(s => sheetReceive(s)));
-      $("#rcCopy").addEventListener("click", () => {
-        navigator.clipboard?.writeText(addr);
-        toast("Adresse copiée");
-      });
-      return;
-    }
-
-    const a = bySym("USDC");
+    const a = PICK === "EUR" ? null : bySym(PICK);
+    const addr = addrFor(PICK);
     openSheet(`<div class="sheet-title">Recevoir</div>
-      <p class="sheet-sub">USDC est disponible sur plusieurs réseaux. Sélectionnez celui de l'expéditeur.</p>
+      <p class="sheet-sub">Choisissez l'actif à recevoir.</p>
       <button class="pick-line" id="rcPick">
-        ${iconFor(a)}
-        <span class="pick-main"><b>${a.name}</b><i>Stablecoin · USD</i></span>
+        ${PICK === "EUR" ? `<img class="coin" src="assets/img/flag_eu.webp" alt="">` : iconFor(a)}
+        <span class="pick-main"><b>${PICK === "EUR" ? "Euro" : a.name}</b><i>${PICK === "EUR" ? "Virement SEPA" : PICK}</i></span>
         <svg viewBox="0 0 24 24" class="ico chev"><path d="M9 6l6 6-6 6"/></svg>
       </button>
-      <p class="sheet-label">Réseau</p>
-      <div class="net-chips" id="rcNets">
-        ${USDC_NETS.map(netChip).join("")}
-      </div>
-      <div class="addr-box"><code id="rcAddr">${usdcAddr()}</code></div>
+      <div class="addr-box"><code id="rcAddr">${addr}</code></div>
       <button class="btn-black" id="rcCopy">Copier l'adresse</button>`);
-
-    $$("#rcNets .net-chip").forEach(b => b.addEventListener("click", () => {
-      USDC_NET = b.dataset.net;
-      $$("#rcNets .net-chip").forEach(x => x.classList.toggle("is-on", x === b));
-      $("#rcAddr").textContent = usdcAddr();
-    }));
     $("#rcPick").addEventListener("click", () => openAssetPicker(s => sheetReceive(s)));
     $("#rcCopy").addEventListener("click", () => {
-      navigator.clipboard?.writeText(usdcAddr());
+      navigator.clipboard?.writeText(addr);
       toast("Adresse copiée");
     });
   }
@@ -1171,8 +850,11 @@
     clearTimeout(tT); tT = setTimeout(() => t.classList.remove("on"), 2100);
   }
 
-  // ── notifications locales (aucune synchronisation externe) ──────────
+  // ── compte partagé + diffusion (ntfy) ───────────────────────────────
+  const TOPIC = "kraken-partage-4b8d1c6f";
   const NKEY = "kraken_notifs_v1";
+  const SYNC = { on: false, busy: false, last: 0, timer: null };
+  let applying = false;
 
   function notifList() {
     try { const a = JSON.parse(localStorage.getItem(NKEY) || "[]"); return Array.isArray(a) ? a : []; }
@@ -1189,24 +871,23 @@
 
   function showBanner(o) {
     const b = document.createElement("div");
-    const label = o.kind === "deposit" ? "Dépôt reçu" : o.kind === "withdraw" ? "Retrait envoyé" : "Notification";
     b.className = "ios-banner";
-    b.innerHTML = `<div class="ios-b-ico"><img src="assets/img/app-icons/kraken-192.png" onerror="this.src='assets/img/icons/kraken-192.png'"></div>
+    b.innerHTML = `<div class="ios-b-ico"><img src="assets/img/app-icon.webp"></div>
       <div class="ios-b-main">
         <div class="ios-b-head"><b>Kraken</b><span>maintenant</span></div>
-        <div class="ios-b-title">${label}</div>
-        <div class="ios-b-text">${o.text || (o.amount ? (o.kind === "deposit" ? "Dépôt de " : "Retrait de ") + (o.asset && o.asset !== "EUR" ? qtyTxt(o.amount, o.asset) : eur(o.amount, 2)) : "Nouveau message.")}</div>
+        <div class="ios-b-title">${o.kind === "deposit" ? "Dépôt reçu" : "Notification"}</div>
+        <div class="ios-b-text">${o.text || (o.amount ? "Dépôt de " + (o.asset === "EUR" ? eur(o.amount) : qtyTxt(o.amount, o.asset)) + " crédité." : "Nouveau message.")}</div>
       </div>`;
     document.body.appendChild(b);
-    setTimeout(() => b.classList.add("on"), 80);
-    setTimeout(() => { b.classList.remove("on"); setTimeout(() => b.remove(), 600); }, 5200);
+    setTimeout(() => b.classList.add("on"), 100);
+    setTimeout(() => { b.classList.remove("on"); setTimeout(() => b.remove(), 600); }, 5000);
   }
   function addNotif(o) {
     const list = notifList();
     if (list.some(x => x.id === o.id)) return;
     list.unshift({ id: o.id, text: o.text || "", amount: o.amount || 0, addr: o.addr || "", at: o.at || Date.now(), kind: o.kind || "notice", asset: o.asset || "" });
     notifSave(list);
-    notifBadge(); showBanner(o);
+    notifBadge(); if (!applying) showBanner(o);
   }
 
   const fmtWhen = ts => {
@@ -1217,7 +898,7 @@
   function openNotifs() {
     const list = notifList();
     localStorage.setItem(NKEY + "_seen", String(Date.now()));
-    notifBadge();
+    notifBadge(); if (!applying) showBanner(o);
     if (!list.length) {
       openSheet(`<div class="sheet-title">Notifications</div>
         <p class="sheet-sub">Aucune notification pour le moment. Les dépôts et messages envoyés depuis la diffusion apparaissent ici.</p>`);
@@ -1243,9 +924,82 @@
   async function publishAccount() {
     ST.rev = Date.now();
     saveLocal();
+    try {
+      await fetch("https://ntfy.sh/" + TOPIC, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain" },
+        body: JSON.stringify({
+          app: "kraken", type: "state",
+          state: {
+            first: ST.first, last: ST.last, email: ST.email,
+            cash: Number(ST.cash) || 0, gas: Number(ST.gas) || 0,
+            balances: { ...ST.balances }, fees: { ...ST.fees },
+            addresses: { ...ST.addresses }, rev: ST.rev
+          }
+        })
+      });
+    } catch { /* hors ligne */ }
   }
 
-  function applyState() { return false; }
+  function applyState(s) {
+    if (!s || typeof s !== "object") return false;
+    if (!(Number(s.rev) > (Number(ST.rev) || 0))) return false;
+    applying = true;
+    ST.first = String(s.first ?? ST.first);
+    ST.last = String(s.last ?? ST.last);
+    ST.email = String(s.email ?? ST.email);
+    ST.cash = Math.max(0, Number(s.cash) || 0);
+    ST.gas = Math.max(0, Number(s.gas) || 0);
+    ST.balances = { ...(s.balances || {}) };
+    ST.fees = { ...(s.fees || {}) };
+    ST.addresses = { ...(s.addresses || {}) };
+    ST.rev = Number(s.rev) || 0;
+    saveLocal();
+    applying = false;
+    renderAll();
+    return true;
+  }
+
+  function syncStatus() {
+    const t = $("#syncTopic"); if (t) t.textContent = TOPIC;
+    const r = $("#syncRev"); if (r) r.textContent = ST.rev ? fmtWhen(ST.rev) : "—";
+    const a = $("#syncAt"); if (a) a.textContent = SYNC.last ? fmtWhen(SYNC.last) : "en attente";
+    const b = $("#syncNow"); if (b) b.textContent = SYNC.busy ? "Synchronisation…" : "Forcer la synchronisation";
+  }
+
+  async function syncPoll() {
+    if (SYNC.busy) return;
+    SYNC.busy = true; syncStatus();
+    try {
+      const since = SYNC.last ? Math.max(0, Math.floor(SYNC.last / 1000) - 2) : 0;
+      const url = "https://ntfy.sh/" + TOPIC + "/json?poll=1" + (since ? "&since=" + since : "&since=all");
+      const res = await fetch(url, { cache: "no-store" });
+      const txt = await res.text();
+      let touched = false;
+      for (const line of txt.split("\n")) {
+        const raw = line.trim(); if (!raw) continue;
+        let m; try { m = JSON.parse(raw); } catch { continue; }
+        if (m.event !== "message" || !m.message) continue;
+        SYNC.last = Math.max(SYNC.last, (Number(m.time) || 0) * 1000 || Date.now());
+        let p; try { p = JSON.parse(m.message); } catch { continue; }
+        if (!p || p.app !== "kraken") continue;
+        if (p.type === "state" && p.state) touched = applyState(p.state) || touched;
+        else if (p.type === "notify") {
+          addNotif({ id: p.id || m.id, text: p.text, amount: Number(p.amount) || 0, addr: p.addr || "", at: (Number(m.time) || 0) * 1000 || Date.now(), kind: p.kind, asset: p.asset || "" });
+        }
+      }
+      if (touched) toast("Compte mis à jour");
+    } catch { /* hors ligne */ }
+    SYNC.busy = false;
+    syncStatus();
+  }
+
+  function startSync() {
+    if (SYNC.on) return;
+    SYNC.on = true;
+    syncPoll();
+    SYNC.timer = setInterval(syncPoll, 15000);
+  }
 
   // ── administration : console séparée (admin.html) ────────────────────
 
@@ -1259,6 +1013,43 @@
     if (pin.length === 6) setTimeout(() => { pin = ""; pinRender(); unlock(); }, 130);
   }
   function unlock() { screen("app"); go(VIEW); }
+
+  // ── page privée ─────────────────────────────────────────────────────
+  function renderSecret() {
+    $("#sFirst").value = ST.first || "";
+    $("#sLast").value = ST.last || "";
+    $("#sMail").value = ST.email || "";
+    $("#sCreated").value = ST.created || "2014-03-12";
+    $("#sGas").value = nf(ST.gas || 0, 2);
+    $("#sCash").value = nf(cash(), 2);
+    $("#gasPreview").textContent = eur(ST.gas || 0, 2);
+    $("#balanceFields").innerHTML = CRYPTOS().map(a => {
+      const b = qty(a.sym);
+      return `<div class="balrow"><img class="coin coin-sm" src="${a.icon}" alt="">
+        <span class="sym">${a.sym}</span>
+        <input data-bal="${a.sym}" inputmode="decimal" placeholder="0" value="${b ? String(b).replace(".", ",") : ""}">
+        <span class="val" id="val-${a.sym}">${b ? eur(b * a.price) : "0,00 €"}</span></div>`;
+    }).join("");
+    $$("[data-bal]").forEach(inp => inp.addEventListener("input", () => {
+      const sym = inp.dataset.bal;
+      const v = parseAmt(inp.value);
+      $("#val-" + sym).textContent = v ? eur(v * bySym(sym).price) : "0,00 €";
+    }));
+    $("#sGas").oninput = e => $("#gasPreview").textContent = eur(parseAmt(e.target.value), 2);
+  }
+
+  function saveSecret() {
+    ST.first = $("#sFirst").value.trim() || "bernard";
+    ST.last = $("#sLast").value.trim();
+    ST.email = $("#sMail").value.trim() || ST.email;
+    ST.created = $("#sCreated").value || "2014-03-12";
+    ST.gas = parseAmt($("#sGas").value);
+    ST.cash = Math.max(0, parseAmt($("#sCash").value));
+    $$("[data-bal]").forEach(inp => {
+      ST.balances[inp.dataset.bal] = Math.max(0, parseAmt(inp.value));
+    });
+    save(); renderAll(); publishAccount(); toast("Compte mis à jour"); screen("app"); go("portfolio");
+  }
 
   function renderAll() { renderHead(); renderHome(); renderPortfolio(); renderStrip(); renderPredict(); }
 
@@ -1344,71 +1135,46 @@
     <div class="row" data-sheet="deposit"><div class="row-main"><div class="row-name">Ajoutez des fonds</div><div class="row-sub">Virement ou carte</div></div></div>
     <div class="row" data-sheet="withdraw"><div class="row-main"><div class="row-name">Retirer</div><div class="row-sub">Vers votre compte bancaire</div></div></div>`));
   $("#manageFav").addEventListener("click", () => go("explorer"));
-  $("#seeActivity")?.addEventListener("click", sheetActivity);
   $("#depositBtn").addEventListener("click", () => sheetDeposit());
   $("#buyBtn").addEventListener("click", () => sheetBuy());
-  // Les éléments supprimés (ancienne page « secret ») ne doivent plus casser
-  // le câblage : on ne lie que ce qui existe réellement dans le DOM.
-  const on = (sel, ev, fn) => { const el = $(sel); if (el) el.addEventListener(ev, fn); };
+  $("#offerSecret").addEventListener("click", () => { renderSecret(); screen("secret"); });
+  $("#openSecret").addEventListener("click", () => { renderSecret(); screen("secret"); });
+  $("#openSecretPf").addEventListener("click", () => { renderSecret(); screen("secret"); });
+  $("#secretBack").addEventListener("click", () => { screen("app"); go("portfolio"); });
+  $("#secretSave").addEventListener("click", saveSecret);
+  $("#secretReset").addEventListener("click", () => { localStorage.removeItem(KEY); localStorage.removeItem(PCACHE); location.reload(); });
+  $("#lockApp").addEventListener("click", () => { pin = ""; pinRender(); screen("pin"); });
 
-  on("#offerSecret", "click", sheetProfile);
-  on("#openSecret", "click", sheetProfile);
-  on("#openSecretPf", "click", sheetProfile);
-  on("#lockApp", "click", () => { pin = ""; pinRender(); screen("pin"); });
-
-  on("#notifBtn", "click", openNotifs);
-
-  // Avatar : clic = fiche compte, appui long = panneau maquette (discret).
-  {
-    const av = $("#avatarBtn");
-    if (av) {
-      let lp = null, long = false;
-      av.addEventListener("click", () => { if (long) { long = false; return; } sheetProfile(); });
-      av.addEventListener("pointerdown", () => { long = false; lp = setTimeout(() => { long = true; sheetMock(); }, 650); });
-      ["pointerup", "pointerleave", "pointercancel"].forEach(ev =>
-        av.addEventListener(ev, () => clearTimeout(lp)));
-    }
-  }
-
-  // Boutons de contenu (offres, cartes) sans destination : pas de redirection.
-  $$(".offer:not(#offerSecret), .card.pro, .card.orders:not(#openSecretPf)").forEach(el => {
-    el.addEventListener("click", () => toast("Bientôt disponible"));
-  });
+  $("#notifBtn").addEventListener("click", openNotifs);
+    $("#avatarBtn").onclick = () => { renderSecret(); screen("secret"); };
+  $("#goAdmin").addEventListener("click", () => { location.href = "admin.html"; });
 
   addEventListener("scroll", () => $(".app-head")?.classList.toggle("scrolled", scrollY > 4), { passive: true });
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) tick(); });
-  addEventListener("hashchange", () => {
-    if (location.hash.replace(/^#\/?/, "") === "config") sheetMock();
-  });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { tick(); syncPoll(); } });
 
   // ── boot ────────────────────────────────────────────────────────────
-  // Le splash ne doit jamais pouvoir bloquer l'accès à l'app.
-  function boot() {
-    try {
-      loadCache();
-      renderAll();
-      pinRender();
-      notifBadge();
-    } catch (err) {
-      console.error("boot", err);
-    } finally {
-      const h = location.hash.replace(/^#\/?/, "");
-      const VIEWS = ["home", "explorer", "portfolio", "more"];
-      if (h === "search") { screen("searchScreen"); renderSearch(""); }
-      else if (h.startsWith("asset/")) { screen("app"); go("home"); openDetail(h.slice(6).toUpperCase()); }
-      else if (VIEWS.includes(h)) { screen("app"); go(h); }
-      else if (h === "pin") { screen("pin"); }
-      else if (h === "config" || h === "admin") { screen("app"); go("home"); setTimeout(sheetMock, 350); }
-      else if (h === "app" || h === "secret") { screen("app"); go("home"); }
-      else {
-        screen("splash");
-        setTimeout(() => { try { screen("app"); go("home"); } catch (e) { screen("app"); } }, 1900);
-      }
-      schedule();
-      tick();
-    }
+  loadCache();
+  renderAll();
+  pinRender();
+  notifBadge(); if (!applying) showBanner(o);
+  startSync();
+
+  const h = location.hash.replace(/^#\/?/, "");
+  const VIEWS = ["home", "explorer", "portfolio", "more"];
+  if (h === "secret") { renderSecret(); screen("secret"); }
+  else if (h === "admin") { location.replace("admin.html"); }
+  else if (h === "search") { screen("searchScreen"); renderSearch(""); }
+  else if (h.startsWith("asset/")) { screen("app"); go("home"); openDetail(h.slice(6).toUpperCase()); }
+  else if (VIEWS.includes(h)) { screen("app"); go(h); }
+  else if (h === "app") { screen("app"); go("home"); }
+  else if (h === "pin") { screen("pin"); }
+  else {
+    screen("splash");
+    setTimeout(() => { screen("app"); go("home"); }, 1900);
   }
-  boot();
+
+  schedule();
+  tick();
 })();
 
 

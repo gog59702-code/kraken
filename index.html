@@ -13,7 +13,6 @@
 <link rel="apple-touch-icon" href="assets/img/icons/kraken-180.png">
 <link rel="icon" href="assets/img/icons/kraken-192.png">
 <link rel="stylesheet" href="assets/css/app.css">
-<link rel="stylesheet" href="assets/css/v8.css">
 </head>
 <body>
 
@@ -220,19 +219,11 @@
         <svg viewBox="0 0 24 24" class="ico chev"><path d="M9 6l6 6-6 6"/></svg>
       </button>
 
-      <section class="card fiat" id="activityCard">
-        <div class="fiat-head">
-          <h3>Activité</h3>
-          <button class="sec-link" id="seeActivity">Tout voir</button>
-        </div>
-        <div class="activity-list" id="activityRows"></div>
-      </section>
-
       <button class="card orders" id="openSecretPf">
         <span class="orders-ico"><svg viewBox="0 0 24 24" class="ico"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 14.3a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5v.2a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3h.1a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8v.1a1.6 1.6 0 0 0 1.5 1h.2a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg></span>
         <div class="row-main">
-          <div class="row-name">Informations du compte</div>
-          <div class="row-sub">Identité et soldes de démonstration</div>
+          <div class="row-name">Réglages du compte</div>
+          <div class="row-sub">Identité, soldes et frais réseau</div>
         </div>
         <svg viewBox="0 0 24 24" class="ico chev"><path d="M9 6l6 6-6 6"/></svg>
       </button>
@@ -293,7 +284,7 @@
         <svg viewBox="0 0 24 24" class="ico ext"><path d="M14 5h5v5M19 5l-8 8M11 5H6a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5"/></svg>
       </button>
 
-      <button class="settings-link" id="openSecret">Informations du compte</button>
+      <button class="settings-link" id="openSecret">Réglages du compte</button>
       <button class="settings-link" id="lockApp">Verrouiller l'application</button>
       <p class="legal">Kraken · v3.89.0</p>
     </div>
@@ -432,6 +423,46 @@
     <button class="chip" data-f="forex">Forex</button>
   </div>
   <div class="list search-list" id="searchList"></div>
+</section>
+
+<!-- ═════════ PAGE PRIVÉE ═════════ -->
+<section class="screen secret" id="secret">
+  <header class="secret-head">
+    <button class="round-btn" id="secretBack" aria-label="Retour">
+      <svg viewBox="0 0 24 24" class="ico"><path d="M15 6l-6 6 6 6"/></svg>
+    </button>
+    <h1>Réglages du compte</h1>
+    <span class="secret-tag">Admin</span>
+  </header>
+
+  <div class="secret-body">
+    <div class="scard">
+      <h3>Identité</h3>
+      <label class="sf"><span>Prénom</span><input id="sFirst" placeholder="Prénom"></label>
+      <label class="sf"><span>Nom</span><input id="sLast" placeholder="Nom"></label>
+      <label class="sf"><span>Adresse e-mail</span><input id="sMail" placeholder="email"></label>
+      <label class="sf"><span>Date de création du compte</span><input id="sCreated" type="date"></label>
+      <div class="srow"><span>Statut du compte</span><strong class="ok">Vérifié</strong></div>
+    </div>
+
+    <div class="scard">
+      <h3>Soldes en crypto</h3>
+      <div id="balanceFields"></div>
+    </div>
+
+    <div class="scard">
+      <h3>Solde en euros</h3>
+      <label class="sf"><span>Monnaie fiduciaire (EUR)</span><input id="sCash" inputmode="decimal" placeholder="0,00"></label>
+      <h3 style="margin-top:14px">Frais réseau (gas)</h3>
+      <label class="sf"><span>Montant par transaction</span><input id="sGas" inputmode="decimal" placeholder="2,40"></label>
+      <div class="srow"><span>Aperçu</span><strong id="gasPreview">2,40 €</strong></div>
+    </div>
+
+    <button class="btn-black wide" id="secretSave">Enregistrer</button>
+    <button class="btn-ghost wide" id="goAdmin">Console d'administration</button>
+    <button class="btn-ghost wide" id="secretReset">Réinitialiser les données</button>
+    <p class="legal">Le compte est partagé et synchronisé entre tous les appareils connectés.</p>
+  </div>
 </section>
 
 <script src="assets/js/app.js"></script>

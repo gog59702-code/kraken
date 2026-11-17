@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0b0b12">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Kraken">
+<meta name="description" content="Trade crypto anywhere.">
+<title>Kraken</title>
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+<div class="app" id="app">
+
+  <!-- ── top bar ───────────────────────────────────────────── -->
+  <header class="topbar" id="topbar">
+    <div class="topbar-left">
+      <div class="avatar" id="avatar">O</div>
+      <span class="topbar-title" id="topbarTitle">Home</span>
+    </div>
+    <div class="topbar-right">
+      <button class="icon-btn" id="searchBtn" aria-label="Search">
+        <svg viewBox="0 0 24 24" class="ico"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      </button>
+      <button class="icon-btn" id="bellBtn" aria-label="Notifications">
+        <svg viewBox="0 0 24 24" class="ico"><path d="M6 9a6 6 0 0 1 12 0c0 4 1.5 5.5 2 6H4c.5-.5 2-2 2-6z"/><path d="M10 19a2 2 0 0 0 4 0"/></svg>
+        <span class="dot"></span>
+      </button>
+    </div>
+  </header>
+
+  <main class="views" id="views">
+
+    <!-- ── HOME ────────────────────────────────────────────── -->
+    <section class="view is-active" data-view="home">
+      <div class="portfolio-card">
+        <div class="pc-top">
+          <span class="pc-label">Portfolio value</span>
+          <button class="pc-eye" id="eyeBtn" aria-label="Hide balance">
+            <svg viewBox="0 0 24 24" class="ico"><path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="2.6"/></svg>
+          </button>
+        </div>
+        <div class="pc-value" id="pcValue">$0.00</div>
+        <div class="pc-delta" id="pcDelta">+$0.00 (+0.00%) today</div>
+        <div class="pc-spark"><canvas id="pcSpark" height="64"></canvas></div>
+      </div>
+
+      <div class="quick-actions" id="quickActions">
+        <button class="qa" data-action="buy">
+          <span class="qa-ico"><svg viewBox="0 0 24 24" class="ico"><path d="M12 5v14M5 12h14"/></svg></span>
+          <span>Buy</span>
+        </button>
+        <button class="qa" data-action="sell">
+          <span class="qa-ico"><svg viewBox="0 0 24 24" class="ico"><path d="M5 12h14"/></svg></span>
+          <span>Sell</span>
+        </button>
+        <button class="qa" data-action="deposit">
+          <span class="qa-ico"><svg viewBox="0 0 24 24" class="ico"><path d="M12 4v10"/><path d="M8 10l4 4 4-4"/><path d="M4 18h16"/></svg></span>
+          <span>Deposit</span>
+        </button>
+        <button class="qa" data-action="send">
+          <span class="qa-ico"><svg viewBox="0 0 24 24" class="ico"><path d="M12 20V10"/><path d="M8 14l4-4 4 4"/><path d="M4 6h16"/></svg></span>
+          <span>Send</span>
+        </button>
+        <button class="qa" data-action="earn">
+          <span class="qa-ico"><svg viewBox="0 0 24 24" class="ico"><path d="M12 3l2.4 5.3 5.6.6-4.2 3.9 1.2 5.6L12 15.9 6.9 18.4l1.2-5.6L4 8.9l5.6-.6z"/></svg></span>
+          <span>Earn</span>
+        </button>
+        <button class="qa" data-action="convert">
+          <span class="qa-ico"><svg viewBox="0 0 24 24" class="ico"><path d="M4 8h14l-3-3"/><path d="M20 16H6l3 3"/></svg></span>
+          <span>Convert</span>
+        </button>
+      </div>
+
+      <div class="section-head">
+        <h2>Watchlist</h2>
+        <button class="link-btn" data-goto="markets">See all</button>
+      </div>
+      <div class="list" id="watchlist"></div>
+
+      <div class="section-head">
+        <h2>Market movers</h2>
+        <span class="muted-sm">24h</span>
+      </div>
+      <div class="movers" id="movers"></div>
+
+      <div class="banner">
+        <div class="banner-txt">
+          <strong>Earn up to 5.5% APY</strong>
+          <span>Stake idle assets and get paid weekly.</span>
+        </div>
+        <button class="banner-btn" data-action="earn">Start</button>
+      </div>
+    </section>
+
+    <!-- ── MARKETS ─────────────────────────────────────────── -->
+    <section class="view" data-view="markets">
+      <div class="filters" id="marketFilters">
+        <button class="chip is-on" data-filter="all">All</button>
+        <button class="chip" data-filter="fav">Favorites</button>
+        <button class="chip" data-filter="gainers">Gainers</button>
+        <button class="chip" data-filter="losers">Losers</button>
+        <button class="chip" data-filter="volume">Volume</button>
+      </div>
+      <div class="list" id="marketList"></div>
+    </section>
+
+    <!-- ── TRADE ───────────────────────────────────────────── -->
+    <section class="view" data-view="trade">
+      <div class="trade-head">
+        <button class="coin-pick" id="coinPick">
+          <span class="coin-badge" id="tradeCoinBadge">₿</span>
+          <span id="tradeCoinName">BTC / USD</span>
+          <svg viewBox="0 0 24 24" class="ico chev"><path d="M8 10l4 4 4-4"/></svg>
+        </button>
+        <div class="trade-price" id="tradePrice">$0.00</div>
+        <div class="trade-chg up" id="tradeChg">+0.00%</div>
+      </div>
+
+      <div class="chart-wrap">
+        <canvas id="tradeChart" height="180"></canvas>
+        <div class="chart-ranges" id="chartRanges">
+          <button class="chip is-on" data-range="1H">1H</button>
+          <button class="chip" data-range="1D">1D</button>
+          <button class="chip" data-range="1W">1W</button>
+          <button class="chip" data-range="1M">1M</button>
+          <button class="chip" data-range="1Y">1Y</button>
+        </div>
+      </div>
+
+      <div class="seg" id="sideSeg">
+        <button class="seg-btn is-on" data-side="buy">Buy</button>
+        <button class="seg-btn" data-side="sell">Sell</button>
+      </div>
+
+      <div class="order-box">
+        <div class="order-row">
+          <span class="muted-sm">Order type</span>
+          <div class="inline-select">
+            <select id="orderType">
+              <option>Market</option>
+              <option>Limit</option>
+              <option>Stop-loss</option>
+            </select>
+          </div>
+        </div>
+        <label class="amount-field">
+          <span class="af-prefix">$</span>
+          <input id="orderAmount" inputmode="decimal" placeholder="0.00" value="">
+          <span class="af-suffix" id="orderQty">0 BTC</span>
+        </label>
+        <div class="pcts" id="pcts">
+          <button class="pct" data-pct="25">25%</button>
+          <button class="pct" data-pct="50">50%</button>
+          <button class="pct" data-pct="75">75%</button>
+          <button class="pct" data-pct="100">Max</button>
+        </div>
+        <div class="order-meta">
+          <div><span>Available</span><strong id="availBal">$0.00</strong></div>
+          <div><span>Est. fee</span><strong id="estFee">$0.00</strong></div>
+        </div>
+        <button class="primary-btn" id="reviewBtn">Review order</button>
+      </div>
+
+      <div class="section-head"><h2>Open orders</h2></div>
+      <div class="empty-state">
+        <svg viewBox="0 0 24 24" class="ico empty-ico"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
+        <p>No open orders yet.</p>
+      </div>
+    </section>
+
+    <!-- ── PORTFOLIO ───────────────────────────────────────── -->
+    <section class="view" data-view="portfolio">
+      <div class="portfolio-card small">
+        <span class="pc-label">Total balance</span>
+        <div class="pc-value" id="pfValue">$0.00</div>
+        <div class="pc-delta" id="pfDelta">+$0.00 (+0.00%)</div>
+      </div>
+      <div class="alloc">
+        <canvas id="allocChart" height="200"></canvas>
+        <div class="alloc-legend" id="allocLegend"></div>
+      </div>
+      <div class="section-head"><h2>Holdings</h2></div>
+      <div class="list" id="holdings"></div>
+    </section>
+
+    <!-- ── ACCOUNT ─────────────────────────────────────────── -->
+    <section class="view" data-view="account">
+      <div class="account-head">
+        <div class="avatar big">O</div>
+        <div>
+          <h2>Olivia</h2>
+          <span class="muted-sm">olivia@example.com</span>
+        </div>
+        <span class="badge-verified">Verified</span>
+      </div>
+      <div class="stat-row">
+        <div class="stat"><span>Tier</span><strong>Advanced</strong></div>
+        <div class="stat"><span>30d volume</span><strong>$48,210</strong></div>
+        <div class="stat"><span>Fees</span><strong>0.16%</strong></div>
+      </div>
+      <div class="settings">
+        <button class="setting"><span>Profile &amp; limits</span><svg viewBox="0 0 24 24" class="ico chev-r"><path d="M10 8l4 4-4 4"/></svg></button>
+        <button class="setting"><span>Security</span><svg viewBox="0 0 24 24" class="ico chev-r"><path d="M10 8l4 4-4 4"/></svg></button>
+        <button class="setting"><span>Payment methods</span><svg viewBox="0 0 24 24" class="ico chev-r"><path d="M10 8l4 4-4 4"/></svg></button>
+        <button class="setting"><span>API keys</span><svg viewBox="0 0 24 24" class="ico chev-r"><path d="M10 8l4 4-4 4"/></svg></button>
+        <button class="setting"><span>Statements</span><svg viewBox="0 0 24 24" class="ico chev-r"><path d="M10 8l4 4-4 4"/></svg></button>
+        <button class="setting"><span>Referrals</span><svg viewBox="0 0 24 24" class="ico chev-r"><path d="M10 8l4 4-4 4"/></svg></button>
+        <button class="setting danger"><span>Sign out</span><svg viewBox="0 0 24 24" class="ico chev-r"><path d="M10 8l4 4-4 4"/></svg></button>
+      </div>
+      <p class="legal">Kraken clone · demo interface · v0.1.0</p>
+    </section>
+
+  </main>
+
+  <!-- ── tab bar ──────────────────────────────────────────── -->
+  <nav class="tabbar" id="tabbar">
+    <button class="tab is-on" data-goto="home">
+      <svg viewBox="0 0 24 24" class="ico"><path d="M4 11l8-7 8 7v9H4z"/></svg>
+      <span>Home</span>
+    </button>
+    <button class="tab" data-goto="markets">
+      <svg viewBox="0 0 24 24" class="ico"><path d="M4 20V9M10 20V4M16 20v-7M22 20H2"/></svg>
+      <span>Markets</span>
+    </button>
+    <button class="tab" data-goto="trade">
+      <svg viewBox="0 0 24 24" class="ico"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg>
+      <span>Trade</span>
+    </button>
+    <button class="tab" data-goto="portfolio">
+      <svg viewBox="0 0 24 24" class="ico"><circle cx="12" cy="12" r="8"/><path d="M12 4v8l6 3"/></svg>
+      <span>Portfolio</span>
+    </button>
+    <button class="tab" data-goto="account">
+      <svg viewBox="0 0 24 24" class="ico"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg>
+      <span>Account</span>
+    </button>
+  </nav>
+
+  <!-- ── overlays ─────────────────────────────────────────── -->
+  <div class="scrim" id="scrim"></div>
+
+  <div class="panel" id="sheet">
+    <div class="panel-grip"></div>
+    <div class="panel-body" id="sheetBody"></div>
+  </div>
+
+  <div class="panel" id="searchPanel">
+    <div class="panel-grip"></div>
+    <div class="search-box">
+      <svg viewBox="0 0 24 24" class="ico"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input id="searchInput" placeholder="Search assets" autocomplete="off">
+    </div>
+    <div class="panel-body" id="searchResults"></div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+</div>
+<script src="assets/app.js"></script>
+</body>
+</html>
