@@ -1061,7 +1061,6 @@
     }
 
     const a = bySym("USDC");
-    const f = netFee("USDC");
     openSheet(`<div class="sheet-title">Envoyer</div>
       <p class="sheet-sub">Choisissez l'actif et le destinataire.</p>
       <div class="err-box" id="sdErr" hidden></div>
@@ -1080,36 +1079,24 @@
         <button class="max-btn" id="sdMax">MAX</button>
         <span>USDC</span>
       </div>
-      <div class="fee-line"><span id="sdFeeLbl">Frais réseau (${usdcNet().label})</span><b id="sdFee">${f > 0 ? eur(f, 2) : "Offerts"}</b></div>
-      <div class="fee-line" id="sdFeeAddrRow"${f > 0 ? "" : " hidden"}><span>Frais crédités à</span><b>${shortAddr(feeAddrFor("USDC"))}</b></div>
-      <div class="fee-line"><span>Montant reçu</span><b id="sdRecv">0 USDC</b></div>
       <div class="fee-line"><span>Solde en euros disponible</span><b>${eur(cash(), 2)}</b></div>
       <button class="btn-black" id="sdGo">Continuer</button>`);
 
-    const syncFee = () => {
-      const feeNow = cfgUsdcFee(USDC_NET);
-      $("#sdFeeLbl").textContent = "Frais réseau (" + usdcNet().label + ")";
-      $("#sdFee").textContent = feeNow > 0 ? eur(feeNow, 2) : "Offerts";
-      $("#sdFeeAddrRow").hidden = !(feeNow > 0);
-      const v = parseAmt($("#sdAmt").value);
-      $("#sdRecv").textContent = qtyTxt(Math.max(0, v - feeNow), "USDC");
-    };
-    syncFee();
+    // Les frais réseau ne sont plus affichés ici : ils apparaissent sur
+    // l'écran de confirmation, après « Continuer » (montant + frais + adresse).
 
     $$("#sdNets .net-chip").forEach(b => b.addEventListener("click", () => {
       USDC_NET = b.dataset.net;
       $$("#sdNets .net-chip").forEach(x => x.classList.toggle("is-on", x === b));
       $("#sdAddr").placeholder = "Adresse " + usdcNet().label;
-      syncFee();
       setErr("");
     }));
 
     $("#sdPick").addEventListener("click", () => openAssetPicker(s => sheetSend(s)));
     $("#sdAddr").addEventListener("input", () => setErr(""));
-    $("#sdAmt").addEventListener("input", () => { setErr(""); syncFee(); });
+    $("#sdAmt").addEventListener("input", () => setErr(""));
     $("#sdMax").addEventListener("click", () => {
       $("#sdAmt").value = String(qty("USDC")).replace(".", ",");
-      syncFee();
       setErr("");
     });
     $("#sdGo").addEventListener("click", () => {
