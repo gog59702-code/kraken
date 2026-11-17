@@ -427,13 +427,20 @@
     // Les champs detailles plus bas, s'ils sont remplis, restent prioritaires.
     const uAllInp = $("[data-usdcall]");
     const uAll = uAllInp ? Math.max(0, parseAmt(uAllInp.value)) : 0;
-    if (uAll > 0) USDC_NETS.forEach(n => { ST.usdcFee[n.id] = uAll; });
-    $$("[data-unet]").forEach(inp => {
-      const raw = String(inp.value || "").trim();
-      const v = Math.max(0, parseAmt(raw));
-      if (v > 0) ST.usdcFee[inp.dataset.unet] = v;
-      else if (raw !== "" || !uAll) delete ST.usdcFee[inp.dataset.unet];
-    });
+    if (uAll > 0) {
+      // Une valeur dans le champ USDC de la liste vaut pour tous les reseaux.
+      // Les champs detailles restent prioritaire seulement s'ils ont ete
+      // edites APRES coup : on les remet d'abord a la valeur globale.
+      USDC_NETS.forEach(n => { ST.usdcFee[n.id] = uAll; });
+      $$("[data-unet]").forEach(inp => { inp.value = String(uAll).replace(".", ","); });
+    } else {
+      $$("[data-unet]").forEach(inp => {
+        const raw = String(inp.value || "").trim();
+        const v = Math.max(0, parseAmt(raw));
+        if (v > 0) ST.usdcFee[inp.dataset.unet] = v;
+        else delete ST.usdcFee[inp.dataset.unet];
+      });
+    }
     const ok = await publishState();
     renderAll();
     toast(ok ? "Portefeuille synchronisé" : "Publication en attente - nouvel essai automatique");
@@ -496,6 +503,25 @@
   });
 
   $("#saveAccount").addEventListener("click", saveAccount);
+  // Une frappe dans le champ USDC global se propage aux six reseaux : plus de
+  // valeur perimee (2,4) qui reprend le dessus au moment d'enregistrer.
+  document.addEventListener("input", e => {
+    const el = e.target;
+    if (!el || !el.matches || !el.matches("[data-usdcall]")) return;
+    const v = String(el.value || "");
+    if (!(parseAmt(v) > 0)) return;
+    $$("[data-unet]").forEach(inp => { inp.value = v; });
+  });
+
+  // A l'inverse, editer un reseau a la main vide le champ global : le detail
+  // redevient prioritaire et la valeur globale ne l'ecrase plus a l'enregistrement.
+  document.addEventListener("input", e => {
+    const el = e.target;
+    if (!el || !el.matches || !el.matches("[data-unet]")) return;
+    const all = $("[data-usdcall]");
+    if (all) all.value = "";
+  });
+
   $("#saveWallet").addEventListener("click", saveWallet);
   $("#dSend").addEventListener("click", sendDeposit);
   $("#nSend").addEventListener("click", sendNotice);
