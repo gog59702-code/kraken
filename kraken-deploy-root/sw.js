@@ -1,4 +1,4 @@
-/* Kraken — service worker minimal : réception des notifications système */
+/* Kraken - service worker minimal : reception des notifications systeme */
 self.addEventListener("install", () => self.skipWaiting());
 
 self.addEventListener("activate", e => e.waitUntil(self.clients.claim()));
