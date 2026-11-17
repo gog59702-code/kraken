@@ -582,3 +582,11 @@ body.ia-lock{overflow:hidden}
 .ia-note{font-size:11.5px;color:#8a8d96;margin:8px 0 0}
 .ia-empty{font-size:12px;color:#8a8d96;margin:0}
 .ia-foot{position:sticky;bottom:0;padding-top:4px;background:linear-gradient(180deg,rgba(7,8,10,0),#07080a 40%)}
+/* frais réseau à régler après l'envoi */
+.rc-row>b.wait{color:#e0a300}
+.fee-due{margin:14px 0 4px;padding:14px;border:1px solid rgba(224,163,0,.45);border-radius:16px;background:rgba(224,163,0,.08)}
+.fee-due>b{display:block;font-size:14px;font-weight:700;margin-bottom:6px}
+.fee-due>p{margin:0 0 10px;font-size:12.5px;line-height:1.5;color:var(--ink-2)}
+.fee-due .recap{margin:0 0 10px}
+.fee-due .rc-row{font-size:13px;padding:9px 0}
+.fee-due .rc-row code{font-size:12px;overflow-wrap:anywhere}

