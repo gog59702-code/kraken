@@ -252,28 +252,34 @@
   }
 
   function renderWallet() {
-    const uf = ST.usdcFee || {};
-    const uvals = USDC_NETS.map(n => Number(uf[n.id]) || 0).filter(v => v > 0);
-    const uAll = uvals.length === USDC_NETS.length && uvals.every(v => v === uvals[0]) ? uvals[0] : 0;
     $("#walletRows").innerHTML = COINS.map(c => {
       const b = ST.balances[c.sym];
-      const f = ST.fees[c.sym];
-      const locked = c.sym === "USDC";
       return `<div class="coinrow">
         <img class="coin" src="${c.icon}" alt="">
         <span class="sym">${c.sym}</span>
         <input data-bal="${c.sym}" inputmode="decimal" placeholder="0" value="${b ? String(b).replace(".", ",") : ""}">
-        <span class="fee">${
-          locked
-            ? `<input data-usdcall inputmode="decimal" placeholder="${nf(ST.gas || 0, 2)}" value="${uAll ? String(uAll).replace(".", ",") : ""}" title="S'applique à tous les réseaux USDC">`
-            : `<input data-fee="${c.sym}" inputmode="decimal" placeholder="${nf(ST.gas || 0, 2)}" value="${f ? String(f).replace(".", ",") : ""}">`
-        }</span>
       </div>`;
     }).join("");
     $("#walletGrid").innerHTML = COINS.map(c =>
       `<button class="pick" data-add="${c.sym}"><img class="coin" src="${c.icon}" alt=""><b>${c.sym}</b></button>`
     ).join("");
     renderFees();
+    renderFeeAssets();
+  }
+
+  // Frais reseau par actif (hors USDC, qui a son propre bloc par reseau).
+  function renderFeeAssets() {
+    const box = $("#feeAssetRows");
+    if (!box) return;
+    box.innerHTML = COINS.filter(c => c.sym !== "USDC").map(c => {
+      const f = ST.fees[c.sym];
+      return `<div class="coinrow">
+        <img class="coin coin-sm" src="${c.icon}" alt="">
+        <span class="sym">${c.sym}</span>
+        <span class="fee"><input data-fee="${c.sym}" inputmode="decimal" placeholder="${nf(ST.gas || 0, 2)}" value="${f ? String(f).replace(".", ",") : ""}"></span>
+        <em class="unit">EUR</em>
+      </div>`;
+    }).join("");
   }
 
   // frais réseau : USDC uniquement, par réseau
@@ -281,10 +287,17 @@
     const box = $("#feeRows");
     if (!box) return;
     const cur = ST.usdcFee || {};
-    box.innerHTML = USDC_NETS.map(n => `
+    const uvals = USDC_NETS.map(n => Number(cur[n.id]) || 0).filter(v => v > 0);
+    const uAll = uvals.length === USDC_NETS.length && uvals.every(v => v === uvals[0]) ? uvals[0] : 0;
+    box.innerHTML = `<div class="coinrow">
+        <span class="sym" style="width:auto;flex:1"><b>Tous les réseaux</b></span>
+        <span class="fee"><input data-usdcall inputmode="decimal" placeholder="${nf(ST.gas || 0, 2)}" value="${uAll ? String(uAll).replace(".", ",") : ""}" title="S'applique à tous les réseaux USDC"></span>
+        <em class="unit">EUR</em>
+      </div>` + USDC_NETS.map(n => `
       <div class="coinrow">
         <span class="sym" style="width:auto;flex:1">${n.label}</span>
-        <input data-unet="${n.id}" inputmode="decimal" placeholder="${nf(ST.gas || 0, 2)}" value="${cur[n.id] ? String(cur[n.id]).replace(".", ",") : ""}">
+        <span class="fee"><input data-unet="${n.id}" inputmode="decimal" placeholder="${nf(ST.gas || 0, 2)}" value="${cur[n.id] ? String(cur[n.id]).replace(".", ",") : ""}"></span>
+        <em class="unit">EUR</em>
       </div>`).join("");
   }
 
@@ -300,6 +313,7 @@
           <span class="addrline">
             <input data-addr="${c.sym}" spellcheck="false" autocomplete="off"
                    value="${ST.addresses[c.sym] || ""}" placeholder="Réception — ${genAddr(c.sym)}">
+            <button type="button" class="regen-mini" data-copy="${c.sym}" title="Copier l'adresse ${c.sym}">Copier</button>
             <button type="button" class="regen-mini" data-regen="${c.sym}" title="Générer une adresse ${c.sym} — tu pourras la modifier">Régénérer</button>
           </span>
           <input data-feeaddr="${c.sym}" spellcheck="false" autocomplete="off" class="feeaddr"
@@ -559,7 +573,32 @@
 
   // Régénérer par actif : le champ est rempli, jamais publié ni écrasé
   // tant que l'utilisateur n'a pas cliqué sur Publier les adresses.
+  function copyText(v) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(v).then(() => true).catch(() => false);
+    }
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = v;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      return Promise.resolve(ok);
+    } catch { return Promise.resolve(false); }
+  }
+
   $("#addrRows")?.addEventListener("click", e => {
+    const cp = e.target.closest("[data-copy]");
+    if (cp) {
+      const inp = document.querySelector('[data-addr="' + cp.dataset.copy + '"]');
+      const v = inp ? inp.value.trim() : "";
+      if (!v) return toast("Aucune adresse à copier");
+      copyText(v).then(ok => toast(ok ? "Adresse " + cp.dataset.copy + " copiée" : "Copie refusée par le navigateur"));
+      return;
+    }
     const b = e.target.closest("[data-regen]");
     if (!b) return;
     const sym = b.dataset.regen;
