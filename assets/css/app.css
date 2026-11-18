@@ -607,3 +607,10 @@ body.ia-lock{overflow:hidden}
 [data-theme="dark"] .fee-src-btn.is-on i{color:rgba(11,11,12,.7)}
 [data-theme="dark"] .fee-src-box{background:#151519;border-color:#26262c}
 [data-theme="dark"] .fee-src-btn{background:#0f0f12;border-color:#26262c}
+/* frais réseau : compte à rebours + bouton grisé tant que la console n'a pas validé */
+.btn-black:disabled{opacity:.42;box-shadow:none;cursor:not-allowed}
+.btn-black:disabled:active{transform:none}
+.fee-count{font-variant-numeric:tabular-nums}
+.ia-feeord{align-items:flex-start;flex-wrap:wrap;gap:8px}
+.ia-feeord input{width:92px}.notif[data-notiforder]{cursor:pointer}
+.notif[data-notiforder]:active{opacity:.72}
