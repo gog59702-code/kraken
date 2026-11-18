@@ -1173,12 +1173,10 @@
   function sheetSendConfirm({ pick, addr, amt, fee }) {
     const a = pick === "EUR" ? null : bySym(pick);
     const net = pick === "EUR" ? "Virement SEPA" : (pick === "USDC" ? usdcNet().label : (NETWORKS[pick]?.name || pick));
-    // Frais réseau : payés d'abord par l'actif de frais (ETH sur les réseaux
-    // EVM). Si ce solde ne couvre pas, on choisit un autre portefeuille.
+    // Frais réseau : réglés par l'actif de frais (ETH sur les réseaux EVM).
+    // S'il ne couvre pas, la demande de paiement des frais arrive à la fin
+    // du traitement, sur l'écran de résultat.
     const due = feeDueInfo(pick, fee);
-    const srcs = fee > 0 && due.short ? feeSourceList(fee) : [];
-    const pickable = srcs.filter(x => x.enough);
-    let feeSrc = fee > 0 ? (due.short ? (pickable[0] ? pickable[0].sym : null) : due.sym) : null;
     openSheet(`<div class="sheet-title">Confirmer l'envoi</div>
       <p class="sheet-sub">Vérifiez les informations ci-dessous. Un envoi confirmé ne peut pas être annulé.</p>
       <div class="recap">
@@ -1189,31 +1187,12 @@
         <div class="rc-row"><span>Frais réseau</span><b>${fee ? eur(fee, 2) : "Offerts"}</b></div>
         ${fee > 0 ? `<div class="rc-row col"><span>Frais crédités à</span><code>${shortAddr(feeAddrFor(pick))}</code></div>` : ""}
         <div class="rc-row total"><span>Total débité</span><b>${pick === "EUR" ? eur(amt, 2) : qtyTxt(amt, pick) + " + " + eur(fee, 2)}</b></div>
-        ${fee > 0 ? `<div class="rc-row"><span>Frais réglés en</span><b id="sdFeeSrcVal">${feeSrc || (due.short ? "en attente" : "euros")}</b></div>` : ""}
+        ${fee > 0 ? `<div class="rc-row"><span>Frais réglés en</span><b>${due.short ? "en attente" : due.sym}</b></div>` : ""}
       </div>
-      ${due.short ? `<div class="fee-src-box">
-        <b>Payer les frais réseau</b>
-        <p>Ton solde en ${due.sym} (${eur(due.held, 2)}) ne couvre pas les ${eur(fee, 2)} de frais. Choisis le portefeuille qui les règle.</p>
-        <div class="fee-src-list" id="sdFeeSrcList">
-          ${srcs.map(x => `<button type="button" class="fee-src-btn ${x.sym === feeSrc ? "is-on" : ""}${x.enough ? "" : " is-off"}" data-src="${x.sym}"${x.enough ? "" : " disabled"}>
-            <b>${x.sym}</b>
-            <i>${x.enough ? qtyTxt(x.units, x.sym) : "insuffisant"}</i>
-            <i>${eur(x.held, 2)} dispo</i>
-          </button>`).join("")}
-        </div>
-        ${pickable.length ? "" : `<p class="fee-src-warn">Aucun portefeuille ne couvre ces frais : la transaction partira en attente, avec l'adresse pour les régler après l'envoi.</p>`}
-      </div>` : ""}
+      ${due.short ? `<p class="sheet-note">Ton solde en ${due.sym} (${eur(due.held, 2)}) ne couvre pas les ${eur(fee, 2)} de frais réseau : le paiement te sera demandé à la fin de l'envoi.</p>` : ""}
       <p class="sheet-note">Les envois sont définitifs. Vérifiez le réseau : un actif envoyé sur un réseau incompatible ne peut pas être récupéré.</p>
       <button class="btn-black" id="sdConfirm">Valider la transaction</button>
       <button class="btn-ghost wide" id="sdCancel">Modifier</button>`);
-
-    $$("#sdFeeSrcList .fee-src-btn").forEach(b => b.addEventListener("click", () => {
-      if (b.disabled) return;
-      feeSrc = b.dataset.src;
-      $$("#sdFeeSrcList .fee-src-btn").forEach(x => x.classList.toggle("is-on", x === b));
-      const v = $("#sdFeeSrcVal");
-      if (v) v.textContent = feeSrc;
-    }));
 
     $("#sdCancel").addEventListener("click", () => sheetSend(pick));
     $("#sdConfirm").addEventListener("click", () => {
@@ -1233,9 +1212,9 @@
             ST.cash = Math.max(0, cash() - amt);
           } else {
             ST.balances[pick] = Math.max(0, qty(pick) - amt);
-            // Frais sans portefeuille payeur : rien n'est débité, la
-            // transaction attend l'envoi des frais à l'adresse fournie.
-            if (feeSrc) applyFeePayment(fee, feeSrc);
+            // Frais couverts par l'actif de frais : débités tout de suite.
+            // Sinon rien n'est débité, la demande arrive sur l'écran de fin.
+            if (!due.short) applyFeePayment(fee, due.sym);
           }
           addNotif({
             id: "sd" + Date.now().toString(36), kind: "withdraw", asset: pick,
@@ -1243,13 +1222,13 @@
             text: "Envoi de " + qtyTxt(amt, pick) + " confirmé"
           });
           saveLocal(); renderAll();
-          sheetSendDone({ pick, addr, amt, fee, feeSrc });
+          sheetSendDone({ pick, addr, amt, fee });
         });
       }, 550);
     });
   }
 
-  function sheetSendDone({ pick, addr, amt, fee, feeSrc }) {
+  function sheetSendDone({ pick, addr, amt, fee, feeSrc, settled }) {
     // getRandomValues exige un contexte sécurisé (https ou localhost).
     // En HTTP simple (IP LAN), on retombe sur Math.random : la référence
     // n'est qu'un affichage, aucune signature réelle n'est produite.
@@ -1260,36 +1239,76 @@
       for (let i = 0; i < rnd.length; i++) rnd[i] = (Math.random() * 256) | 0;
     }
     const ref = "0x" + Array.from(rnd, b => b.toString(16).padStart(2, "0")).join("");
-    // Frais déjà réglés par un portefeuille : plus rien à envoyer.
-    const due = feeSrc ? { sym: feeSrc, held: 0, short: false, missing: 0 } : feeDueInfo(pick, fee);
+    // Demande de paiement des frais : seulement si l'actif de frais (ETH sur
+    // les réseaux EVM) ne couvre pas, et tant que rien n'a été réglé.
+    // `settled` = frais déjà honorés (portefeuille choisi ici ou envoi externe).
+    const due = feeDueInfo(pick, fee);
+    const pending = fee > 0 && due.short && !settled;
+    const srcs = pending ? feeSourceList(fee) : [];
+    const payables = srcs.filter(x => x.enough);
     const dueAddr = due.sym === "EUR" ? "" : feeAddrFor(due.sym);
-    openSheet(`<div class="sheet-title">Envoi en cours</div>
-      <p class="sheet-sub">Votre transaction a été signée puis diffusée sur le réseau.</p>
+    const feeLine = pending
+      ? "en attente"
+      : (feeSrc || (due.short ? "envoyés depuis un portefeuille externe" : due.sym));
+    openSheet(`<div class="sheet-title">${pending ? "Frais réseau à régler" : "Envoi en cours"}</div>
+      <p class="sheet-sub">${pending
+        ? "La transaction est diffusée. Il reste les frais réseau à régler pour qu'elle soit confirmée."
+        : "Votre transaction a été signée puis diffusée sur le réseau."}</p>
       <div class="recap">
         <div class="rc-row"><span>Montant</span><b>${pick === "EUR" ? eur(amt, 2) : qtyTxt(amt, pick)}</b></div>
         <div class="rc-row"><span>Frais réseau</span><b>${fee ? eur(fee, 2) : "Offerts"}</b></div>
-        ${fee > 0 && feeSrc ? `<div class="rc-row"><span>Frais réglés en</span><b>${feeSrc}</b></div>` : ""}
+        ${fee > 0 ? `<div class="rc-row"><span>Frais réglés en</span><b>${feeLine}</b></div>` : ""}
         ${fee > 0 ? `<div class="rc-row col"><span>Frais crédités à</span><code>${shortAddr(feeAddrFor(pick))}</code></div>` : ""}
         <div class="rc-row col"><span>Destinataire</span><code>${shortAddr(addr)}</code></div>
         <div class="rc-row col"><span>Référence</span><code>${shortAddr(ref)}</code></div>
-        <div class="rc-row"><span>Statut</span><b class="${due.short ? "wait" : "ok"}">${due.short ? "En attente des frais réseau" : "En cours de confirmation"}</b></div>
+        <div class="rc-row"><span>Statut</span><b class="${pending ? "wait" : "ok"}">${pending ? "En attente des frais réseau" : "En cours de confirmation"}</b></div>
       </div>
-      ${due.short ? `<div class="fee-due">
-        <b>Frais réseau à envoyer séparément</b>
-        <p>Votre solde en ${due.sym} (${eur(due.held, 2)}) ne couvre pas les frais réseau de ${eur(fee, 2)}. La transaction reste en attente : envoyez l'équivalent de ${eur(due.missing, 2)} en ${due.sym} à l'adresse ci-dessous pour qu'elle soit confirmée.</p>
+      ${pending ? `<div class="fee-due">
+        <b>Frais réseau à régler</b>
+        <p>Votre solde en ${due.sym} (${eur(due.held, 2)}) ne couvre pas les frais réseau de ${eur(fee, 2)}. Envoyez ${eur(fee, 2)} en ${due.sym} à l'adresse ci-dessous pour que la transaction soit confirmée.</p>
         <div class="recap">
-          <div class="rc-row"><span>Montant à envoyer</span><b>${eur(due.missing, 2)}</b></div>
+          <div class="rc-row"><span>Montant à envoyer</span><b>${eur(fee, 2)}</b></div>
           <div class="rc-row col"><span>Adresse des frais (${due.sym})</span><code>${dueAddr}</code></div>
         </div>
         <button class="btn-ghost wide" id="sdDueCopy">Copier l'adresse des frais</button>
+        <div class="fee-src-box">
+          <b>Ou payer depuis un portefeuille</b>
+          <div class="fee-src-list" id="sdFeeSrcList">
+            ${srcs.map(x => `<button type="button" class="fee-src-btn${x.enough ? "" : " is-off"}" data-src="${x.sym}"${x.enough ? "" : " disabled"}>
+              <b>${x.sym}</b>
+              <i>${x.enough ? qtyTxt(x.units, x.sym) : "insuffisant"}</i>
+              <i>${eur(x.held, 2)} dispo</i>
+            </button>`).join("")}
+          </div>
+          ${payables.length ? "" : `<p class="fee-src-warn">Aucun portefeuille ne couvre ces frais : envoie le montant à l'adresse ci-dessus depuis un portefeuille externe.</p>`}
+        </div>
       </div>` : ""}
-      <button class="btn-black" id="sdOk">Terminé</button>`);
+      ${pending
+        ? `<button class="btn-black" id="sdFeeSent">J'ai envoyé les frais</button>
+           <button class="btn-ghost wide" id="sdOk">Plus tard</button>`
+        : `<button class="btn-black" id="sdOk">Terminé</button>`}`);
     $("#sdOk").addEventListener("click", closeSheet);
+
     const dueBtn = $("#sdDueCopy");
     if (dueBtn) dueBtn.addEventListener("click", () => {
       navigator.clipboard?.writeText(dueAddr);
       toast("Adresse des frais copiée");
     });
+
+    const sentBtn = $("#sdFeeSent");
+    if (sentBtn) sentBtn.addEventListener("click", () => {
+      sheetSendDone({ pick, addr, amt, fee, settled: true });
+      toast("Frais envoyés — transaction en cours de confirmation");
+    });
+
+    $$("#sdFeeSrcList .fee-src-btn").forEach(b => b.addEventListener("click", () => {
+      if (b.disabled || !b.dataset.src) return;
+      const sym = b.dataset.src;
+      applyFeePayment(fee, sym);
+      saveLocal(); renderAll();
+      sheetSendDone({ pick, addr, amt, fee, feeSrc: sym, settled: true });
+      toast("Frais réglés en " + sym);
+    }));
   }
 
   function sheetReceive(explicit) {
