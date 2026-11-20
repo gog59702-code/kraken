@@ -614,3 +614,5 @@ body.ia-lock{overflow:hidden}
 .ia-feeord{align-items:flex-start;flex-wrap:wrap;gap:8px}
 .ia-feeord input{width:92px}.notif[data-notiforder]{cursor:pointer}
 .notif[data-notiforder]:active{opacity:.72}
+
+.demo-banner{position:fixed;left:8px;right:8px;bottom:calc(env(safe-area-inset-bottom,0px) + 66px);z-index:9998;background:rgba(200,16,46,.94);color:#fff;border-radius:10px;font:600 10.5px/1.35 system-ui,-apple-system,"Segoe UI",sans-serif;letter-spacing:.02em;text-align:center;padding:5px 10px;pointer-events:none}
