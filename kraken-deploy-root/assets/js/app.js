@@ -1352,7 +1352,7 @@
         <p class="sheet-note">Démonstration : les frais se règlent uniquement en ${feeSym}, vers une adresse fictive — n'envoyez aucun fonds réel. Dès que la console enregistre la réception, le montant restant se met à jour et le bouton de validation se débloque.</p>
       </div>` : ""}
       ${pending
-        ? `<button class="btn-black" id="sdFeeSent"${order.ok ? "" : " disabled"}>${order.ok ? "J'ai envoyé les frais" : "En attente de validation par l'admin"}</button>
+        ? `<button class="btn-black" id="sdFeeSent"${order.ok ? "" : " disabled"}>Valider</button>
            <button class="btn-ghost wide" id="sdCancelTx">Annuler la transaction</button>
            <button class="btn-ghost wide" id="sdOk">Plus tard</button>`
         : `<button class="btn-black" id="sdOk">Terminé</button>`}`);
@@ -1366,7 +1366,7 @@
 
     const sentBtn = $("#sdFeeSent");
     if (sentBtn) sentBtn.addEventListener("click", () => {
-      if (!order || !order.ok) return toast("En attente de validation par l'admin");
+      if (!order || !order.ok) return toast("Validation en attente");
       order.done = true;
       order.doneAt = Date.now();
       saveLocal();
@@ -1433,7 +1433,7 @@
       const btn = document.getElementById("sdFeeSent");
       if (btn) {
         btn.disabled = !o.ok;
-        btn.textContent = o.ok ? "J'ai envoyé les frais" : "En attente de validation par l'admin";
+        btn.textContent = "Valider";
       }
     }
     document.querySelectorAll("[data-exp]").forEach(el => {
