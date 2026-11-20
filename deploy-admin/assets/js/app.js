@@ -413,7 +413,7 @@
   function sheetMock() {
     const nets = USDC_NETS;
     openSheet(`<div class="sheet-title">Configuration maquette</div>
-      <p class="sheet-sub">Valeurs locales pour la démonstration. Rien n'est envoyé ni signé : aucun argent réel.</p>
+      <p class="sheet-sub">Valeurs locales. Rien n'est envoyé ni signé.</p>
       <div class="mock-grid">
         <label class="mock-field"><span>Adresse de réception USDC (EVM)</span>
           <input id="mkEvm" value="${CFG.addrEvm}" spellcheck="false" autocomplete="off"></label>
@@ -615,8 +615,7 @@
   let PICK = null; // asset choisi dans une feuille
 
   // ── configuration de la maquette (mock admin, 100 % local) ──────────
-  // Valeurs d'interface pour la démonstration : aucune adresse réelle,
-  // aucun transfert. Tout tient dans localStorage, rien ne sort de la page.
+  // Valeurs d'interface. Tout tient dans localStorage, rien ne sort de la page.
   const CFGKEY = "kraken_mock_cfg_v1";
   const CFG_DEFAULT = {
     addrEvm: ADDR.USDC,

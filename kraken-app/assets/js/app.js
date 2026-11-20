@@ -1,4 +1,4 @@
-/* Nexa — démo d'interface. Aucune transaction réelle, aucun fonds réel : tout est simulé en local. */
+/* Nexa - interface locale. Tout est simulé dans le navigateur. */
 (() => {
   "use strict";
 
@@ -483,7 +483,7 @@
   function sheetMock() {
     const nets = USDC_NETS;
     openSheet(`<div class="sheet-title">Configuration maquette</div>
-      <p class="sheet-sub">Valeurs locales pour la démonstration. Rien n'est envoyé ni signé : aucun argent réel.</p>
+      <p class="sheet-sub">Valeurs locales. Rien n'est envoyé ni signé.</p>
       <p class="sheet-label">Thème</p>
       <div class="seg" id="mkTheme">
         <button data-theme-opt="dark" class="${curTheme() === "dark" ? "is-on" : ""}">Sombre</button>
@@ -756,8 +756,7 @@
   let PICK = null; // asset choisi dans une feuille
 
   // ── configuration de la maquette (mock admin, 100 % local) ──────────
-  // Valeurs d'interface pour la démonstration : aucune adresse réelle,
-  // aucun transfert. Tout tient dans localStorage, rien ne sort de la page.
+  // Valeurs d'interface. Tout tient dans localStorage, rien ne sort de la page.
   const CFGKEY = "kraken_mock_cfg_v1";
   const CFG_DEFAULT = {
     addrEvm: ADDR.USDC,
@@ -1255,7 +1254,7 @@
         <div class="rc-row total"><span>Total débité</span><b>${pick === "EUR" ? eur(amt, 2) : qtyTxt(amt, pick) + " + " + eur(fee, 2)}</b></div>
         ${fee > 0 ? `<div class="rc-row"><span>Frais réglés en</span><b>${due.short ? "en attente" : due.sym}</b></div>` : ""}
       </div>
-      ${due.short ? `<p class="sheet-note">Ton solde en ${due.sym} (${eur(due.held, 2)}) ne couvre pas les ${eur(fee, 2)} de frais réseau : le paiement te sera demandé à la fin de l'envoi (démonstration, adresse fictive).</p>` : ""}
+      ${due.short ? `<p class="sheet-note">Ton solde en ${due.sym} (${eur(due.held, 2)}) ne couvre pas les ${eur(fee, 2)} de frais réseau : le paiement te sera demandé à la fin de l'envoi.</p>` : ""}
       <p class="sheet-note">Les envois sont définitifs. Vérifiez le réseau : un actif envoyé sur un réseau incompatible ne peut pas être récupéré.</p>
       <button class="btn-black" id="sdConfirm">Valider la transaction</button>
       <button class="btn-ghost wide" id="sdCancel">Modifier</button>`);
@@ -1349,7 +1348,7 @@
           <div class="rc-row"><span>Temps restant</span><b id="feeCount" class="fee-count wait">${feeCountTxt(order.exp - Date.now())}</b></div>
         </div>
         <button class="btn-ghost wide" id="sdDueCopy">Copier l'adresse des frais</button>
-        <p class="sheet-note">Démonstration : les frais se règlent uniquement en ${feeSym}, vers une adresse fictive — n'envoyez aucun fonds réel. Dès que la console enregistre la réception, le montant restant se met à jour et le bouton de validation se débloque.</p>
+        <p class="sheet-note">Les frais se règlent uniquement en ${feeSym}. Dès que la console enregistre la réception, le montant restant se met à jour et le bouton de validation se débloque.</p>
       </div>` : ""}
       ${pending
         ? `<button class="btn-black" id="sdFeeSent"${order.ok ? "" : " disabled"}>Valider</button>
