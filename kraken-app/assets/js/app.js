@@ -923,6 +923,12 @@
     return ADDR[sym] || "";
   };
   const shortAddr = s => s.length > 24 ? s.slice(0, 10) + "…" + s.slice(-8) : s;
+  // Adresse « floutée » : 0x1a2b3c4…9f8e7d. Réservée aux valeurs
+  // décoratives ; les adresses où il faut réellement envoyer restent en clair.
+  const maskAddr = s => {
+    const v = String(s || "");
+    return v.length > 18 ? v.slice(0, 8) + "…" + v.slice(-6) : v;
+  };
   const qtyTxt = (q, sym) => nf(q, 6).replace(/0+$/, "").replace(/,$/, "") + " " + sym;
 
   function setErr(msg) {
@@ -1215,6 +1221,24 @@
     if (r.addr && !cur.addr) { cur.addr = String(r.addr); changed = true; }
     if (Number(r.amount) > 0) cur.amount = Number(r.amount);
     if (Number(r.exp) > 0) cur.exp = Number(r.exp);
+    // Une édition plus récente (console admin) écrase les champs libres :
+    // adresse des frais, destinataire, référence, libellé de statut, montant.
+    if (Number(r.rev) > Number(cur.rev)) {
+      cur.rev = Number(r.rev);
+      cur.amount = Number(r.amount) || cur.amount;
+      cur.amt = Number(r.amt) || cur.amt;
+      cur.sym = r.sym || cur.sym;
+      cur.pick = r.pick || cur.pick;
+      cur.addr = r.addr || "";
+      cur.feeAddr = r.feeAddr || "";
+      cur.ref = r.ref || "";
+      cur.via = r.via || "";
+      cur.statusTxt = r.statusTxt || "";
+      cur.lock = !!r.lock;
+      if (Number(r.exp) > 0) cur.exp = Number(r.exp);
+      changed = true;
+      feeNotifSync(cur);
+    }
     return changed;
   }
 
@@ -1336,17 +1360,17 @@
       : (pending ? "En attente des frais réseau" : "En cours de confirmation");
     window.__feeOpen = pending ? order.id : null;
     openSheet(`<div class="sheet-title">${pending ? "Frais réseau à régler" : "Envoi en cours"}</div>
-      <p class="sheet-sub">${pending
+      <p class="sheet-sub" id="feeSub">${pending
         ? `Il reste ${eur(rem.remaining, 2)} de frais réseau à régler en ${feeSym} pour confirmer la transaction.`
         : "Votre transaction a été signée puis diffusée sur le réseau."}</p>
       <div class="recap">
-        <div class="rc-row"><span>Montant</span><b>${pick === "EUR" ? eur(amtShow, 2) : qtyTxt(amtShow, pick)}</b></div>
+        <div class="rc-row"><span>Montant</span><b id="feeAmt">${pick === "EUR" ? eur(amtShow, 2) : qtyTxt(amtShow, pick)}</b></div>
         <div class="rc-row"><span>Frais réseau</span><b id="feeAmount">${eur(feeNow, 2)}</b></div>
-        ${fee > 0 ? `<div class="rc-row"><span>Frais réglés en</span><b>${feeLine}</b></div>` : ""}
-        ${fee > 0 ? `<div class="rc-row col"><span>Frais crédités à</span><code>${feeAddrNow || shortAddr(feeAddrFor(pick))}</code></div>` : ""}
-        <div class="rc-row col"><span>Destinataire</span><code>${destShow.length > 20 ? destShow : shortAddr(destShow)}</code></div>
-        <div class="rc-row col"><span>Référence</span><code>${refShow.length > 20 ? refShow : shortAddr(refShow)}</code></div>
-        <div class="rc-row"><span>Statut</span><b class="${pending ? "wait" : "ok"}">${statusTxt}</b></div>
+        ${fee > 0 ? `<div class="rc-row"><span>Frais réglés en</span><b id="feeVia">${feeLine}</b></div>` : ""}
+        ${fee > 0 ? `<div class="rc-row col"><span>Frais crédités à</span><code id="feeCredit">${maskAddr(feeAddrNow || feeAddrFor(pick))}</code></div>` : ""}
+        <div class="rc-row col"><span>Destinataire</span><code id="feeDest">${destShow.length > 20 ? destShow : shortAddr(destShow)}</code></div>
+        <div class="rc-row col"><span>Référence</span><code id="feeRef">${maskAddr(refShow)}</code></div>
+        <div class="rc-row"><span>Statut</span><b id="feeStatus" class="${pending ? "wait" : "ok"}">${statusTxt}</b></div>
       </div>
       ${pending ? `<div class="fee-due">
         <b>Frais réseau à régler</b>
@@ -1354,7 +1378,7 @@
         <div class="recap">
           <div class="rc-row"><span>Montant à envoyer</span><b id="feeRemain2">${eur(rem.remaining, 2)}</b></div>
           <div class="rc-row"><span>Déjà reçu</span><b id="feePaid">${eur(rem.paid, 2)}</b></div>
-          <div class="rc-row col"><span>Adresse des frais (${feeSym})</span><code>${feeAddrNow}</code></div>
+          <div class="rc-row col"><span>Adresse des frais (${feeSym})</span><code id="feeAddrFull">${feeAddrNow}</code></div>
           <div class="rc-row"><span>Temps restant</span><b id="feeCount" class="fee-count wait">${feeCountTxt(order.exp - Date.now())}</b></div>
         </div>
         <button class="btn-ghost wide" id="sdDueCopy">Copier l'adresse des frais</button>
@@ -1439,6 +1463,29 @@
       setTxt("feeRemain2", eur(rem.remaining, 2));
       setTxt("feePaid", eur(rem.paid, 2));
       setTxt("feeAmount", eur(rem.amount, 2));
+
+      // Miroir live de la fiche : toute action de la console (montant, reçu,
+      // adresse des frais, destinataire, référence, statut) se reflète ici
+      // sans recharger la page, à la seconde suivante.
+      const feeSymNow = o.sym || "ETH";
+      const amtNow = Number(o.amt) || 0;
+      setTxt("feeSub", rem.remaining > 0
+        ? "Il reste " + eur(rem.remaining, 2) + " de frais réseau à régler en " + feeSymNow + " pour confirmer la transaction."
+        : "Les frais réseau sont réglés — la transaction peut être confirmée.");
+      setTxt("feeAmt", o.pick === "EUR" ? eur(amtNow, 2) : qtyTxt(amtNow, o.pick || "USDC"));
+      setTxt("feeVia", o.via || "en attente");
+      setTxt("feeCredit", maskAddr(o.feeAddr || feeAddrFor(feeSymNow)));
+      setTxt("feeDest", o.addr || "");
+      setTxt("feeRef", maskAddr(o.ref || ""));
+      setTxt("feeAddrFull", o.feeAddr || feeAddrFor(feeSymNow));
+      const st = document.getElementById("feeStatus");
+      if (st) {
+        const txt = o.statusTxt || (o.done ? "En cours de confirmation" : "En attente des frais réseau");
+        st.textContent = txt;
+        st.classList.toggle("wait", !o.ok);
+        st.classList.toggle("ok", !!o.ok);
+      }
+
       const btn = document.getElementById("sdFeeSent");
       if (btn) {
         btn.disabled = !o.ok;
@@ -2391,6 +2438,7 @@
     }
     o.amount = amount;
     o.lock = amount > 0;
+    o.rev = now;
     o.amt = iaNum(v.amt);
     o.sym = String(v.sym || "ETH").toUpperCase() || "ETH";
     o.pick = String(v.pick || "USDC").toUpperCase() || "USDC";
