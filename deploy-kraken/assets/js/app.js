@@ -576,7 +576,7 @@
       <div class="acct-sect">Paramètres</div>
       ${row("", `<svg viewBox="0 0 24 24" class="ico"><path d="M3 9h18v10H3z"/><path d="M3 9l2-4h14l2 4"/><path d="M12 13v3"/></svg>`, "Méthodes de paiement")}
       ${row("", `<svg viewBox="0 0 24 24" class="ico"><circle cx="12" cy="12" r="3.2"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4"/></svg>`, "Préférences")}
-      ${row("acctNotifs", `<svg viewBox="0 0 24 24" class="ico"><path d="M18 9a6 6 0 1 0-12 0c0 5-2 6-2 6h16s-2-1-2-6"/><path d="M10.4 19a1.8 1.8 0 0 0 3.2 0"/></svg>`, "Notifications")}
+      ${row("acctNotifs", `<svg viewBox="0 0 24 24" class="ico"><path d="M18 9a6 6 0 1 0-12 0c0 5-2 6-2 6h16s-2-1-2-6"/><path d="M10.4 19a1.8 1.8 0 0 0 3.2 0"/></svg>`, "Notifications", "", unreadCount() ? `<span class="acct-badge is-count">${unreadCount()}</span>` : "")}
       ${row("", `<svg viewBox="0 0 24 24" class="ico"><path d="M12 3l7 3v6c0 4.4-3 7.6-7 9-4-1.4-7-4.6-7-9V6z"/><path d="M9.5 12l2 2 3.5-4"/></svg>`, "Sécurité", "", `<span class="acct-badge">Configurer la 2FA</span>`)}
       ${row("", `<svg viewBox="0 0 24 24" class="ico"><rect x="7" y="2.6" width="10" height="18.8" rx="2.2"/><path d="M10.6 18.6h2.8"/></svg>`, "Gestion d'appareils")}
 
@@ -1645,6 +1645,11 @@
   // notifications se rafraîchissent seules pendant les 2 h, y compris si
   // l'admin change le montant en cours de route.
   function feeTick() {
+    // Les notifications de frais portent leur propre delai : le compteur
+    // avance meme quand aucune fiche n'est ouverte.
+    $$(".fee-count[data-exp]").forEach(el => {
+      el.textContent = "Temps restant · " + feeCountTxt(Number(el.dataset.exp) - Date.now());
+    });
     const o = window.__feeOpen ? feeOrders()[window.__feeOpen] : null;
     if (!o) return;
     const rem = feeRemaining(o);
@@ -2114,6 +2119,29 @@
     mirrorSystemNotif(notifLabel(o), notifBody(o));
   }
 
+  // Reprise silencieuse d'un historique publie (etat distant) : ni banniere,
+  // ni badge force — les dates d'origine sont conservees telles quelles.
+  function mergeNotifs(arr) {
+    const list = notifList();
+    const ids = new Set(list.map(x => String(x.id)));
+    let added = 0;
+    for (const n of arr) {
+      if (!n || !n.id || ids.has(String(n.id))) continue;
+      list.push({
+        id: String(n.id), text: String(n.text || ""), amount: Number(n.amount) || 0,
+        addr: String(n.addr || ""), at: Number(n.at) || 0, kind: String(n.kind || "notice"),
+        asset: String(n.asset || ""), exp: Number(n.exp) || 0, orderId: String(n.orderId || "")
+      });
+      ids.add(String(n.id));
+      added++;
+    }
+    if (!added) return 0;
+    list.sort((a, b) => (Number(b.at) || 0) - (Number(a.at) || 0));
+    notifSave(list);
+    notifBadge();
+    return added;
+  }
+
   const fmtWhen = ts => {
     const d = new Date(ts);
     return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "short" }) + " · " + d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
@@ -2185,6 +2213,8 @@
   function bindNotifSheet() {
     const r = $("#notifSettingsRow");
     if (r) r.addEventListener("click", () => { closeSheet(); sheetNotifSettings(); });
+    const x = $("#notifExport");
+    if (x) x.addEventListener("click", notifExport);
     const p = $("#notifPreview");
     if (p) p.addEventListener("click", () => {
       closeSheet();
@@ -2248,6 +2278,37 @@
     });
   }
 
+  // Export de l'historique : un fichier JSON lisible, daté, qui ne dépend
+  // d'aucun serveur. Les libellés sont ceux affichés dans l'app.
+  function notifExport() {
+    const list = notifList();
+    const label = k => k === "deposit" ? "Dépôt reçu" : k === "withdraw" ? "Retrait envoyé"
+      : k === "fee" ? "Frais réseau à régler" : "Notification";
+    const rows = list.map(n => ({
+      date: new Date(Number(n.at) || 0).toISOString(),
+      type: label(n.kind),
+      message: n.text || "",
+      montant: n.amount ? Number(n.amount) : 0,
+      actif: n.asset || "",
+      adresse: n.addr || "",
+      reference: n.orderId || ""
+    }));
+    const blob = new Blob([JSON.stringify({ compte: "Kraken", genere: new Date().toISOString(), notifications: rows }, null, 2)],
+      { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const d = new Date();
+    const stamp = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "kraken-notifications-" + stamp + ".json";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    closeSheet();
+    toast("Historique exporté");
+  }
+
   function openNotifs() {
     const list = notifList();
     localStorage.setItem(NKEY + "_seen", String(Date.now()));
@@ -2275,13 +2336,13 @@
           <div class="notif-main">
             <div class="notif-title">${n.kind === "deposit" ? "Dépôt reçu" : n.kind === "fee" ? "Frais réseau à régler" : n.kind === "withdraw" ? "Retrait envoyé" : "Notification"}</div>
             <div class="notif-text">${n.text || (n.amount ? "Un dépôt a été crédité sur votre compte." : "Nouveau message.")}</div>
-            ${n.kind === "fee" && n.amount ? `<div class="notif-meta">${eur(n.amount, 2)} en ${n.asset || "ETH"}</div>` : ""}
-            ${n.kind !== "fee" && n.amount ? `<div class="notif-meta">+${n.asset && n.asset !== "EUR" ? qtyTxt(n.amount, n.asset) : eur(n.amount, 2)}</div>` : ""}
-            ${n.exp ? `<div class="notif-when fee-count" data-exp="${n.exp}">Temps restant</div>` : ""}
+            ${n.kind === "fee" ? "" : n.amount ? `<div class="notif-meta">${n.kind === "deposit" ? "+" : ""}${n.asset && n.asset !== "EUR" ? qtyTxt(n.amount, n.asset) : eur(n.amount, 2)}</div>` : ""}
+            ${n.exp ? `<div class="notif-when fee-count" data-exp="${n.exp}">Temps restant · ${feeCountTxt(n.exp - Date.now())}</div>` : ""}
             ${n.addr ? `<div class="notif-addr">${shortAddr(n.addr)}</div>` : ""}
             <div class="notif-when">${fmtWhen(n.at)}</div>
           </div>
         </div>`).join("")}</div>
+      <button class="btn-ghost wide" id="notifExport">Exporter l'historique</button>
       <button class="btn-ghost wide" id="notifPreview">Afficher un aperçu</button>`);
     bindNotifSheet();
     // Une notif de frais rouvre l'écran de règlement, avec son chrono à jour.
@@ -2386,6 +2447,9 @@
     if (s.feeOrders && typeof s.feeOrders === "object") {
       for (const r of Object.values(s.feeOrders)) mergeFeeOrder(r);
     }
+    // Historique : l'etat publie transporte aussi les notifications, pour
+    // qu'elles reviennent meme si le cache de l'appareil a ete vide.
+    if (Array.isArray(s.notifs)) mergeNotifs(s.notifs);
     ST.rev = Number(s.rev) || 0;
     saveLocal();
     return true;
@@ -2642,6 +2706,7 @@
     customAssets: (ST.customAssets || []).map(x => ({ ...x })),
     actSeed: Array.isArray(ST.actSeed) ? ST.actSeed.map(x => ({ ...x })) : null,
     feeOrders: Object.fromEntries(Object.entries(feeOrders()).map(([k, v]) => [k, { ...v }])),
+    notifs: notifList().slice(0, 40).map(n => ({ ...n })),
     rev: Number(ST.rev) || 0
   });
 

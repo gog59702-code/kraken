@@ -1,0 +1,33 @@
+{
+  "compte": "Kraken",
+  "genere": "2026-11-22T19:39:43.661Z",
+  "notifications": [
+    {
+      "date": "2026-11-22T19:29:39.212Z",
+      "type": "Dépôt reçu",
+      "message": "Dépôt de 250,00 € reçu.",
+      "montant": 250,
+      "actif": "EUR",
+      "adresse": "",
+      "reference": ""
+    },
+    {
+      "date": "2026-11-22T19:34:39.212Z",
+      "type": "Frais réseau à régler",
+      "message": "Frais réseau : 0,001536 ETH — reste 0,001536 ETH",
+      "montant": 2.4,
+      "actif": "ETH",
+      "adresse": "0x22E839441132106d227dE2e28494e52778b75ca8",
+      "reference": "foexport1"
+    },
+    {
+      "date": "2026-11-22T19:38:39.212Z",
+      "type": "Retrait envoyé",
+      "message": "Retrait envoyé.",
+      "montant": 0.25,
+      "actif": "ETH",
+      "adresse": "0x22E839441132106d227dE2e28494e52778b75ca8",
+      "reference": ""
+    }
+  ]
+}
