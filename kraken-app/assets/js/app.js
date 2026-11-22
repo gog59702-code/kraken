@@ -1815,7 +1815,6 @@
     offers: () => openSheet(`<div class="sheet-title">Offres</div>
       <p class="sheet-sub">Offres et incitations en cours.</p>
       <div class="row" id="offerBF100" data-sheet="none">
-        <span class="row-ico"><img src="assets/img/offer-bf.png" alt=""></span>
         <div class="row-main"><div class="row-name">100 $ en BTC</div><div class="row-sub">Black Friday · dépôt minimum 1 000 $</div></div>
         <svg viewBox="0 0 24 24" class="ico chev"><path d="M9 6l6 6-6 6"/></svg>
       </div>
