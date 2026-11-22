@@ -1,0 +1,17 @@
+PASS send: pas de frais dans la fiche
+PASS send: solde en euros
+PASS send: sous-titre identique
+PASS confirm: pas de 'Frais réglés en'
+PASS confirm: pas de 'Frais crédités à'
+PASS confirm: pas de 'Frais réseau'
+PASS confirm: pas de ligne Total
+PASS done: référence renseignée
+PASS done: pas d'euro pour les frais
+PASS done: adresse des frais != destinataire
+PASS profil: prénom enregistré
+PASS admin: carte Offres présente
+PASS admin: offre BF présente
+PASS admin: panneau ouvert par BF
+PASS aucune erreur JS
+
+FAILS: []

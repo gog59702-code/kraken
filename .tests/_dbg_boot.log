@@ -1,9 +1,0 @@
-splashGone False
-pinSkip False
-avatar False
-sheet open flex|sheet
-acctNotifs n 0
-acctNotifs visible False
-acctNotifs rect None
-feeOpen None
-errs ['CONSOLE error: Failed to load resource: net::ERR_CONNECTION_REFUSED', 'CONSOLE error: Failed to load resource: net::ERR_CONNECTION_REFUSED']

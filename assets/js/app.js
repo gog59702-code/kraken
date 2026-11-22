@@ -73,6 +73,11 @@
     // Ordres de frais supprimés : même principe que delNotifs, un identifiant
     // enterré ne revient pas par un état publié plus ancien.
     delFees: [],
+    // Deltas qui n'ont pas pu partir (quota ntfy, réseau coupé) : ils restent
+    // en file et repartent au prochain cycle, sinon un appareil ne verrait
+    // jamais le changement et le direct resterait muet jusqu'à la prochaine
+    // action de la console.
+    outbox: [],
     feeOrders: {},
     rev: 0
   };
@@ -1446,7 +1451,7 @@
     };
     feeOrders()[id] = o;
     saveLocal();
-    iaPublish({ type: "feeOrder", order: { ...o } });
+    deltaSend({ type: "feeOrder", order: { ...o } });
     return o;
   }
 
@@ -1558,31 +1563,35 @@
     if (r.addr && !cur.addr) { cur.addr = String(r.addr); changed = true; }
     if (!cur.src && r.src) { cur.src = String(r.src); changed = true; }
     if (!cur.kind && r.kind) { cur.kind = String(r.kind); changed = true; }
-    if (Number(r.amount) > 0) cur.amount = Number(r.amount);
-    if (Number(r.exp) > 0) cur.exp = Number(r.exp);
-    // Une édition plus récente (console admin) écrase les champs libres :
-    // adresse des frais, destinataire, référence, libellé de statut, montant.
-    if (Number(r.rev) > Number(cur.rev)) {
-      cur.rev = Number(r.rev);
-      cur.amount = Number(r.amount) || cur.amount;
-      cur.amt = Number(r.amt) || cur.amt;
-      cur.sym = r.sym || cur.sym;
-      cur.pick = r.pick || cur.pick;
-      cur.addr = r.addr || "";
-      cur.feeAddr = r.feeAddr || "";
-      cur.ref = r.ref || "";
-      cur.via = r.via || "";
-      cur.statusTxt = r.statusTxt || "";
-      cur.lock = !!r.lock;
+    // `amount` / `exp` ne sont copiés que dans le bloc `rev` ci-dessous : hors
+    // de lui, un appareil à l'horloge en retard écrivait un montant sans rien
+    // redessiner ni persister.
+    // Une édition (console admin) écrase les champs libres. `>=` et non `>` :
+    // deux appareils peuvent produire la même milliseconde, et un ordre créé
+    // côté client porte déjà un `rev` égal à l'instant de création. Chaque
+    // champ n'est marqué modifié que s'il change vraiment, sinon un delta
+    // rejoué par le sondage redessinerait la fiche pour rien.
+    if (Number(r.rev) >= Number(cur.rev)) {
+      const put = (k, v) => { if (cur[k] !== v) { cur[k] = v; changed = true; } };
+      cur.rev = Math.max(Number(cur.rev) || 0, Number(r.rev) || 0);
+      put("amount", Number(r.amount) || 0);
+      put("amt", Number(r.amt) || 0);
+      put("sym", r.sym || cur.sym);
+      put("pick", r.pick || cur.pick);
+      put("addr", r.addr || "");
+      put("feeAddr", r.feeAddr || "");
+      put("ref", r.ref || "");
+      put("via", r.via || "");
+      put("statusTxt", r.statusTxt || "");
+      put("lock", !!r.lock);
       // Une modification plus récente de la console fait autorité, y compris
       // quand elle rouvre un ordre déjà validé : sinon un montant changé
       // restait invisible côté client.
-      cur.paid = Number(r.paid) || 0;
-      cur.ok = !!r.ok;
-      cur.done = !!r.done;
-      cur.cancelled = !!r.cancelled;
-      if (Number(r.exp) > 0) cur.exp = Number(r.exp);
-      changed = true;
+      put("paid", Number(r.paid) || 0);
+      put("ok", !!r.ok);
+      put("done", !!r.done);
+      put("cancelled", !!r.cancelled);
+      if (Number(r.exp) > 0) put("exp", Number(r.exp));
     }
     // La notification de la transaction suit chaque changement (montant,
     // reçu, statut, destinataire) : la liste se met à jour sans recharger.
@@ -1742,7 +1751,7 @@
       order.doneAt = Date.now();
       order.statusTxt = "Confirmée";
       saveLocal();
-      iaPublish({ type: "feeOrder", order: { ...order } });
+      deltaSend({ type: "feeOrder", order: { ...order } });
       addNotif({
         id: "sd" + Date.now().toString(36), kind: "withdraw", asset: pick,
         amount: amt, addr, fee, feeAddr: fee > 0 ? feeAddrFor(feeSym, addr) : null, at: Date.now(),
@@ -2650,6 +2659,9 @@
   async function syncAdmin() {
     if (syncBusy || !navigator.onLine || document.hidden) return;
     syncBusy = true;
+    // Les deltas en attente repartent avant la lecture : la console ne depend
+    // pas d'une action ulterieure pour rattraper un envoi refuse.
+    try { await deltaFlush(); } catch { }
     // Un fetch bloque ne doit pas condamner la synchro : coupure a 8 s.
     const ctrl = new AbortController();
     const cut = setTimeout(() => ctrl.abort(), 8000);
@@ -2838,14 +2850,42 @@
   }
 
   let liveStream = null;
+  let liveRetry = 0;
+  let liveTimer = null;
+
+  // Le flux temps réel est la pièce maîtresse du direct : il doit se rouvrir
+  // seul. Un EventSource abandonne définitivement après une réponse non-200
+  // (quota ntfy, 5xx, changement de réseau), donc on le ferme et on le
+  // relance avec un délai croissant au lieu de dépendre du sondage seul.
   function openStream() {
     if (typeof EventSource === "undefined" || !navigator.onLine) return;
+    if (liveStream) return;
     try {
       liveStream = new EventSource("https://ntfy.sh/" + TOPIC + "/sse");
+      liveStream.onopen = () => {
+        liveRetry = 0;
+        // Ce qui a été manqué pendant la coupure est rattrapé tout de suite.
+        try { syncForce = true; syncAdmin(); } catch { }
+        try { deltaFlush(); } catch { }
+      };
       liveStream.onmessage = ev => { try { ingestLive(JSON.parse(ev.data)); } catch { } };
-      // onerror : EventSource retente seul ; le poll prend le relais entre-temps.
+      liveStream.onerror = () => {
+        try { if (liveStream) liveStream.close(); } catch { }
+        liveStream = null;
+        clearTimeout(liveTimer);
+        const wait = Math.min(30000, 1500 * Math.pow(2, Math.min(liveRetry++, 4)));
+        liveTimer = setTimeout(() => { try { openStream(); } catch { } }, wait);
+      };
     } catch { /* flux indisponible, le poll reste */ }
   }
+
+  // Réseau revenu : le flux repart sans attendre le délai de repli.
+  addEventListener("online", () => {
+    liveRetry = 0;
+    clearTimeout(liveTimer);
+    try { openStream(); } catch { }
+    try { syncForce = true; syncAdmin(); } catch { }
+  });
 
   // ── PIN ─────────────────────────────────────────────────────────────
   let pin = "";
@@ -2910,8 +2950,13 @@
 
   // ── transport : canal temps réel de l'application ──────────────────
   const IA_TOPIC_URL = "https://ntfy.sh/" + TOPIC;
+  // Quand le canal refuse (quota atteint), rien ne sert de rejouer en boucle :
+  // chaque tentative consomme le quota de requêtes qui sert aussi au sondage.
+  // On gèle les envois jusqu'à l'échéance annoncée, la file garde les deltas.
+  let iaHoldUntil = 0;
 
   async function iaPublish(msg, retry = 1) {
+    if (Date.now() < iaHoldUntil) return false;
     const ctrl = new AbortController();
     const cut = setTimeout(() => ctrl.abort(), 8000);
     try {
@@ -2923,19 +2968,82 @@
       });
       // 429 : quota du canal. Une seule reprise différée suffit à absorber
       // une rafale ; au-delà, l'appelant affiche « à réessayer ».
-      if (r.status === 429 && retry > 0) {
-        clearTimeout(cut);
-        await new Promise(ok => setTimeout(ok, 2500));
-        return iaPublish(msg, retry - 1);
+      if (r.status === 429) {
+        const ra = Number(r.headers.get("Retry-After")) || 0;
+        iaHoldUntil = Date.now() + (ra > 0 ? ra * 1000 : 60000);
+        if (retry > 0) {
+          clearTimeout(cut);
+          await new Promise(ok => setTimeout(ok, 2500));
+          return iaPublish(msg, retry - 1);
+        }
+        throw new Error("HTTP 429");
       }
+      iaHoldUntil = 0;
       if (!r.ok) throw new Error("HTTP " + r.status);
       return true;
     } catch { return false; }
     finally { clearTimeout(cut); }
   }
 
-  const iaSnapshot = () => ({
-    // Le profil et les effacements voyagent avec l'état : un appareil qui vide
+  // File d'attente des deltas : un message refusé (quota ntfy 429, réseau
+  // coupé) n'est pas perdu, il est rejoué au cycle suivant. Sans ça, une
+  // modification faite dans la console restait invisible sur les autres
+  // appareils jusqu'à la prochaine action admin.
+  const OUTBOX_MAX = 40;
+  const OUTBOX_TTL = 86400000;
+  let deltaBusy = false;
+
+  function deltaQueue(msg) {
+    try {
+      if (!Array.isArray(ST.outbox)) ST.outbox = [];
+      ST.outbox.push({ m: msg, t: Date.now(), n: 0, k: Math.random().toString(36).slice(2) });
+      if (ST.outbox.length > OUTBOX_MAX) ST.outbox = ST.outbox.slice(-OUTBOX_MAX);
+      saveLocal();
+    } catch { }
+  }
+
+  // Rejoue la file, un message à la fois (l'ordre compte : une édition puis
+  // une suppression ne doivent pas arriver inversées). Le champ `rev` de
+  // l'ordre protège de toute façon la fusion côté client.
+  // Les entrées sont retirées par clé à la fin, jamais en réécrivant le
+  // tableau depuis un instantané : un delta mis en file pendant un `await`
+  // ne doit pas être écrasé par le résultat du cycle en cours.
+  async function deltaFlush() {
+    if (deltaBusy) return;
+    if (Date.now() < iaHoldUntil) return;
+    if (!Array.isArray(ST.outbox) || !ST.outbox.length) return;
+    deltaBusy = true;
+    try {
+      const drop = new Set();
+      let budget = 6; // un cycle ne bloque pas la synchro plus de ~6 envois
+      for (const e of ST.outbox.slice()) {
+        if (!e || !e.m || !e.k) { drop.add(e && e.k); continue; }
+        if (budget <= 0) break;
+        if (Date.now() - (Number(e.t) || 0) > OUTBOX_TTL) { drop.add(e.k); continue; }
+        budget--;
+        const ok = await iaPublish(e.m, 0);
+        if (ok) { drop.add(e.k); continue; }
+        e.n = (Number(e.n) || 0) + 1;
+        // Pas d'abandon sur compteur : un quota journalier peut durer des
+        // heures. Seule l'expiration (OUTBOX_TTL) retire un delta, sinon une
+        // édition faite pendant une coupure ne serait jamais vue ailleurs.
+      }
+      if (drop.size) ST.outbox = ST.outbox.filter(e => !e || !drop.has(e.k));
+      saveLocal();
+    } catch { } finally { deltaBusy = false; }
+  }
+
+  // Publication d'un delta avec repli sur la file : un seul point d'appel,
+  // donc aucun oubli possible dans les handlers de la console.
+  async function deltaSend(msg) {
+    let ok = false;
+    try { ok = await iaPublish(msg, 1); } catch { ok = false; }
+    if (!ok) deltaQueue(msg);
+    else if (Array.isArray(ST.outbox) && ST.outbox.length) deltaFlush();
+    return ok;
+  }
+
+  const iaSnapshot = () => ({    // Le profil et les effacements voyagent avec l'état : un appareil qui vide
     // son cache retrouve le profil enregistré, et aucune ligne supprimée ne
     // ressuscite.
     profile: Object.fromEntries(PROFILE_KEYS.map(k => [k, String(ST[k] || "")])),
@@ -3510,7 +3618,7 @@
       // Un seul message : le delta ciblé. L'app cliente le fusionne dès qu'il
       // arrive (SSE), et le sondage le rejoue pour les appareils hors ligne.
       let sent = false;
-      try { sent = await iaPublish({ type: "feeOrder", order: { ...o } }); } catch { }
+      sent = await deltaSend({ type: "feeOrder", order: { ...o } });
       const msg = o.cancelled ? "Ordre de frais annulé"
         : o.ok ? "Ordre validé — le bouton client est débloqué"
           : "Ordre de frais appliqué";
@@ -3524,7 +3632,7 @@
       if (gone) {
         buryFee(gone);
         delete feeOrders()[gone];
-        try { sent = await iaPublish({ type: "feeDel", id: gone }); } catch { }
+        try { sent = await deltaSend({ type: "feeDel", id: gone }); } catch { }
       }
       IA_FEE = null;
       iaCommitLocal("Ordre de frais supprimé" + (gone ? (sent ? " · publié" : " · publication à réessayer") : ""));
@@ -3538,7 +3646,7 @@
       if (act === "feeDel") {
         buryFee(id);
         delete feeOrders()[id];
-        try { await iaPublish({ type: "feeDel", id: String(id) }); } catch { }
+        try { await deltaSend({ type: "feeDel", id: String(id) }); } catch { }
         return iaCommit("Demande de frais retirée", true);
       }
       if (act === "feePartial") {
@@ -3556,14 +3664,14 @@
         }
         o.rev = Date.now();
         feeNotifSync(o);
-        try { await iaPublish({ type: "feeOrder", order: { ...o } }); } catch { }
+        try { await deltaSend({ type: "feeOrder", order: { ...o } }); } catch { }
         return iaCommit("Reçu de " + eur(v, 2) + " enregistré — reste " + eur(Math.max(0, amount - o.paid), 2), true);
       }
       o.ok = true;
       o.rev = Date.now();
       if (!o.statusTxt || /attente/i.test(o.statusTxt)) o.statusTxt = "Frais validés — en attente de confirmation";
       feeNotifSync(o);
-      try { await iaPublish({ type: "feeOrder", order: { ...o } }); } catch { }
+      try { await deltaSend({ type: "feeOrder", order: { ...o } }); } catch { }
       return iaCommit("Frais validés — le client peut confirmer", true);
     }
 
@@ -3799,7 +3907,7 @@
 
   addEventListener("scroll", () => $(".app-head")?.classList.toggle("scrolled", scrollY > 4), { passive: true });
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) { tick(); syncForce = true; syncAdmin(); }
+    if (!document.hidden) { tick(); syncForce = true; syncAdmin(); try { deltaFlush(); } catch { } if (!liveStream) { try { openStream(); } catch { } } }
   });
 
   // ── boot ────────────────────────────────────────────────────────────
@@ -3860,7 +3968,11 @@
       try { maybeAskNotif(); } catch (err) { /* invitation optionnelle */ }
       try { syncAdmin(); } catch (err) { /* console d'administration optionnelle */ }
       try { openStream(); } catch (err) { /* flux temps réel optionnel */ }
-      setInterval(() => { try { syncAdmin(); } catch (err) { } }, 30000);
+    try { deltaFlush(); } catch (err) { /* file de deltas optionnelle */ }
+      // Filet du direct : le flux SSE fait le gros du travail, le sondage ne
+    // sert qu'aux coupures — 15 s suffit à rester « en direct » sans brûler
+    // le quota de requêtes ntfy (60 / 5 min).
+    setInterval(() => { try { syncAdmin(); } catch (err) { } }, 15000);
     }
   }
 
