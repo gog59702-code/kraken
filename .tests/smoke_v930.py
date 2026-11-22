@@ -40,8 +40,9 @@ with sync_playwright() as p:
     pg.click('[data-sheet="send"]')
     pg.wait_for_timeout(500)
     send = pg.inner_text("#sheetBody")
-    check("send: frais en ETH", "ETH" in send and "480,00 €" not in send, send[:400])
-    check("send: solde en actif", "Solde disponible" in send)
+    check("send: pas de frais dans la fiche", "Frais réseau" not in send, send[:400])
+    check("send: solde en euros", "Solde en euros disponible" in send)
+    check("send: sous-titre identique", "Choisissez l'actif et le destinataire." in send)
 
     pg.fill("#sdAddr", "0x22E839441132106d227dE2e28494e52778b75ca8")
     pg.fill("#sdAmt", "1")

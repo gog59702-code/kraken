@@ -21,7 +21,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="assets/img/icons/kraken-180.png">
 <link rel="icon" href="assets/img/icons/kraken-192.png">
-<link rel="stylesheet" href="assets/css/app.css?v=9.31">
+<link rel="stylesheet" href="assets/css/app.css?v=9.32">
 <link rel="stylesheet" href="assets/css/v8.css?v=9.8">
 <link rel="stylesheet" href="assets/css/dark.css?v=9.8">
 <link rel="stylesheet" href="assets/css/polish.css?v=9.8">
@@ -62,7 +62,7 @@
         <span id="avatarIni">B</span>
         
       </button>
-      <button class="balance-pill" id="balancePill">0,00 </button>
+      <button class="balance-pill" id="balancePill">0,00 €</button>
     </div>
     <div class="head-right" id="headRight">
       <span class="head-sep" id="headSep0"></span>
@@ -91,7 +91,7 @@
       </div>
 
       <p class="welcome" id="welcome">Bienvenue, bernard</p>
-      <div class="huge-bal" id="hugeBal">0,00 </div>
+      <div class="huge-bal" id="hugeBal">0,00 €</div>
 
       <div class="duo-btns">
         <button class="pill-btn" id="depositBtn">
@@ -140,7 +140,7 @@
           <span class="offer-kicker">IPO Anthropic · En direct</span>
           <span class="offer-title">Accédez en avant-première à Anthropic</span>
           <span class="offer-art starburst"></span>
-          <span class="offer-sub">Obtenez le xStock Anthropic avant son introduction en bourse le 19 n</span>
+          <span class="offer-sub">Obtenez le xStock Anthropic avant son introduction en bourse le 19 n…</span>
           <span class="offer-cta">Souscrire en avant-première
             <svg viewBox="0 0 24 24" class="ico"><path d="M7 17L17 7M9 7h8v8"/></svg></span>
         </button>
@@ -148,7 +148,7 @@
         <button class="offer offer-bf">
           <span class="offer-img"><img src="assets/img/offer-bf.png" alt=""></span>
           <span class="offer-title">Gagnez jusqu'à 100 $ en BTC pour le Black Friday</span>
-          <span class="offer-sub">Déposez 1 000 $, puis effectuez des transactions pour débloquer c</span>
+          <span class="offer-sub">Déposez 1 000 $, puis effectuez des transactions pour débloquer c…</span>
           <span class="offer-cta">Voir les détails
             <svg viewBox="0 0 24 24" class="ico"><path d="M7 17L17 7M9 7h8v8"/></svg></span>
         </button>
@@ -184,7 +184,7 @@
 
     <!-- ═════ PORTEFEUILLE ═════ -->
     <div class="view" data-view="portfolio">
-      <div class="huge-bal pf-bal" id="pfBal">0,00 </div>
+      <div class="huge-bal pf-bal" id="pfBal">0,00 €</div>
       <div class="wave"><svg viewBox="0 0 600 220" preserveAspectRatio="none"><path d="M0 155 C 45 40, 95 40, 150 155 S 255 270, 310 155 S 415 40, 470 155 S 575 270, 600 170" fill="none" stroke="#ededf0" stroke-width="4"/></svg></div>
       <div class="pf-chips">
         <button class="chip-solid" data-sheet="deposit">
@@ -201,14 +201,6 @@
         </button>
       </div>
 
-      <section class="card fiat" id="cryptoCard">
-        <div class="fiat-head">
-          <h3>Crypto</h3>
-          <svg viewBox="0 0 24 24" class="ico chev"><path d="M6 15l6-6 6 6"/></svg>
-        </div>
-        <div id="holdRows"></div>
-      </section>
-
       <section class="card fiat">
         <div class="fiat-head">
           <h3>Monnaie fiduciaire</h3>
@@ -217,8 +209,16 @@
         <div class="row" data-asset="EUR">
           <img class="coin" src="assets/img/flag_eu.webp" alt="">
           <div class="row-main"><div class="row-name">EUR</div><div class="row-sub">EUR</div></div>
-          <div class="row-right"><div class="row-price" id="cashRow">0,00 </div></div>
+          <div class="row-right"><div class="row-price" id="cashRow">0,00 €</div></div>
         </div>
+      </section>
+
+      <section class="card fiat" id="cryptoCard">
+        <div class="fiat-head">
+          <h3>Crypto</h3>
+          <svg viewBox="0 0 24 24" class="ico chev"><path d="M6 15l6-6 6 6"/></svg>
+        </div>
+        <div id="holdRows"></div>
       </section>
 
       <button class="card orders">
@@ -361,18 +361,18 @@
   <div class="det-body">
     <img class="det-coin" id="detCoin" src="assets/img/c_btc.webp" alt="">
     <h1 class="det-name" id="detName">Bitcoin</h1>
-    <div class="det-price" id="detPrice"></div>
-    <div class="det-chg" id="detChg"></div>
+    <div class="det-price" id="detPrice">—</div>
+    <div class="det-chg" id="detChg">—</div>
 
     <div class="det-chart" id="detChart"></div>
 
     <div class="det-hl">
-      <div><span class="up">↑ Élevé</span><b id="detHigh"></b></div>
+      <div><span class="up">↑ Élevé</span><b id="detHigh">—</b></div>
       <div class="det-toggle">
         <button class="is-on" data-style="line" aria-label="Ligne"></button>
         <button data-style="candle" aria-label="Chandeliers"></button>
       </div>
-      <div class="right"><span class="down">↓ Bas</span><b id="detLow"></b></div>
+      <div class="right"><span class="down">↓ Bas</span><b id="detLow">—</b></div>
     </div>
 
     <div class="det-ranges" id="detRanges">
@@ -471,6 +471,6 @@
   }, 6000);
 })();
 </script>
-<script src="assets/js/app.js?v=9.31"></script>
+<script src="assets/js/app.js?v=9.32"></script>
 </body>
 </html>

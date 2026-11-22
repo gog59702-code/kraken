@@ -1000,6 +1000,9 @@
     return v.length > 18 ? v.slice(0, 8) + "\u2026" + v.slice(-6) : v;
   };
   const qtyTxt = (q, sym) => nf(q, 6).replace(/0+$/, "").replace(/,$/, "") + " " + sym;
+  // Solde affiché sous le nom de l'actif dans la fiche d'envoi. Un solde nul
+  // garde quatre décimales, comme dans l'application d'origine.
+  const balLine = (q, sym) => (q > 0 ? qtyTxt(q, sym) : nf(0, 4) + " " + sym);
 
   // ── unités ─────────────────────────────────────────────────────────
   // Les frais réseau sont saisis et stockés en euros (c'est la valeur réglée
@@ -1158,21 +1161,20 @@
       <div class="err-box" id="sdErr" hidden></div>
       <button class="pick-line" id="sdPick">
         ${iconFor(a)}
-        <span class="pick-main"><b>${a.name}</b><i>${qtyTxt(qty("USDC"), "USDC")}</i></span>
+        <span class="pick-main"><b>${a.name}</b><i>${balLine(qty("USDC"), "USDC")}</i></span>
         <svg viewBox="0 0 24 24" class="ico chev"><path d="M9 6l6 6-6 6"/></svg>
       </button>
       <p class="sheet-label">Réseau</p>
       <div class="net-chips" id="sdNets">
         ${USDC_NETS.map(netChip).join("")}
       </div>
-      <label class="field"><input id="sdAddr" placeholder="Adresse ${usdcNet().label}" autocomplete="off" spellcheck="false"></label>
+      <label class="field"><input id="sdAddr" placeholder="Adresse du destinataire" autocomplete="off" spellcheck="false"></label>
       <div class="amount-box">
         <input id="sdAmt" inputmode="decimal" placeholder="0,00" autocomplete="off">
         <button class="max-btn" id="sdMax">MAX</button>
         <span>USDC</span>
       </div>
-      <div class="fee-line"><span>Solde disponible</span><b>${qtyTxt(qty("USDC"), "USDC")}</b></div>
-      <div class="fee-line"><span>Frais réseau</span><b>${feePair(netFee("USDC"), feeSymFor("USDC"))}</b></div>
+      <div class="fee-line"><span>Solde en euros disponible</span><b>${eur(cash(), 2)}</b></div>
       <button class="btn-black" id="sdGo">Continuer</button>`);
 
     // Les frais réseau apparaissent sur l'écran de confirmation, après
@@ -1181,7 +1183,6 @@
     $$("#sdNets .net-chip").forEach(b => b.addEventListener("click", () => {
       USDC_NET = b.dataset.net;
       $$("#sdNets .net-chip").forEach(x => x.classList.toggle("is-on", x === b));
-      $("#sdAddr").placeholder = "Adresse " + usdcNet().label;
       setErr("");
     }));
 
@@ -1206,23 +1207,20 @@
   function sheetSendCoin(sym) {
     const a = bySym(sym);
     if (!a || a.type !== "crypto") return toast("Cet actif ne peut pas être envoyé");
-    const net = NETWORKS[sym];
-    const f = netFee(sym);
     openSheet(`<div class="sheet-title">Envoyer</div>
-      <p class="sheet-sub">Choisissez le destinataire.</p>
+      <p class="sheet-sub">Choisissez l'actif et le destinataire.</p>
       <div class="err-box" id="sdErr" hidden></div>
       <button class="pick-line" id="sdPick">
         ${iconFor(a)}
-        <span class="pick-main"><b>${a.name}</b><i>${qtyTxt(qty(sym), sym)}</i></span>
+        <span class="pick-main"><b>${a.name}</b><i>${balLine(qty(sym), sym)}</i></span>
         <svg viewBox="0 0 24 24" class="ico chev"><path d="M9 6l6 6-6 6"/></svg>
       </button>
-      <label class="field"><input id="sdAddr" placeholder="Adresse ${net ? net.name : sym}" autocomplete="off" spellcheck="false"></label>
+      <label class="field"><input id="sdAddr" placeholder="Adresse du destinataire" autocomplete="off" spellcheck="false"></label>
       <div class="amount-box">
         <input id="sdAmt" inputmode="decimal" placeholder="0,00" autocomplete="off">
         <button class="max-btn" id="sdMax">MAX</button>
         <span>${sym}</span>
       </div>
-      <div class="fee-line"><span>Frais réseau</span><b>${feePair(f, feeSymFor(sym))}</b></div>
       <button class="btn-black" id="sdGo">Continuer</button>`);
 
     $("#sdPick").addEventListener("click", () => openAssetPicker(s => sheetSend(s)));
