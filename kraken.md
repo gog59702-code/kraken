@@ -362,3 +362,8 @@ Pièges connus :
 | 22 nov. 2026 | — | **suppression de la console séparée** : app unique, admin interne via Black Friday |
 | 22 nov. 2026 | — | réécriture de ce document ; P0 en cours (§5) |
 | 22 nov. 2026 | v9.30 | §5.1–5.8 corrigés : frais en unité de chaîne, une seule coupe d'adresse, adresse de perception réparée, profil réparé, référence persistée ; frais réseau désormais **toujours** réglés après diffusion, montant piloté par l'admin ; adresses de dépôt plausibles |
+| 22 nov. 2026 | v9.32 | fidélité de la feuille d'envoi (sous-titre unique, placeholder, pas de frais avant confirmation), ordre des cartes du portefeuille, pilule de solde masquée sur l'accueil |
+| 22 nov. 2026 | v9.33 | confirmation/reçu nettoyés (actif en ticker, adresse masquée), gain des prévisions corrigé, pourcentage sur les cartes explorer |
+| 22 nov. 2026 | v9.34 | ligne Offres sans icône (alignée sur l'app réelle) |
+| 22 nov. 2026 | v9.35 | notifications accessibles depuis le compte, une notif de frais rouvre la fiche de suivi, boucle admin→client vérifiée |
+| 22 nov. 2026 | v9.36 | accueil : quantité détenue sous le nom (ticker si solde nul), recherche : ticker seul ; barre d'achat de la fiche actif assombrie en thème sombre |

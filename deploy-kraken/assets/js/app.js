@@ -312,11 +312,17 @@
   let homeCat = "fav";
 
   function rowHTML(a) {
+    // L'app de reference affiche la quantite detenue sous le nom sur
+    // l'accueil ; a defaut de solde, elle affiche le ticker.
+    const bal = qty(a.sym);
+    const sub = bal > 0
+      ? nf(bal, 6).replace(/0+$/, "").replace(/,$/, "") + " " + a.sym
+      : a.sym;
     return `<div class="row" data-asset="${a.sym}">
       ${iconFor(a)}
       <div class="row-main">
         <div class="row-name">${a.name}</div>
-        <div class="row-sub">${a.sym}</div>
+        <div class="row-sub">${sub}</div>
       </div>
       <div class="row-right">
         <div class="row-price">${a.type === "stock" ? usd(a.price) : px(a) + " €"}</div>
