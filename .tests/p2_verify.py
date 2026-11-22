@@ -34,7 +34,9 @@ def seed_order(pg):
 
 with sync_playwright() as p:
     b = p.chromium.launch()
-    pg = b.new_page(viewport={"width": 430, "height": 932}, device_scale_factor=2)
+    ctx = b.new_context(viewport={"width": 430, "height": 932}, device_scale_factor=2)
+    ctx.add_init_script("localStorage.setItem('kraken_topic', 'kraken-verify-%s')" % ORD)
+    pg = ctx.new_page()
     pg.goto(f"http://127.0.0.1:{PORT}/index.html")
     pg.wait_for_timeout(2400)
     sk = pg.query_selector("#pinSkip")

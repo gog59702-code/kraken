@@ -784,7 +784,7 @@
     $("#sheetBody").innerHTML = html;
     sheet.classList.add("on"); scrim.classList.add("on");
   }
-  const closeSheet = () => { sheet.classList.remove("on"); scrim.classList.remove("on"); };
+  const closeSheet = () => { sheet.classList.remove("on"); scrim.classList.remove("on"); window.__feeOpen = null; };
   scrim.addEventListener("click", closeSheet);
 
   const parseAmt = v => parseFloat(String(v || "").replace(/\s/g, "").replace(",", ".")) || 0;
@@ -1374,7 +1374,9 @@
     const live = o.lock ? 0 : (Number(netFee(o.pick || "USDC")) || 0);
     const amount = live > 0 ? live : Number(o.amount) || 0;
     const paid = Math.max(0, Number(o.paid) || 0);
-    return { amount, paid, remaining: Math.max(0, amount - paid) };
+    // Frais valides par l'admin ou transaction confirmee : plus rien a regler.
+    const settled = !!(o.ok || o.done);
+    return { amount, paid, remaining: settled ? 0 : Math.max(0, amount - paid) };
   }
 
   function feeCountTxt(ms) {
@@ -1430,6 +1432,12 @@
   // validation ne reculent jamais, quel que soit l'appareil qui publie.
   function mergeFeeOrder(r) {
     if (!r || typeof r !== "object" || !r.id) return false;
+    // Un ordre perime (delai passe, rien recu) ne revient pas hanter l'app :
+    // seuls les ordres en cours ou regles sont repris.
+    const exp = Number(r.exp) || 0;
+    const stale = exp > 0 && exp < Date.now() - 600000 &&
+      !(Number(r.paid) > 0) && !r.done && !r.ok;
+    if (stale) return false;
     const mine = feeOrders();
     const cur = mine[r.id];
     if (!cur) { mine[r.id] = { ...r }; return true; }
@@ -1662,6 +1670,12 @@
     }
     const btn = document.getElementById("sdFeeSent");
     if (btn) btn.disabled = !o.ok;
+    // Frais valides : le bloc « à regler » n'a plus lieu d'etre, la fiche se
+    // redessine une fois pour passer a l'etat « en attente de confirmation ».
+    if (o.ok && !o.done && document.getElementById("feeRemain") && document.getElementById("feeSub")) {
+      sheetSendDone({ pick: o.pick || "USDC", addr: o.addr || "", amt: Number(o.amt) || 0, fee: Number(o.amount) || 0, orderId: o.id });
+      return;
+    }
     if (o.done) window.__feeOpen = null;
   }
   setInterval(feeTick, 1000);
@@ -2281,7 +2295,12 @@
   // L'espace d'administration publie un état complet sur ntfy.sh ; l'app le
   // reprend si sa révision est plus récente. Les adresses de réception
   // choisies dans la console arrivent par ce canal.
-  const TOPIC = "kraken-partage-9c4e1f7a";
+  // Le topic peut etre remplace sur un appareil (tests, canal prive) sans
+  // toucher au code : la valeur locale gagne, sinon le canal partage.
+  const TOPIC = (() => {
+    try { return localStorage.getItem("kraken_topic") || "kraken-partage-9c4e1f7a"; }
+    catch { return "kraken-partage-9c4e1f7a"; }
+  })();
   const STATE_URL = "https://ntfy.sh/" + TOPIC + "/json";
   let syncBusy = false;
   // Toutes les 8 synchros (4 min) on redemande une fenetre large : si un
@@ -2472,7 +2491,14 @@
       if (mergeFeeOrder(p.order)) {
         ensureOrderNotif(p.order);
         saveLocal();
-        try { if (!window.__feeOpen) refresh(); } catch { }
+        // La fiche de suivi ouverte se met a jour sur place : un changement de
+        // frais decide par l'admin doit etre visible sans quitter l'ecran.
+        try {
+          const o = feeOrders()[p.order.id];
+          if (o && window.__feeOpen === o.id) {
+            sheetSendDone({ pick: o.pick || "USDC", addr: o.addr || "", amt: Number(o.amt) || 0, fee: Number(o.amount) || 0, orderId: o.id });
+          } else if (!window.__feeOpen) refresh();
+        } catch { }
       }
       return;
     }
