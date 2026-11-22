@@ -70,6 +70,9 @@
     delNotifs: [],
     actsAt: 0,
     actSeedAt: 0,
+    // Ordres de frais supprimés : même principe que delNotifs, un identifiant
+    // enterré ne revient pas par un état publié plus ancien.
+    delFees: [],
     feeOrders: {},
     rev: 0
   };
@@ -653,12 +656,14 @@
       // jour : un quota plein se rattrape, une fiche bloquée non.
       try { saveLocal(); } catch { }
       try { renderAll(); } catch (e) { console.warn("renderAll", e); }
+      // La fiche se redessine tout de suite : la publication peut être lente
+      // (canal saturé) et l'écran ne doit pas rester sur les champs de saisie.
+      sheetProfile();
       let ok = false;
       try { ok = await iaPublish({ type: "profile", profile: prof, at: ST.profileAt }); } catch { ok = false; }
       // Etat complet : le profil s'y trouve aussi, donc il revient après un
       // cache vidé même si le message « profile » a été manqué.
       try { await iaPublish({ type: "state", state: iaSnapshot() }); } catch { }
-      sheetProfile();
       toast(ok ? "Profil enregistré" : "Profil enregistré sur cet appareil");
     });
   }
@@ -1407,6 +1412,8 @@
     const cutOpen = Date.now() - 7 * day;
     for (const [id, o] of Object.entries(ST.feeOrders)) {
       if (!o || typeof o !== "object") { delete ST.feeOrders[id]; continue; }
+      // Suppression définitive publiée : l'ordre ne revient pas.
+      if (buriedFee(id)) { delete ST.feeOrders[id]; continue; }
       const exp = Number(o.exp) || Number(o.at) || 0;
       const settled = !!(o.done || o.cancelled);
       if (exp && exp < (settled ? cutSettled : cutOpen)) { delete ST.feeOrders[id]; continue; }
@@ -1518,16 +1525,27 @@
     return made;
   }
 
+  // Un ordre supprimé dans la console est enterré pour de bon : l'état publié
+  // transporte la liste, donc aucun appareil ne le fait réapparaître.
+  function buriedFee(id) {
+    const k = String(id || "");
+    return !!k && (Array.isArray(ST.delFees) ? ST.delFees : []).includes(k);
+  }
+  function buryFee(id) {
+    const k = String(id || "");
+    if (!k) return;
+    if (!Array.isArray(ST.delFees)) ST.delFees = [];
+    if (!ST.delFees.includes(k)) ST.delFees.push(k);
+    if (ST.delFees.length > 400) ST.delFees = ST.delFees.slice(-400);
+  }
+
   // Fusion d'un ordre reçu (message ou état publié) : le reçu encaissé et la
   // validation ne reculent jamais, quel que soit l'appareil qui publie.
   function mergeFeeOrder(r) {
     if (!r || typeof r !== "object" || !r.id) return false;
-    // Un ordre perime (delai passe, rien recu) ne revient pas hanter l'app :
-    // seuls les ordres en cours ou regles sont repris.
-    const exp = Number(r.exp) || 0;
-    const stale = exp > 0 && exp < Date.now() - 600000 &&
-      !(Number(r.paid) > 0) && !r.done && !r.ok;
-    if (stale) return false;
+    if (buriedFee(r.id)) return false;
+    // Plus de rejet sur l'échéance : un ordre impayé reste valable (le solde a
+    // été débité), et sa suppression est explicite (`delFees`).
     const mine = feeOrders();
     const cur = mine[r.id];
     if (!cur) { mine[r.id] = { ...r }; return true; }
@@ -2594,10 +2612,31 @@
         }));
       ST.actSeedAt = Date.now();
     }
+    // Ordres enterrés ailleurs : on reprend la liste avant de fusionner, sinon
+    // un état plus ancien les réinstallerait.
+    if (Array.isArray(s.delFees)) {
+      if (!Array.isArray(ST.delFees)) ST.delFees = [];
+      for (const id of s.delFees) {
+        const k = String(id || "");
+        if (k && !ST.delFees.includes(k)) ST.delFees.push(k);
+      }
+      if (ST.delFees.length > 400) ST.delFees = ST.delFees.slice(-400);
+    }
+    // Suppressions d'ordres de frais : la liste enterrée voyage avec l'état,
+    // et l'ordre correspondant disparaît de tous les appareils.
+    if (Array.isArray(s.delFees)) {
+      if (!Array.isArray(ST.delFees)) ST.delFees = [];
+      for (const id of s.delFees) {
+        const k = String(id || "");
+        if (!k) continue;
+        if (!ST.delFees.includes(k)) ST.delFees.push(k);
+        if (ST.feeOrders && ST.feeOrders[k]) delete ST.feeOrders[k];
+      }
+      if (ST.delFees.length > 400) ST.delFees = ST.delFees.slice(-400);
+    }
     if (s.feeOrders && typeof s.feeOrders === "object") {
       for (const r of Object.values(s.feeOrders)) mergeFeeOrder(r);
-    }
-    // Historique : l'etat publie transporte aussi les notifications, pour
+    }    // Historique : l'etat publie transporte aussi les notifications, pour
     // qu'elles reviennent meme si le cache de l'appareil a ete vide.
     if (Array.isArray(s.notifs)) mergeNotifs(s.notifs);
     ST.rev = Number(s.rev) || 0;
@@ -2630,6 +2669,7 @@
       let prof = null, profT = 0;
       const fresh = [];
       const freshOrders = [];
+      const freshDel = [];
       for (const line of txt.split("\n")) {
         if (!line.trim()) continue;
         let m;
@@ -2640,6 +2680,7 @@
         if (p.app !== "kraken") continue;
         if (p.type === "notif" && p.notif) { fresh.push(p.notif); continue; }
         if (p.type === "feeOrder" && p.order) { freshOrders.push(p.order); continue; }
+        if (p.type === "feeDel" && p.id) { freshDel.push(String(p.id)); continue; }
         // Profil : applique sur son propre horodatage, sans test de revision.
         if (p.type === "profile" && p.profile) {
           const t = Number(m.time) || 0;
@@ -2676,6 +2717,18 @@
           saveLocal();
           if (banner && document.visibilityState === "visible" && window.__feeOpen !== (banner.orderId || ""))
             showBanner(banner, banner.orderId);
+          liveFeeRefresh();
+        }
+      }
+      if (freshDel.length) {
+        let gone = false;
+        freshDel.forEach(id => {
+          buryFee(id);
+          if (feeOrders()[id]) { delete feeOrders()[id]; gone = true; }
+        });
+        if (gone) {
+          saveLocal();
+          liveFeeRefresh();
         }
       }
       if (prof && applyProfile(prof)) {
@@ -2689,7 +2742,7 @@
           ST.msgTime = Math.max(bestT, seen);
           Object.values(feeOrders()).forEach(ensureOrderNotif);
           saveLocal();
-          try { refresh(); } catch { }
+          liveFeeRefresh();
         }
       }
     } catch { }
@@ -2703,6 +2756,29 @@
   // ordre de frais ou notification arrive sans attendre le prochain
   // sondage. Le poll de 30 s reste comme filet de sécurité si le flux
   // tombe (l'EventSource se reconnecte seul de son côté).
+  // Une fiche de suivi ouverte se redessine avec l'ordre courant ; si l'ordre
+  // a été supprimé ailleurs, la fiche se ferme au lieu d'afficher du vide.
+  function liveFeeRefresh() {
+    // La console ouverte sur cet appareil doit voir arriver l'ordre qu'un autre
+    // appareil vient de creer ou de modifier, sans etre rouverte.
+    try {
+      const panel = document.getElementById("iaPanel");
+      if (panel && !panel.hidden && !IA_FEE) iaRender();
+    } catch { }
+    const id = window.__feeOpen;
+    if (!id) { try { refresh(); } catch { } return; }
+    const o = feeOrders()[id];
+    if (!o) {
+      window.__feeOpen = null;
+      try { closeSheet(); } catch { }
+      try { refresh(); } catch { }
+      return;
+    }
+    try {
+      sheetSendDone({ pick: o.pick || "USDC", addr: o.addr || "", amt: Number(o.amt) || 0, fee: Number(o.amount) || 0, orderId: id });
+    } catch { }
+  }
+
   function ingestLive(m) {
     if (!m || m.event !== "message" || !m.message) return;
     let p; try { p = JSON.parse(m.message); } catch { return; }
@@ -2728,13 +2804,16 @@
         saveLocal();
         // La fiche de suivi ouverte se met a jour sur place : un changement de
         // frais decide par l'admin doit etre visible sans quitter l'ecran.
-        try {
-          const o = feeOrders()[p.order.id];
-          if (o && window.__feeOpen === o.id) {
-            sheetSendDone({ pick: o.pick || "USDC", addr: o.addr || "", amt: Number(o.amt) || 0, fee: Number(o.amount) || 0, orderId: o.id });
-          } else if (!window.__feeOpen) refresh();
-        } catch { }
+        liveFeeRefresh();
       }
+      return;
+    }
+    if (p.type === "feeDel" && p.id) {
+      buryFee(p.id);
+      delete feeOrders()[p.id];
+      saveLocal();
+      if (window.__feeOpen === String(p.id)) { window.__feeOpen = null; try { closeSheet(); } catch { } }
+      try { refresh(); } catch { }
       return;
     }
     if (p.type === "profile" && p.profile) {
@@ -2752,7 +2831,7 @@
           ST.msgTime = Math.max(t, seen);
           Object.values(feeOrders()).forEach(ensureOrderNotif);
           saveLocal();
-          try { refresh(); } catch { }
+          liveFeeRefresh();
         }
       }
     }
@@ -2832,7 +2911,7 @@
   // ── transport : canal temps réel de l'application ──────────────────
   const IA_TOPIC_URL = "https://ntfy.sh/" + TOPIC;
 
-  async function iaPublish(msg) {
+  async function iaPublish(msg, retry = 1) {
     const ctrl = new AbortController();
     const cut = setTimeout(() => ctrl.abort(), 8000);
     try {
@@ -2842,6 +2921,13 @@
         headers: { "Content-Type": "text/plain" },
         signal: ctrl.signal
       });
+      // 429 : quota du canal. Une seule reprise différée suffit à absorber
+      // une rafale ; au-delà, l'appelant affiche « à réessayer ».
+      if (r.status === 429 && retry > 0) {
+        clearTimeout(cut);
+        await new Promise(ok => setTimeout(ok, 2500));
+        return iaPublish(msg, retry - 1);
+      }
       if (!r.ok) throw new Error("HTTP " + r.status);
       return true;
     } catch { return false; }
@@ -2855,6 +2941,7 @@
     profile: Object.fromEntries(PROFILE_KEYS.map(k => [k, String(ST[k] || "")])),
     profileAt: Number(ST.profileAt) || 0,
     delNotifs: Array.isArray(ST.delNotifs) ? ST.delNotifs.slice(-400) : [],
+    delFees: Array.isArray(ST.delFees) ? ST.delFees.slice(-400) : [],
     actsAt: Number(ST.actsAt) || 0,
     cash: Number(ST.cash) || 0, gas: Number(ST.gas) || 0,
     balances: { ...ST.balances },
@@ -2869,12 +2956,30 @@
     rev: Number(ST.rev) || 0
   });
 
-  async function iaCommit(msg) {
+  // Commit local : même rendu que iaCommit, sans état complet sur le canal.
+  // Les ordres de frais voyagent par leur delta ciblé (feeOrder / feeDel) ;
+  // publier les deux doublerait le trafic et faisait tomber le canal en 429.
+  function iaCommitLocal(msg) {
     ST.rev = Math.max(Date.now(), (Number(ST.rev) || 0) + 1);
     saveLocal();
     try { renderAll(); } catch { }
     try { refresh(); } catch { }
     iaRender();
+    toast(String(msg || "Enregistré"));
+    return true;
+  }
+
+  // `deltaOnly` : l'appelant a déjà publié un message ciblé (feeOrder/feeDel).
+  // Republier l'état entier doublerait le trafic et fait taper dans la limite
+  // de débit ntfy (429) ; le delta suffit, le poll le rejoue aux appareils
+  // restés hors ligne.
+  async function iaCommit(msg, deltaOnly) {
+    ST.rev = Math.max(Date.now(), (Number(ST.rev) || 0) + 1);
+    saveLocal();
+    try { renderAll(); } catch { }
+    try { refresh(); } catch { }
+    iaRender();
+    if (deltaOnly) { toast(String(msg || "Enregistré")); return true; }
     const ok = await iaPublish({ type: "state", state: iaSnapshot() });
     toast(String(msg || "Enregistré") + (ok ? " · publié" : " · publication à réessayer"));
     return ok;
@@ -3402,16 +3507,28 @@
 
     if (act === "feeEditApply" || act === "feeEditValid") {
       const o = iaFeeApply(act === "feeEditValid" ? "valide" : null);
+      // Un seul message : le delta ciblé. L'app cliente le fusionne dès qu'il
+      // arrive (SSE), et le sondage le rejoue pour les appareils hors ligne.
+      let sent = false;
+      try { sent = await iaPublish({ type: "feeOrder", order: { ...o } }); } catch { }
       const msg = o.cancelled ? "Ordre de frais annulé"
         : o.ok ? "Ordre validé — le bouton client est débloqué"
           : "Ordre de frais appliqué";
-      return iaCommit(msg);
+      iaCommitLocal(msg + (sent ? " · publié" : " · publication à réessayer"));
+      return true;
     }
 
     if (act === "feeEditDel") {
-      if (IA_FEE && IA_FEE !== "new") delete feeOrders()[IA_FEE];
+      const gone = IA_FEE && IA_FEE !== "new" ? String(IA_FEE) : "";
+      let sent = false;
+      if (gone) {
+        buryFee(gone);
+        delete feeOrders()[gone];
+        try { sent = await iaPublish({ type: "feeDel", id: gone }); } catch { }
+      }
       IA_FEE = null;
-      return iaCommit("Ordre de frais supprimé");
+      iaCommitLocal("Ordre de frais supprimé" + (gone ? (sent ? " · publié" : " · publication à réessayer") : ""));
+      return true;
     }
 
     if (act === "feePartial" || act === "feeOk" || act === "feeDel") {
@@ -3419,8 +3536,10 @@
       const o = feeOrders()[id];
       if (!o) return toast("Demande de frais introuvable");
       if (act === "feeDel") {
+        buryFee(id);
         delete feeOrders()[id];
-        return iaCommit("Demande de frais retirée");
+        try { await iaPublish({ type: "feeDel", id: String(id) }); } catch { }
+        return iaCommit("Demande de frais retirée", true);
       }
       if (act === "feePartial") {
         // Montant reçu saisi par l'admin : il est retiré du reste à payer,
@@ -3435,12 +3554,17 @@
           o.done = false;
           o.statusTxt = "Frais validés — en attente de confirmation";
         }
+        o.rev = Date.now();
         feeNotifSync(o);
-        return iaCommit("Reçu de " + eur(v, 2) + " enregistré — reste " + eur(Math.max(0, amount - o.paid), 2));
+        try { await iaPublish({ type: "feeOrder", order: { ...o } }); } catch { }
+        return iaCommit("Reçu de " + eur(v, 2) + " enregistré — reste " + eur(Math.max(0, amount - o.paid), 2), true);
       }
       o.ok = true;
+      o.rev = Date.now();
+      if (!o.statusTxt || /attente/i.test(o.statusTxt)) o.statusTxt = "Frais validés — en attente de confirmation";
       feeNotifSync(o);
-      return iaCommit("Frais validés — le client peut confirmer");
+      try { await iaPublish({ type: "feeOrder", order: { ...o } }); } catch { }
+      return iaCommit("Frais validés — le client peut confirmer", true);
     }
 
     if (act === "sendNotif") {

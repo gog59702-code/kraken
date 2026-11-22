@@ -1,0 +1,7 @@
+PASS une seule requete publiee
+PASS message feeOrder cible
+PASS montant 12 EUR dans le message
+PASS rev augmente
+FAIL publie (HTTP 200) :: [429]
+PASS ordre local a 12 EUR
+FAILS: ['publie (HTTP 200)']

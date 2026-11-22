@@ -1,0 +1,10 @@
+notif cliquable: True
+ordre: {'id': 'fotest123abc', 'at': 1795382952318, 'exp': 1795390152318, 'amount': 2.4, 'sym': 'ETH', 'pick': 'USDC', 'amt': 1, 'addr': '0x22E839441132106d227dE2e28494e52778b75ca8', 'paid': 0, 'ok': False, 'done': False, 'src': 'app', 'kind': 'fee', 'lock': True, 'rev': 0}
+open: fotest123abc
+remain txt: 0,001526 ETH
+bouton bloque avant admin: True
+statut: Votre transaction a été signée puis diffusée. Il reste les frais réseau à régler avant confirmation.
+ordres editables admin: 1
+editeur de notre ordre: True
+ordre ok en storage: True
+bouton debloque apres admin: True

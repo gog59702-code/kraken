@@ -102,7 +102,10 @@ with sync_playwright() as p:
         opened = pg.query_selector("#iaPanel") is not None
     check("admin: panneau ouvert par BF", opened)
 
-    check("aucune erreur JS", len(errors) == 0, json.dumps(errors[:6], ensure_ascii=False))
+    # Un 429/refus réseau du canal n'est pas une erreur JS : seules les
+    # exceptions et les erreurs de script comptent.
+    js_errors = [e for e in errors if "Failed to load resource" not in e]
+    check("aucune erreur JS", len(js_errors) == 0, json.dumps(js_errors[:6], ensure_ascii=False))
     b.close()
 
 print("\nFAILS:", fails)

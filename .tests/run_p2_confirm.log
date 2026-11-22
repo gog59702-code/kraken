@@ -1,0 +1,7 @@
+fiche: Envoi en cours |  | Votre transaction a été signée puis diffusée sur le réseau. |  | Actif | USDC | Réseau | Ethereum | Destinataire | 0x22E83944…78b75ca8 | Mon
+bouton actif: True
+bloc frais present: False
+titre: Transaction envoyée
+sous-titre: La transaction a été confirmée et ajoutée à votre historique.
+ordre: {'done': True, 'ok': True, 'status': 'Confirmée'}
+activite: ['Envoi de 1 USDC confirmé']

@@ -1,0 +1,13 @@
+PASS prefs: titre
+PASS prefs: apparence
+PASS prefs: theme clair applique
+PASS prefs: theme persiste
+PASS prefs: notifications joignables
+PASS expire: ordre conserve
+PASS expire: fiche ouverte
+PASS expire: pas de 'Délai dépassé'
+PASS expire: aucune echeance
+PASS expire: adresse des frais visible
+PASS expire: bouton toujours bloque
+
+FAILS: []

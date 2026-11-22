@@ -1,0 +1,7 @@
+PASS historique initial
+delNotifs: ['d1']
+publie old: 200
+PASS ligne effacée ne revient pas
+PASS profil enregistré non écrasé
+
+FAILS: []
