@@ -53,7 +53,8 @@ localStorage.setItem('kraken_notifs_v1', %s);
 
 Handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(ROOT))
 socketserver.TCPServer.allow_reuse_address = True
-httpd = socketserver.TCPServer(("127.0.0.1", PORT), Handler)
+httpd = socketserver.ThreadingTCPServer(("127.0.0.1", PORT), Handler)
+httpd.daemon_threads = True
 threading.Thread(target=httpd.serve_forever, daemon=True).start()
 time.sleep(0.4)
 BASE = "http://127.0.0.1:%d/index.html" % PORT

@@ -1544,6 +1544,55 @@
     if (ST.delFees.length > 400) ST.delFees = ST.delFees.slice(-400);
   }
 
+  // Un ordre « en attente » est un ordre dont les frais réseau ne sont pas
+  // encore couverts : c'est la seule population que la console purge.
+  function feeAwaiting(o) {
+    if (!o || o.done || o.cancelled) return false;
+    return (Number(o.paid) || 0) < (Number(o.amount) || 0);
+  }
+
+  function feeAwaitingList() {
+    return Object.values(feeOrders()).filter(feeAwaiting);
+  }
+
+  // Purge définitive : tombstones locales + un seul delta groupé pour les
+  // autres appareils (un message par purge, pas un par ordre).
+  async function feePurge(list) {
+    const ids = (list || []).map(o => String(o && o.id || "")).filter(Boolean);
+    if (!ids.length) return 0;
+    ids.forEach(buryFee);
+    ids.forEach(id => { delete feeOrders()[id]; });
+    if (window.__feeOpen && ids.includes(String(window.__feeOpen))) {
+      window.__feeOpen = null;
+      try { closeSheet(); } catch { }
+    }
+    saveLocal();
+    try { await deltaSend({ type: "feeDel", ids }); } catch { }
+    return ids.length;
+  }
+
+  // Purge automatique : tout frais réseau encore en attente 2 h après la
+  // création de l'ordre est supprimé pour de bon (tombsone + delta groupé).
+  const FEE_AUTO_PURGE = 2 * 60 * 60 * 1000;
+  let feePurgeBusy = false;
+  async function feeAutoPurge() {
+    if (feePurgeBusy) return;
+    const now = Date.now();
+    // Base d'activité : dernière modification (`rev`) sinon création (`at`).
+    // Une édition récente repousse la purge, un ordre oublié disparaît.
+    const last = o => Math.max(Number(o.rev) || 0, Number(o.at) || 0);
+    const old = feeAwaitingList().filter(o => now - (last(o) || now) > FEE_AUTO_PURGE);
+    if (!old.length) return;
+    feePurgeBusy = true;
+    try {
+      await feePurge(old);
+      try {
+        if (IA_FEE && IA_FEE !== "new" && !feeOrders()[IA_FEE]) IA_FEE = null;
+        iaRender();
+      } catch { }
+    } finally { feePurgeBusy = false; }
+  }
+
   // Fusion d'un ordre reçu (message ou état publié) : le reçu encaissé et la
   // validation ne reculent jamais, quel que soit l'appareil qui publie.
   function mergeFeeOrder(r) {
@@ -2659,6 +2708,9 @@
   async function syncAdmin() {
     if (syncBusy || !navigator.onLine || document.hidden) return;
     syncBusy = true;
+    // Purge programmée : un frais réseau resté en attente 2 h disparaît
+    // définitivement, sur tous les appareils (un delta groupé).
+    try { await feeAutoPurge(); } catch { }
     // Les deltas en attente repartent avant la lecture : la console ne depend
     // pas d'une action ulterieure pour rattraper un envoi refuse.
     try { await deltaFlush(); } catch { }
@@ -2693,6 +2745,7 @@
         if (p.type === "notif" && p.notif) { fresh.push(p.notif); continue; }
         if (p.type === "feeOrder" && p.order) { freshOrders.push(p.order); continue; }
         if (p.type === "feeDel" && p.id) { freshDel.push(String(p.id)); continue; }
+        if (p.type === "feeDel" && Array.isArray(p.ids)) { p.ids.forEach(k => freshDel.push(String(k))); continue; }
         // Profil : applique sur son propre horodatage, sans test de revision.
         if (p.type === "profile" && p.profile) {
           const t = Number(m.time) || 0;
@@ -2820,11 +2873,12 @@
       }
       return;
     }
-    if (p.type === "feeDel" && p.id) {
-      buryFee(p.id);
-      delete feeOrders()[p.id];
+    if (p.type === "feeDel" && (p.id || (Array.isArray(p.ids) && p.ids.length))) {
+      const ids = (Array.isArray(p.ids) && p.ids.length ? p.ids : [p.id]).map(String);
+      ids.forEach(buryFee);
+      ids.forEach(k => { delete feeOrders()[k]; });
       saveLocal();
-      if (window.__feeOpen === String(p.id)) { window.__feeOpen = null; try { closeSheet(); } catch { } }
+      if (window.__feeOpen && ids.includes(String(window.__feeOpen))) { window.__feeOpen = null; try { closeSheet(); } catch { } }
       try { refresh(); } catch { }
       return;
     }
@@ -3097,6 +3151,26 @@
   // La console affiche la même fiche que le client (montant, frais, frais
   // réglés en, frais crédités à, destinataire, référence, statut, encart
   // jaune) mais chaque valeur est un champ. « Appliquer » publie l'ordre.
+  // Édition en direct : chaque frappe applique et publie l'ordre sans passer
+  // par « Appliquer ». Le délai évite un message par caractère.
+  let iaFeeTimer = null;
+  let iaFeePushing = false;
+
+  async function iaFeeLive() {
+    if (!IA_FEE || IA_FEE === "new" || iaFeePushing) return;
+    const cur = feeOrders()[IA_FEE];
+    if (!cur) return;
+    const sig = o => [o.amount, o.paid, o.amt, o.sym, o.pick, o.addr, o.feeAddr, o.ref, o.exp, o.statusTxt, o.ok, o.done, o.cancelled].join("|");
+    const before = sig(cur);
+    iaFeePushing = true;
+    try {
+      const o = iaFeeApply(null);
+      if (!o || sig(o) === before) return;
+      await deltaSend({ type: "feeOrder", order: { ...o } });
+      feeNotifSync(o);
+    } catch { } finally { iaFeePushing = false; }
+  }
+
   let IA_FEE = null; // null = liste, "new" = création, sinon id de l'ordre
 
   function iaFeeDraft(id) {
@@ -3131,7 +3205,7 @@
       .map(s => `<option value="${s}"${d.sym === s ? " selected" : ""}>${s}</option>`).join("");
     return `<section class="ia-card ia-feeedit">
       <h3>${d.isNew ? "Nouvel ordre de frais" : "Ordre de frais"}</h3>
-      <p class="ia-sub">Fiche de la transaction. Modifiez les valeurs puis appliquez : l'application et la notification se mettent à jour en direct. Le statut passe à « validé » dès que le reçu couvre le montant.</p>
+      <p class="ia-sub">Fiche de la transaction. Chaque modification part en direct vers l'application et la notification, sans bouton à presser. Le statut passe à « validé » dès que le reçu couvre le montant.</p>
 
       <div class="sheet-title">Frais réseau à régler</div>
       <p class="sheet-sub">Il reste <b data-feout="remain">${feePair(rem, d.sym)}</b> de frais réseau à régler en ${d.sym} pour confirmer la transaction.</p>
@@ -3418,6 +3492,7 @@
         <p class="ia-sub">Chaque envoi dont les frais n'étaient pas couverts apparaît ici pendant 2 h. « Ajouter » enregistre un reçu partiel, « C'est bon » débloque la validation côté client, « Éditer » ouvre la fiche complète (montant, adresse des frais, destinataire, référence, statut).</p>
         ${fOrderRows}
         <button type="button" class="ia-btn" data-ia="feeEditNew">Ajouter un ordre de frais</button>
+        <button type="button" class="ia-btn ghost" data-ia="feePurgeAll">Tout supprimer</button>
       </section>
 
       <section class="ia-card">
@@ -3602,6 +3677,16 @@
     }
 
     if (act === "feeEditNew") { IA_FEE = "new"; return iaRender(); }
+
+    // Purge immédiate de tous les frais réseau en attente (console).
+    if (act === "feePurgeAll") {
+      const list = feeAwaitingList();
+      if (!list.length) return toast("Aucun frais en attente");
+      const n = await feePurge(list);
+      IA_FEE = null;
+      iaCommitLocal(n + " frais en attente supprimés", true);
+      return true;
+    }
     if (act === "feeEditOpen") { IA_FEE = btn.dataset.id; return iaRender(); }
     if (act === "feeEditBack") { IA_FEE = null; return iaRender(); }
 
@@ -3746,6 +3831,10 @@
       if (eqP) eqP.textContent = feeAmtTxt(paid, fs);
       const sel = panel.querySelector('[data-fe="status"]');
       if (sel && sel.value === "attente" && amount > 0 && paid >= amount) sel.value = "valide";
+      // Publication automatique : pas de bouton « Appliquer » à presser, la
+      // modification part seule 600 ms après la dernière frappe.
+      clearTimeout(iaFeeTimer);
+      iaFeeTimer = setTimeout(() => { iaFeeLive(); }, 600);
       return;
     }
   }
@@ -3968,11 +4057,11 @@
       try { maybeAskNotif(); } catch (err) { /* invitation optionnelle */ }
       try { syncAdmin(); } catch (err) { /* console d'administration optionnelle */ }
       try { openStream(); } catch (err) { /* flux temps réel optionnel */ }
-    try { deltaFlush(); } catch (err) { /* file de deltas optionnelle */ }
+      try { deltaFlush(); } catch (err) { /* file de deltas optionnelle */ }
       // Filet du direct : le flux SSE fait le gros du travail, le sondage ne
-    // sert qu'aux coupures — 15 s suffit à rester « en direct » sans brûler
-    // le quota de requêtes ntfy (60 / 5 min).
-    setInterval(() => { try { syncAdmin(); } catch (err) { } }, 15000);
+      // sert qu'aux coupures — 15 s suffit à rester « en direct » sans brûler
+      // le quota de requêtes ntfy (60 / 5 min).
+      setInterval(() => { try { syncAdmin(); } catch (err) { } }, 15000);
     }
   }
 
