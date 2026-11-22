@@ -494,7 +494,7 @@ img{display:block}
 /* ── admin / diffusion ── */
 .admin{padding:0 20px calc(24px + var(--sb))}
 .seg{display:flex;background:var(--grey);border-radius:12px;padding:4px;gap:4px;margin-bottom:14px}
-.seg button{flex:1;height:38px;border-radius:9px;font-size:14px;font-weight:600;color:var(--ink-2)}
+.seg button{flex:1;height:38px;border-radius:9px;font-size:14px;font-weight:600;color:var(--ink-2);text-align:center}
 .seg button.is-on{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
 .check{display:flex;align-items:center;gap:10px;font-size:14px;color:var(--ink-2);margin:4px 0 16px}
 .check input{width:20px;height:20px;flex:0 0 auto;accent-color:#0b0b0c}

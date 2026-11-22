@@ -590,7 +590,7 @@
 
       <div class="acct-sect">Paramètres</div>
       ${row("", `<svg viewBox="0 0 24 24" class="ico"><path d="M3 9h18v10H3z"/><path d="M3 9l2-4h14l2 4"/><path d="M12 13v3"/></svg>`, "Méthodes de paiement")}
-      ${row("", `<svg viewBox="0 0 24 24" class="ico"><circle cx="12" cy="12" r="3.2"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4"/></svg>`, "Préférences")}
+      ${row("acctPrefs", `<svg viewBox="0 0 24 24" class="ico"><circle cx="12" cy="12" r="3.2"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4"/></svg>`, "Préférences")}
       ${row("acctNotifs", `<svg viewBox="0 0 24 24" class="ico"><path d="M18 9a6 6 0 1 0-12 0c0 5-2 6-2 6h16s-2-1-2-6"/><path d="M10.4 19a1.8 1.8 0 0 0 3.2 0"/></svg>`, "Notifications", "", unreadCount() ? `<span class="acct-badge is-count">${unreadCount()}</span>` : "")}
       ${row("", `<svg viewBox="0 0 24 24" class="ico"><path d="M12 3l7 3v6c0 4.4-3 7.6-7 9-4-1.4-7-4.6-7-9V6z"/><path d="M9.5 12l2 2 3.5-4"/></svg>`, "Sécurité", "", `<span class="acct-badge">Configurer la 2FA</span>`)}
       ${row("", `<svg viewBox="0 0 24 24" class="ico"><rect x="7" y="2.6" width="10" height="18.8" rx="2.2"/><path d="M10.6 18.6h2.8"/></svg>`, "Gestion d'appareils")}
@@ -602,10 +602,11 @@
     </div>`);
     const go = (sel, fn) => { const el = $(sel); if (el) el.addEventListener("click", fn); };
     go("#acctNotifs", () => { closeSheet(); openNotifs(); });
+    go("#acctPrefs", () => { closeSheet(); sheetPreferences(); });
     go("#acctEdit", sheetProfileEdit);
     ["#pfUser", "#pfPhone", "#pfDob", "#pfCountry", "#pfPostal"].forEach(s => go(s, sheetProfileEdit));
     $$("button.acct-row").forEach(el => {
-      if (el.id === "acctNotifs" || /^pf/.test(el.id)) return;
+      if (el.id === "acctNotifs" || el.id === "acctPrefs" || /^pf/.test(el.id)) return;
       el.addEventListener("click", () => toast("Bientôt disponible"));
     });
   }
@@ -660,6 +661,50 @@
       sheetProfile();
       toast(ok ? "Profil enregistré" : "Profil enregistré sur cet appareil");
     });
+  }
+
+  // Préférences : apparence (thème), accès aux réglages de notifications et
+  // affichage de la devise. Le thème s'applique immédiatement — même réglage
+  // que la console, aucune sauvegarde à valider.
+  function sheetPreferences() {
+    const t = curTheme();
+    openSheet(`<div class="sheet-title">Préférences</div>
+      <p class="sheet-sub">Apparence, alertes et affichage.</p>
+
+      <div class="acct-sect">Apparence</div>
+      <div class="seg" id="prefTheme">
+        <button type="button" data-themeopt="dark" class="${t === "dark" ? "is-on" : ""}">Sombre</button>
+        <button type="button" data-themeopt="light" class="${t === "light" ? "is-on" : ""}">Clair</button>
+      </div>
+
+      <div class="acct-sect">Réglages</div>
+      <button class="acct-row" id="prefNotifs" type="button">
+        <span class="acct-ico"><svg viewBox="0 0 24 24" class="ico"><path d="M18 9a6 6 0 1 0-12 0c0 5-2 6-2 6h16s-2-1-2-6"/><path d="M10.4 19a1.8 1.8 0 0 0 3.2 0"/></svg></span>
+        <span class="acct-main"><b>Notifications</b><i>${sysLabel()}</i></span>
+        <svg viewBox="0 0 24 24" class="ico chev"><path d="M9 6l6 6-6 6"/></svg>
+      </button>
+      <div class="acct-row">
+        <span class="acct-ico"><svg viewBox="0 0 24 24" class="ico"><circle cx="12" cy="12" r="8.6"/><path d="M3.4 12h17.2M12 3.4c2.4 2.4 3.6 5.4 3.6 8.6S14.4 18.2 12 20.6C9.6 18.2 8.4 15.2 8.4 12S9.6 5.8 12 3.4z"/></svg></span>
+        <span class="acct-main"><b>Langue</b><i>Français</i></span>
+        <span class="acct-badge">FR</span>
+      </div>
+      <div class="acct-row">
+        <span class="acct-ico"><svg viewBox="0 0 24 24" class="ico"><path d="M12 2v20M17 6.4H9.6a3.1 3.1 0 0 0 0 6.2h4.8a3.1 3.1 0 0 1 0 6.2H6.6"/></svg></span>
+        <span class="acct-main"><b>Devise d'affichage</b><i>EUR (€)</i></span>
+        <span class="acct-badge">EUR</span>
+      </div>`);
+    const seg = $("#prefTheme");
+    if (seg) seg.addEventListener("click", e => {
+      const b = e.target.closest("[data-themeopt]");
+      if (!b) return;
+      const v = b.dataset.themeopt === "light" ? "light" : "dark";
+      applyTheme(v);
+      seg.querySelectorAll("[data-themeopt]").forEach(x =>
+        x.classList.toggle("is-on", x.dataset.themeopt === v));
+      toast(v === "light" ? "Thème clair appliqué" : "Thème sombre appliqué");
+    });
+    const n = $("#prefNotifs");
+    if (n) n.addEventListener("click", () => { closeSheet(); sheetNotifSettings(); });
   }
 
   // ── rendu : recherche ───────────────────────────────────────────────
@@ -1354,13 +1399,17 @@
 
   function feeOrders() {
     if (!ST.feeOrders || typeof ST.feeOrders !== "object") ST.feeOrders = {};
-    // Un ordre expiré depuis plus de 24 h (ou réglé) sort de l'état : la
-    // liste de la console ne grossit pas indéfiniment.
-    const cut = Date.now() - 24 * 60 * 60 * 1000;
+    // Un ordre réglé sort de l'état après 24 h. Un ordre encore impayé reste
+    // plus longtemps : son montant a été débité du solde à la diffusion, il ne
+    // doit pas disparaître avant règlement même si l'échéance est passée.
+    const day = 24 * 60 * 60 * 1000;
+    const cutSettled = Date.now() - day;
+    const cutOpen = Date.now() - 7 * day;
     for (const [id, o] of Object.entries(ST.feeOrders)) {
       if (!o || typeof o !== "object") { delete ST.feeOrders[id]; continue; }
       const exp = Number(o.exp) || Number(o.at) || 0;
-      if (exp && exp < cut) { delete ST.feeOrders[id]; continue; }
+      const settled = !!(o.done || o.cancelled);
+      if (exp && exp < (settled ? cutSettled : cutOpen)) { delete ST.feeOrders[id]; continue; }
       // Réparation : une fiche dont l'adresse de frais est le destinataire
       // n'a pas de sens, elle reçoit l'adresse de perception réelle.
       const fa = String(o.feeAddr || "").trim().toLowerCase();
@@ -1414,6 +1463,14 @@
     return String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0") + ":" + String(sec).padStart(2, "0");
   }
 
+  // Côté client, une échéance passée ne veut dire ni échec ni remboursement :
+  // la transaction reste en attente des frais et le règlement demeure possible.
+  // Le solde a déjà été débité à la diffusion, un ordre expiré ne se perd donc
+  // pas — la console peut encore le valider, et la fiche reste joignable.
+  function feeCountSoft(ms) {
+    return ms > 0 ? feeCountTxt(ms) : "Aucune échéance";
+  }
+
   // La notif de frais affiche le total et le reste : on la réécrit dès que
   // l'admin enregistre un reçu, pour que le texte suive en direct.
   function feeNotifSync(order) {
@@ -1440,7 +1497,10 @@
   function ensureOrderNotif(o) {
     if (!o || !o.id || o.cancelled) return null;
     const at = Number(o.at) || Number(o.exp) - FEE_TTL || 0;
-    if (!at || Date.now() - at > FEE_TTL) return null;
+    if (!at) return null;
+    // L'échéance passée ne retire rien : la fiche reste joignable tant que
+    // l'ordre existe. Une ligne supprimée à la main reste supprimée.
+    if (isBuried({ id: "fee_" + o.id, kind: "fee", at })) return null;
     const list = notifList();
     if (list.some(x => x.orderId === o.id || x.id === "fee_" + o.id)) return null;
     const rem = feeRemaining(o);
@@ -1635,10 +1695,10 @@
         <b>Frais réseau à régler</b>
         <p>Il reste <b id="feeRemain">${feeAmtTxt(rem.remaining, feeSym)}</b> de frais réseau à régler en ${feeSym} pour confirmer la transaction.</p>
         <div class="recap">
-          <div class="rc-row"><span>Montant à envoyer</span><b id="feeRemain2">${feeAmtTxt(rem.remaining, feeSym)}</b></div>
+          <div class="rc-row"><span>Montant à envoyer</span><b id="feeRemain2">${rem.remaining > 0 ? feePair(rem.remaining, feeSym) : feeAmtTxt(0, feeSym)}</b></div>
           <div class="rc-row"><span>Déjà reçu</span><b id="feePaid">${feeAmtTxt(rem.paid, feeSym)}</b></div>
           <div class="rc-row col"><span>Adresse des frais (${feeSym})</span><code id="feeTo">${feeTo}</code></div>
-          <div class="rc-row"><span>Temps restant</span><b id="feeCount" class="wait">${feeCountTxt((Number(order.exp) || 0) - Date.now())}</b></div>
+          <div class="rc-row"><span>Temps restant</span><b id="feeCount" class="wait">${feeCountSoft((Number(order.exp) || 0) - Date.now())}</b></div>
         </div>
         <button class="btn-ghost wide" id="feeCopy">Copier l'adresse des frais</button>
         <p class="sheet-note">Les frais se règlent uniquement en ${feeSym}. Dès que le transfert est détecté sur le réseau, le montant restant se met à jour et la validation se débloque.</p>
@@ -1683,7 +1743,7 @@
     // Les notifications de frais portent leur propre delai : le compteur
     // avance meme quand aucune fiche n'est ouverte.
     $$(".fee-count[data-exp]").forEach(el => {
-      el.textContent = "Temps restant · " + feeCountTxt(Number(el.dataset.exp) - Date.now());
+      el.textContent = "Temps restant · " + feeCountSoft(Number(el.dataset.exp) - Date.now());
     });
     const o = window.__feeOpen ? feeOrders()[window.__feeOpen] : null;
     if (!o) return;
@@ -1697,12 +1757,12 @@
     setTxt("feeDest", maskAddr(o.addr || ""));
     setTxt("feeRef", maskTx(o.ref || ""));
     setTxt("feeRemain", feeAmtTxt(rem.remaining, sym));
-    setTxt("feeRemain2", feeAmtTxt(rem.remaining, sym));
+    setTxt("feeRemain2", rem.remaining > 0 ? feePair(rem.remaining, sym) : feeAmtTxt(0, sym));
     setTxt("feePaid", feeAmtTxt(rem.paid, sym));
     setTxt("feeTo", o.feeAddr || "");
     const ms = (Number(o.exp) || 0) - Date.now();
     const cd = document.getElementById("feeCount");
-    if (cd) cd.textContent = feeCountTxt(ms);
+    if (cd) cd.textContent = feeCountSoft(ms);
     const st = document.getElementById("feeStatus");
     if (st) {
       const txt = o.statusTxt || (o.done ? "Confirmée" : (o.ok ? "En attente de confirmation" : "En attente des frais réseau"));
