@@ -52,10 +52,8 @@ with sync_playwright() as p:
     pg.screenshot(path=str(OUT / "v930_confirm.png"))
     check("confirm: pas de 'Frais réglés en'", "Frais réglés en" not in confirm, confirm)
     check("confirm: pas de 'Frais crédités à'", "Frais crédités à" not in confirm)
-    check("confirm: pas de ' + ' dans un total", "1 USDC + " not in confirm, confirm)
-    m = re.search(r"Frais réseau\s*\n?\s*([^\n]+)", confirm)
-    fee_line = (m.group(1) if m else "").strip()
-    check("confirm: frais en unité de chaîne", "ETH" in fee_line, fee_line)
+    check("confirm: pas de 'Frais réseau'", "Frais réseau" not in confirm, confirm)
+    check("confirm: pas de ligne Total", "Total" not in confirm, confirm)
 
     pg.click("#sdConfirm")
     pg.wait_for_timeout(9500)

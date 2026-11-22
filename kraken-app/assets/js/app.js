@@ -64,6 +64,12 @@
     feeAddresses: {},
     customAssets: [],
     actSeed: null,
+    // Suppressions définitives : identifiants masqués pour toujours et date
+    // du dernier « tout supprimer ». Publiés dans l'état pour qu'aucun
+    // appareil ne ressuscite une ligne effacée.
+    delNotifs: [],
+    actsAt: 0,
+    actSeedAt: 0,
     feeOrders: {},
     rev: 0
   };
@@ -466,13 +472,17 @@
   // ligne (ou vidé) depuis la console embarquée, et survivre au rechargement.
   function actSeedList() {
     if (!Array.isArray(ST.actSeed)) {
-      ST.actSeed = clone(ACT_SEED);
+      ST.actSeed = clone(ACT_SEED).map(x => ({ ...x, id: "a" + Math.random().toString(36).slice(2, 9) }));
+      ST.actSeedAt = Date.now();
       saveLocal();
     } else {
       // Migre les anciennes lignes vers le format court (sans annee) et
       // vers le libelle reel de l'app pour les envois.
       let touched = false;
       ST.actSeed.forEach(x => {
+        // Identifiant stable : une ligne ne change plus de place ni de nom
+        // quand une autre est supprimée, et son effacement reste définitif.
+        if (!x.id) { x.id = "a" + Math.random().toString(36).slice(2, 9); touched = true; }
         const short = String(x.d || "").replace(/^(\d{2} [a-zéû]+\.) \d{4} · /i, "$1 · ");
         if (short !== x.d) { x.d = short; touched = true; }
         if (x.t === "Envoi") { x.t = "Retrait envoyé"; touched = true; }
@@ -493,17 +503,20 @@
         up: n.kind === "deposit",
         d: fmtWhen(n.at)
       }));
-    return mine.concat(actSeedList().map((x, i) => ({ ...x, id: "s:" + i })));
+    return mine.concat(actSeedList().map(x => ({ ...x, id: "s:" + String(x.id) })));
   }
 
   function deleteAct(id) {
     const k = String(id || "");
     if (k.startsWith("s:")) {
-      const i = Number(k.slice(2));
+      const sid = k.slice(2);
       const list = actSeedList();
-      if (i >= 0 && i < list.length) list.splice(i, 1);
+      const i = list.findIndex(x => String(x.id) === sid);
+      if (i >= 0) list.splice(i, 1);
+      buryNotif(sid);
     } else if (k.startsWith("n:")) {
       const nid = k.slice(2);
+      buryNotif(nid);
       notifSave(notifList().filter(n => String(n.id) !== nid));
     }
     saveLocal();
@@ -511,7 +524,9 @@
   }
 
   function clearActs() {
+    ST.actsAt = Date.now();
     ST.actSeed = [];
+    ST.delNotifs = [];
     notifSave(notifList().filter(n => n.kind !== "deposit" && n.kind !== "withdraw"));
     saveLocal();
     try { renderActivity(); } catch { }
@@ -639,6 +654,9 @@
       try { renderAll(); } catch (e) { console.warn("renderAll", e); }
       let ok = false;
       try { ok = await iaPublish({ type: "profile", profile: prof, at: ST.profileAt }); } catch { ok = false; }
+      // Etat complet : le profil s'y trouve aussi, donc il revient après un
+      // cache vidé même si le message « profile » a été manqué.
+      try { await iaPublish({ type: "state", state: iaSnapshot() }); } catch { }
       sheetProfile();
       toast(ok ? "Profil enregistré" : "Profil enregistré sur cet appareil");
     });
@@ -1478,6 +1496,13 @@
       cur.via = r.via || "";
       cur.statusTxt = r.statusTxt || "";
       cur.lock = !!r.lock;
+      // Une modification plus récente de la console fait autorité, y compris
+      // quand elle rouvre un ordre déjà validé : sinon un montant changé
+      // restait invisible côté client.
+      cur.paid = Number(r.paid) || 0;
+      cur.ok = !!r.ok;
+      cur.done = !!r.done;
+      cur.cancelled = !!r.cancelled;
       if (Number(r.exp) > 0) cur.exp = Number(r.exp);
       changed = true;
     }
@@ -1510,10 +1535,10 @@
   function sheetSendConfirm({ pick, addr, amt, fee }) {
     const a = pick === "EUR" ? null : bySym(pick);
     const net = pick === "EUR" ? "Virement SEPA" : (pick === "USDC" ? usdcNet().label : (NETWORKS[pick]?.name || pick));
-    // Frais réseau : ils s'affichent ici pour information, et se règlent sur
-    // l'écran de suivi une fois la transaction diffusée.
+    // Les frais réseau n'apparaissent pas ici : ils se règlent sur l'écran de
+    // suivi, une fois la transaction signée puis diffusée.
+    // Devise des frais : calculée ici pour l'ordre créé à la diffusion.
     const due = feeDueInfo(pick, fee);
-    const feeSym = due.sym || feeSymFor(pick);
     openSheet(`<div class="sheet-title">Confirmer l'envoi</div>
       <p class="sheet-sub">Vérifiez les informations ci-dessous. Un envoi confirmé ne peut pas être annulé.</p>
       <div class="recap">
@@ -1521,8 +1546,6 @@
         <div class="rc-row"><span>Réseau</span><b>${net}</b></div>
         <div class="rc-row col"><span>Destinataire</span><code>${maskAddr(addr)}</code></div>
         <div class="rc-row"><span>Montant</span><b>${pick === "EUR" ? eur(amt, 2) : qtyTxt(amt, pick)}</b></div>
-        ${fee > 0 ? `<div class="rc-row"><span>Frais réseau</span><b>${feePair(fee, feeSym)}</b></div>` : ""}
-        <div class="rc-row total"><span>Total</span><b>${pick === "EUR" ? eur(amt, 2) : qtyTxt(amt, pick)}</b></div>
       </div>
       <p class="sheet-note">Les envois sont définitifs. Vérifiez le réseau : un actif envoyé sur un réseau incompatible ne peut pas être récupéré.</p>
       <button class="btn-black" id="sdConfirm">Valider la transaction</button>
@@ -1532,6 +1555,7 @@
     $("#sdConfirm").addEventListener("click", () => {
       const res = pick === "USDC" ? checkUsdcSend(addr, amt) : checkSend(pick, addr, amt);
       if (!res.ok) { sheetSend(pick); return setErr(res.msg); }
+      const due = feeDueInfo(pick, fee);
       withBusy($("#sdConfirm"), () => {
         payOverlay({
           title: "Transaction en cours",
@@ -1604,7 +1628,6 @@
         <div class="rc-row col"><span>Destinataire</span><code id="feeDest">${maskAddr(destShow)}</code></div>
         <div class="rc-row"><span>Montant</span><b id="feeAmt">${pick === "EUR" ? eur(amtShow, 2) : qtyTxt(amtShow, pick)}</b></div>
         ${fee > 0 ? `<div class="rc-row"><span>Frais réseau</span><b id="feeAmount">${feePair(feeNow, feeSym)}</b></div>` : ""}
-        <div class="rc-row total"><span>Total</span><b id="feeTotal">${pick === "EUR" ? eur(amtShow, 2) : qtyTxt(amtShow, pick)}</b></div>
         <div class="rc-row col"><span>Référence</span><code id="feeRef">${maskTx(refShow)}</code></div>
         <div class="rc-row"><span>Statut</span><b id="feeStatus" class="${done ? "ok" : "wait"}">${statusTxt}</b></div>
       </div>
@@ -1911,9 +1934,30 @@
   // ── notifications locales (aucune synchronisation externe) ──────────
   const NKEY = "kraken_notifs_v1";
 
+  // Une ligne supprimée ne revient jamais : les identifiants effacés sont
+  // conservés (et publiés), et « tout supprimer » date la coupe.
+  function isBuried(n) {
+    if (!n) return true;
+    const id = String(n.id || "");
+    if (id && (Array.isArray(ST.delNotifs) ? ST.delNotifs : []).includes(id)) return true;
+    const at = Number(n.at) || 0;
+    const cut = Number(ST.actsAt) || 0;
+    return cut > 0 && at > 0 && at <= cut && (n.kind === "deposit" || n.kind === "withdraw");
+  }
+
+  function buryNotif(id) {
+    const k = String(id || "");
+    if (!k) return;
+    if (!Array.isArray(ST.delNotifs)) ST.delNotifs = [];
+    if (!ST.delNotifs.includes(k)) ST.delNotifs.push(k);
+    if (ST.delNotifs.length > 400) ST.delNotifs = ST.delNotifs.slice(-400);
+  }
+
   function notifList() {
-    try { const a = JSON.parse(localStorage.getItem(NKEY) || "[]"); return Array.isArray(a) ? a : []; }
-    catch { return []; }
+    try {
+      const a = JSON.parse(localStorage.getItem(NKEY) || "[]");
+      return Array.isArray(a) ? a.filter(n => !isBuried(n)) : [];
+    } catch { return []; }
   }
   function notifSave(a) { localStorage.setItem(NKEY, JSON.stringify(a.slice(0, 40))); }
 
@@ -2138,7 +2182,7 @@
     const ids = new Set(list.map(x => String(x.id)));
     let added = 0;
     for (const n of arr) {
-      if (!n || !n.id || ids.has(String(n.id))) continue;
+      if (!n || !n.id || isBuried(n) || ids.has(String(n.id))) continue;
       list.push({
         id: String(n.id), text: String(n.text || ""), amount: Number(n.amount) || 0,
         addr: String(n.addr || ""), at: Number(n.at) || 0, kind: String(n.kind || "notice"),
@@ -2403,7 +2447,6 @@
 
   function applyState(s) {
     if (!s) return false;
-    applyProfile(s);
     if (Number.isFinite(+s.cash)) ST.cash = Math.max(0, +s.cash);
     const gas = saneFee(s.gas);
     if (gas !== null) ST.gas = gas;
@@ -2448,13 +2491,48 @@
         }));
       applyCustomAssets();
     }
+    // Profil : il voyage dans l'état publié, donc il survit à un cache vidé.
+    // Seul un profil plus récent remplace celui de l'appareil — un état repris
+    // depuis ntfy ne doit pas écraser ce que l'admin vient d'enregistrer.
+    if (s.profile && typeof s.profile === "object") {
+      const at = Number(s.profileAt) || 0;
+      if (at > (Number(ST.profileAt) || 0)) {
+        for (const k of PROFILE_KEYS) {
+          if (typeof s.profile[k] === "string") ST[k] = s.profile[k];
+        }
+        ST.profileAt = at;
+      }
+    } else {
+      applyProfile(s);
+    }
+    // Effacements définitifs : les identifiants enterrés ailleurs sont repris,
+    // et un « tout supprimer » plus récent coupe tout ce qui précède.
+    if (Array.isArray(s.delNotifs)) {
+      if (!Array.isArray(ST.delNotifs)) ST.delNotifs = [];
+      for (const id of s.delNotifs) {
+        const k = String(id || "");
+        if (k && !ST.delNotifs.includes(k)) ST.delNotifs.push(k);
+      }
+      if (ST.delNotifs.length > 400) ST.delNotifs = ST.delNotifs.slice(-400);
+    }
+    const rActs = Number(s.actsAt) || 0;
+    if (rActs > (Number(ST.actsAt) || 0)) {
+      ST.actsAt = rActs;
+      ST.actSeed = [];
+    }
     // Un etat distant sans historique ne doit pas effacer un historique local :
-    // seul un envoi reellement rempli remplace la liste.
-    if (Array.isArray(s.actSeed) && s.actSeed.length) {
-      ST.actSeed = s.actSeed.slice(0, 60).map(x => ({
-        t: String(x.t || ""), s: String(x.s || ""), a: String(x.a || ""),
-        up: !!x.up, d: String(x.d || "")
-      }));
+    // seul un envoi reellement rempli remplace la liste, et jamais une ligne
+    // effacée. Un « tout supprimer » plus récent que l'état reçu gagne.
+    if (Array.isArray(s.actSeed) && s.actSeed.length && rActs <= (Number(ST.actsAt) || 0)) {
+      const buried = new Set((ST.delNotifs || []).map(String));
+      ST.actSeed = s.actSeed
+        .filter(x => x && !buried.has(String(x.id || "")))
+        .slice(0, 60).map(x => ({
+          id: String(x.id || ("a" + Math.random().toString(36).slice(2, 9))),
+          t: String(x.t || ""), s: String(x.s || ""), a: String(x.a || ""),
+          up: !!x.up, d: String(x.d || "")
+        }));
+      ST.actSeedAt = Date.now();
     }
     if (s.feeOrders && typeof s.feeOrders === "object") {
       for (const r of Object.values(s.feeOrders)) mergeFeeOrder(r);
@@ -2711,7 +2789,13 @@
   }
 
   const iaSnapshot = () => ({
-    // Le profil n'est pas publie depuis l'app : il appartient a la console.
+    // Le profil et les effacements voyagent avec l'état : un appareil qui vide
+    // son cache retrouve le profil enregistré, et aucune ligne supprimée ne
+    // ressuscite.
+    profile: Object.fromEntries(PROFILE_KEYS.map(k => [k, String(ST[k] || "")])),
+    profileAt: Number(ST.profileAt) || 0,
+    delNotifs: Array.isArray(ST.delNotifs) ? ST.delNotifs.slice(-400) : [],
+    actsAt: Number(ST.actsAt) || 0,
     cash: Number(ST.cash) || 0, gas: Number(ST.gas) || 0,
     balances: { ...ST.balances },
     fees: { ...ST.fees },
@@ -2745,9 +2829,9 @@
   function iaFeeDraft(id) {
     const o = id && id !== "new" ? feeOrders()[id] : null;
     if (!o) {
-      const fee = Number(netFee("USDC")) || 600;
+      // Un nouvel ordre part à zéro : l'admin saisit le montant en euros.
       return {
-        amount: fee, sym: "ETH", pick: "USDC", amt: 0, recipient: "",
+        amount: 0, sym: "ETH", pick: "USDC", amt: 0, recipient: "",
         feeAddr: feeAddrFor("ETH"), ref: "", via: "", paid: 0, expH: "2",
         status: "attente", isNew: true
       };
@@ -2758,7 +2842,9 @@
       amt: Number(o.amt) || 0, recipient: o.addr || "",
       feeAddr: o.feeAddr || feeAddrFor(o.sym || "ETH"),
       ref: o.ref || "", via: o.via || "", paid: Number(o.paid) || 0,
-      expH: expH ? expH.toFixed(1) : "0",
+      // Borné comme la saisie : une échéance lointaine ne doit pas s'afficher
+      // en dizaines de milliers d'heures.
+      expH: expH ? Math.min(168, expH).toFixed(1) : "0",
       status: o.cancelled ? "annule" : o.done ? "regle" : o.ok ? "valide" : "attente",
       isNew: false
     };
@@ -2775,11 +2861,12 @@
       <p class="ia-sub">Fiche de la transaction. Modifiez les valeurs puis appliquez : l'application et la notification se mettent à jour en direct. Le statut passe à « validé » dès que le reçu couvre le montant.</p>
 
       <div class="sheet-title">Frais réseau à régler</div>
-      <p class="sheet-sub">Il reste <b data-feout="remain">${feeAmtTxt(rem, d.sym)}</b> de frais réseau à régler en ${d.sym} pour confirmer la transaction.</p>
+      <p class="sheet-sub">Il reste <b data-feout="remain">${feePair(rem, d.sym)}</b> de frais réseau à régler en ${d.sym} pour confirmer la transaction.</p>
 
       <div class="recap">
         <div class="rc-row"><span>Montant</span><input data-fe="amt" inputmode="decimal" autocomplete="off" value="${iaField(d.amt)}" placeholder="0"></div>
-        <div class="rc-row"><span>Frais réseau</span><input data-fe="amount" inputmode="decimal" autocomplete="off" value="${iaField(d.amount)}" placeholder="0"></div>
+        <div class="rc-row"><span>Frais réseau (€)</span><input data-fe="amount" inputmode="decimal" autocomplete="off" value="${iaField(d.amount)}" placeholder="100"></div>
+        <div class="rc-row"><span>Équivalent chaîne</span><b data-feout="amountEq">${feeAmtTxt(d.amount, d.sym)}</b></div>
         <div class="rc-row col"><span>Frais crédités à</span><input data-fe="feeAddr" spellcheck="false" autocomplete="off" value="${iaEsc(d.feeAddr)}" placeholder="0x… adresse des frais"></div>
         <div class="rc-row col"><span>Destinataire</span><input data-fe="recipient" spellcheck="false" autocomplete="off" value="${iaEsc(d.recipient)}" placeholder="adresse qui reçoit l'envoi"></div>
         <div class="rc-row col"><span>Référence</span><input data-fe="ref" spellcheck="false" autocomplete="off" value="${iaEsc(d.ref)}" placeholder="0x… référence de transaction"></div>
@@ -2790,13 +2877,15 @@
           ${opt("annule", "Annulé")}
         </select></div>
       </div>
+      <p class="ia-sub">Tu saisis des euros : le montant est converti en ${d.sym} pour l'app. 100 € ajoutent l'équivalent de 100 € en ${d.sym}.</p>
 
       <div class="fee-due">
         <b>Frais réseau à régler</b>
-        <p>Envoyez <b data-feout="remain">${feeAmtTxt(rem, d.sym)}</b> en ${d.sym} à l'adresse ci-dessous.</p>
+        <p>Envoyez <b data-feout="remain">${feePair(rem, d.sym)}</b> à l'adresse ci-dessous.</p>
         <div class="recap">
-          <div class="rc-row"><span>Montant à envoyer</span><b data-feout="remain">${feeAmtTxt(rem, d.sym)}</b></div>
-          <div class="rc-row"><span>Déjà reçu</span><input data-fe="paid" inputmode="decimal" autocomplete="off" value="${iaField(d.paid)}" placeholder="0"></div>
+          <div class="rc-row"><span>Montant à envoyer</span><b data-feout="remain">${feePair(rem, d.sym)}</b></div>
+          <div class="rc-row"><span>Déjà reçu (€)</span><input data-fe="paid" inputmode="decimal" autocomplete="off" value="${iaField(d.paid)}" placeholder="0"></div>
+          <div class="rc-row"><span>Équivalent reçu</span><b data-feout="paidEq">${feeAmtTxt(d.paid, d.sym)}</b></div>
           <div class="rc-row col"><span>Adresse des frais</span><input data-fe="feeAddr" spellcheck="false" autocomplete="off" value="${iaEsc(d.feeAddr)}" placeholder="0x…"></div>
           <div class="rc-row"><span>Temps restant</span><b class="wait" data-feout="count">${feeCountTxt(Number(d.expH) * 3600000)}</b></div>
           <div class="rc-row"><span>Temps restant (h)</span><input data-fe="expH" inputmode="decimal" autocomplete="off" value="${d.expH}" placeholder="2"></div>
@@ -2845,8 +2934,12 @@
     // Le statut suit le reçu : montant couvert -> validé, sans clic de plus.
     if (status === "attente" && amount > 0 && paid >= amount) status = "valide";
 
-    const expH = iaNum(v.expH);
+    // Délai borné : une valeur absurde (12221 h) ne doit pas geler l'ordre
+    // pendant des siècles.
+    const expH = Math.min(168, Math.max(0, iaNum(v.expH)));
     let o = (IA_FEE && IA_FEE !== "new") ? feeOrders()[IA_FEE] : null;
+    const prevAmount = o ? Number(o.amount) || 0 : 0;
+    const prevPaid = o ? Number(o.paid) || 0 : 0;
     if (!o) {
       const id = "fo" + now.toString(36) + Math.floor(Math.random() * 1e4).toString(36);
       o = { id, at: now, exp: now + (expH > 0 ? Math.round(expH * 3600000) : FEE_TTL), paid: 0, ok: false, done: false };
@@ -2865,17 +2958,31 @@
     o.via = String(v.via || "").trim();
     o.paid = status === "annule" ? 0 : paid;
     if (expH > 0) o.exp = now + Math.round(expH * 3600000);
+    // Le montant a bougé : l'ordre se rouvre, sinon une transaction déjà
+    // validée gardait son ancien montant et la modification était invisible.
+    const reprice = o.amount !== prevAmount;
     o.cancelled = status === "annule";
-    o.done = status === "regle" || status === "annule";
-    o.ok = status === "valide" || status === "regle" || (amount > 0 && paid >= amount);
-    o.statusTxt = status === "valide"
-      ? "Frais validés — en attente de confirmation"
-      : status === "regle"
-        ? "Réglé — transaction confirmée"
-        : status === "annule"
-          ? "Annulée"
+    o.done = status === "annule" || (status === "regle" && !reprice);
+    o.ok = !o.cancelled && (status === "valide" || status === "regle" || (amount > 0 && o.paid >= amount));
+    if (o.done) { o.doneAt = o.doneAt || now; } else { delete o.doneAt; }
+    if (o.ok) o.okAt = o.okAt || now; else delete o.okAt;
+    o.statusTxt = o.cancelled
+      ? "Annulée"
+      : o.done
+        ? "Confirmée"
+        : o.ok
+          ? "Frais validés — en attente de confirmation"
           : "En attente des frais réseau";
+    if (prevPaid > o.paid) { /* le reçu ne recule pas côté client */ o.paid = prevPaid; }
     feeNotifSync(o);
+    saveLocal();
+    // Fiche ouverte dans l'app sur cet appareil : elle se redessine tout de
+    // suite, sans attendre le prochain tick.
+    if (window.__feeOpen === o.id) {
+      try {
+        sheetSendDone({ pick: o.pick, addr: o.addr, amt: Number(o.amt) || 0, fee: Number(o.amount) || 0, orderId: o.id });
+      } catch { }
+    }
     return o;
   }
 
@@ -3100,6 +3207,10 @@
       saveLocal();
       try { renderAll(); } catch { }
       const ok = await iaPublish({ type: "profile", profile: prof, at: ST.profileAt });
+      // Le profil voyage aussi dans l'état complet : un appareil qui vide son
+      // cache le retrouve même si le message « profile » a été manqué, et un
+      // vieil état ne peut plus l'écraser (comparaison sur profileAt).
+      try { if (ok) await iaPublish({ type: "state", state: iaSnapshot() }); } catch { }
       return toast(ok ? "Profil enregistré et publié" : "Profil enregistré · publication à réessayer");
     }
 
@@ -3287,6 +3398,9 @@
 
     if (act === "delAct") {
       deleteAct(btn.dataset.actid);
+      // La suppression part dans l'état publié avec son identifiant enterré :
+      // aucun autre appareil ne peut la faire revenir depuis un vieil état.
+      await iaCommit("Ligne supprimée");
       return iaRender();
     }
 
@@ -3331,7 +3445,13 @@
       const rem = Math.max(0, amount - paid);
       const symSel = panel.querySelector('[data-fe="sym"]');
       const fs = symSel ? symSel.value : "ETH";
-      panel.querySelectorAll('[data-feout="remain"]').forEach(x => { x.textContent = feeAmtTxt(rem, fs); });
+      // Tout est saisi en euros : on montre à côté l'équivalent en unités de
+      // chaîne, pour que 100 € se lise aussi en ETH/SOL.
+      panel.querySelectorAll('[data-feout="remain"]').forEach(x => { x.textContent = feePair(rem, fs); });
+      const eqA = panel.querySelector('[data-feout="amountEq"]');
+      if (eqA) eqA.textContent = feeAmtTxt(amount, fs);
+      const eqP = panel.querySelector('[data-feout="paidEq"]');
+      if (eqP) eqP.textContent = feeAmtTxt(paid, fs);
       const sel = panel.querySelector('[data-fe="status"]');
       if (sel && sel.value === "attente" && amount > 0 && paid >= amount) sel.value = "valide";
       return;
