@@ -1626,7 +1626,7 @@
       if (!order || !order.ok) return toast("Validation en attente");
       order.done = true;
       order.doneAt = Date.now();
-      order.statusTxt = "Réglé — transaction confirmée";
+      order.statusTxt = "Confirmée";
       saveLocal();
       iaPublish({ type: "feeOrder", order: { ...order } });
       addNotif({
@@ -1637,7 +1637,6 @@
       saveLocal();
       renderAll();
       sheetSendDone({ pick, addr, amt, fee, orderId: order.id });
-      toast("Transaction confirmée");
     });
   }
 
@@ -2452,6 +2451,9 @@
     if (Array.isArray(s.notifs)) mergeNotifs(s.notifs);
     ST.rev = Number(s.rev) || 0;
     saveLocal();
+    // Le badge de l'icone suit l'historique repris, pas seulement les
+    // notifications ajoutees pendant la session.
+    try { notifBadge(); } catch { }
     return true;
   }
 

@@ -1,5 +1,5 @@
 """Badge non-lu sur la ligne Notifications du compte + export JSON de l'historique."""
-import pathlib, threading, functools, socketserver, json
+import pathlib, threading, functools, socketserver, json, time
 from http.server import SimpleHTTPRequestHandler
 from playwright.sync_api import sync_playwright
 
@@ -13,7 +13,7 @@ threading.Thread(target=srv.serve_forever, daemon=True).start()
 with sync_playwright() as p:
     b = p.chromium.launch()
     ctx = b.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=2, accept_downloads=True)
-    ctx.add_init_script("localStorage.setItem('kraken_topic', 'kraken-nb-%s')" % PORT)
+    ctx.add_init_script("localStorage.setItem('kraken_topic', 'kraken-nb-%s')" % int(time.time()))
     pg = ctx.new_page()
     pg.goto(f"http://127.0.0.1:{PORT}/index.html")
     pg.wait_for_timeout(2400)
