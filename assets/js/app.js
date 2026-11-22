@@ -1307,15 +1307,25 @@
     return { sym, held, short: fee > 0 && held < fee, missing: Math.max(0, fee - held) };
   }
 
-  // Les frais d'un envoi sont débités de l'actif de frais lui-même :
-  // ETH pour les USDC sur les réseaux EVM, rien d'autre.
-  function applyFeePayment(fee, feeSrc) {
-    if (!(fee > 0)) return;
-    if (!feeSrc || feeSrc === "EUR") { ST.cash = Math.max(0, cash() - fee); return; }
-    const a = bySym(feeSrc);
-    const px1 = a ? priceOf(a) : 0;
-    if (!(px1 > 0)) { ST.cash = Math.max(0, cash() - fee); return; }
-    ST.balances[feeSrc] = Math.max(0, qty(feeSrc) - fee / px1);
+  // Le montant des frais est déjà exprimé en unités de chaîne (0,001536 ETH),
+  // pas en euros : on retire ce montant tel quel de l'actif de frais.
+  // `feeDebited` empêche un aller-retour d'état (console → app → console)
+  // de débiter deux fois le même règlement.
+  function settleFeeLedger(o) {
+    if (!o || o.feeDebited) return false;
+    // Un ordre créé à la main dans la console n'a jamais débité de solde :
+    // il ne doit pas en débiter un à la validation.
+    if (o.src !== "app") { o.feeDebited = true; return false; }
+    const sym = o.sym || feeSymFor(o.pick || "USDC");
+    // `amount` est stocké en euros (c'est le montant réglé par l'admin) :
+    // le solde de chaîne baisse du montant converti en unités.
+    const units = feeQty(Number(o.amount) || 0, sym);
+    if (units > 0) {
+      if (!ST.balances || typeof ST.balances !== "object") ST.balances = {};
+      ST.balances[sym] = Math.max(0, qty(sym) - units);
+    }
+    o.feeDebited = true;
+    return true;
   }
 
   // ── frais réseau à régler : ordre suivi par la console admin ────────
@@ -1474,6 +1484,8 @@
     // La notification de la transaction suit chaque changement (montant,
     // reçu, statut, destinataire) : la liste se met à jour sans recharger.
     if (changed) feeNotifSync(cur);
+    // Validation reçue : le règlement sort vraiment du solde, une seule fois.
+    if (cur.ok && settleFeeLedger(cur)) { saveLocal(); renderAll(); }
     return changed;
   }
 
@@ -1624,6 +1636,7 @@
     const sentBtn = $("#sdFeeSent");
     if (sentBtn) sentBtn.addEventListener("click", () => {
       if (!order || !order.ok) return toast("Validation en attente");
+      settleFeeLedger(order);
       order.done = true;
       order.doneAt = Date.now();
       order.statusTxt = "Confirmée";

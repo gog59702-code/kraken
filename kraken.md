@@ -373,3 +373,4 @@ Pièges connus :
 | 22 nov. 2026 | v9.40 | une demande de frais poussée par la console allume une bannière de notification dans l'app ; le clic ouvre directement la fiche de suivi de cet ordre |
 | 22 nov. 2026 | v9.41 | badge de messages non lus sur la ligne Notifications du compte, compteur de frais vivant dans la liste, montants et libellés corrigés (plus de « + » sur un retrait, plus de doublon €/ETH), export JSON de l'historique, historique restauré depuis l'état publié même après un cache vidé |
 | 22 nov. 2026 | v9.42 | « Valider la transaction » clôt vraiment l'envoi : statut « Confirmée », toast en double retiré, badge de l'icône synchronisé au démarrage, topics de test isolés par exécution |
+| 22 nov. 2026 | v9.43 | le grand livre suit le règlement : les frais réseau validés débitent l'actif de frais (ETH/SOL) une seule fois, conversion euros → unités de chaîne, `feeDebited` contre le double débit, un ordre venu de la console ne touche jamais le solde |
