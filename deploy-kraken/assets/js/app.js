@@ -312,12 +312,11 @@
   let homeCat = "fav";
 
   function rowHTML(a) {
-    const bal = qty(a.sym);
     return `<div class="row" data-asset="${a.sym}">
       ${iconFor(a)}
       <div class="row-main">
         <div class="row-name">${a.name}</div>
-        <div class="row-sub">${bal > 0 ? nf(bal, 6).replace(/0+$/, "").replace(/,$/, "") + " " + a.sym : a.sym}</div>
+        <div class="row-sub">${a.sym}</div>
       </div>
       <div class="row-right">
         <div class="row-price">${a.type === "stock" ? usd(a.price) : px(a) + " €"}</div>
@@ -630,6 +629,21 @@
 
   // ── rendu : recherche ───────────────────────────────────────────────
   let searchFilter = "all";
+  // L'app de référence affiche toujours le symbole sous le nom dans la
+  // recherche (jamais la quantité détenue, contrairement à l'accueil).
+  function searchRowHTML(a) {
+    return `<div class="row" data-asset="${a.sym}">
+      ${iconFor(a)}
+      <div class="row-main">
+        <div class="row-name">${a.name}</div>
+        <div class="row-sub">${a.sym}</div>
+      </div>
+      <div class="row-right">
+        <div class="row-price">${a.type === "stock" ? usd(a.price) : px(a) + " €"}</div>
+        <div class="row-chg ${a.chg >= 0 ? "chg-up" : "chg-down"}">${pct(a.chg)}</div>
+      </div>
+    </div>`;
+  }
   function renderSearch(q = "") {
     let list = ASSETS.slice();
     if (searchFilter === "crypto") list = list.filter(a => a.type === "crypto");
@@ -638,7 +652,7 @@
     const t = q.trim().toLowerCase();
     if (t) list = list.filter(a => a.sym.toLowerCase().includes(t) || a.name.toLowerCase().includes(t));
     $("#searchList").innerHTML = list.length
-      ? list.map(rowHTML).join("")
+      ? list.map(searchRowHTML).join("")
       : `<div class="empty-state">
            <svg viewBox="0 0 24 24" class="ico"><circle cx="11" cy="11" r="7"/><path d="M16.5 16.5L21 21"/></svg>
            <b>Aucun actif trouvé</b>

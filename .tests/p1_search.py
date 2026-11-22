@@ -1,11 +1,11 @@
-﻿"""Capture la recherche et les offres."""
+﻿"""Capture l'ecran de recherche (vrai clic sur #searchBtn)."""
 import pathlib, threading, functools, socketserver
 from http.server import SimpleHTTPRequestHandler
 from playwright.sync_api import sync_playwright
 
 ROOT = pathlib.Path("kraken-app").resolve()
 OUT = pathlib.Path(".tests/shots")
-PORT = 8799
+PORT = 8806
 H = functools.partial(SimpleHTTPRequestHandler, directory=str(ROOT))
 socketserver.TCPServer.allow_reuse_address = True
 srv = socketserver.TCPServer(("127.0.0.1", PORT), H)
@@ -18,13 +18,10 @@ with sync_playwright() as p:
     pg.wait_for_timeout(2400)
     sk = pg.query_selector("#pinSkip")
     if sk and sk.is_visible():
-        sk.click()
-        pg.wait_for_timeout(800)
-    pg.evaluate("document.documentElement.setAttribute('data-theme','light')")
-
+        sk.click(); pg.wait_for_timeout(700)
     pg.click("#searchBtn")
     pg.wait_for_timeout(900)
+    print("screen visible:", pg.evaluate("document.querySelector('#searchScreen')?.classList.contains('is-on')"))
     pg.screenshot(path=str(OUT / "p1_search.png"))
-    print("SEARCH:", pg.inner_text("#searchScreen").replace("\n", " | ")[:300])
+    print("SEARCH:", pg.inner_text("#searchScreen").replace("\n", " | ")[:260])
     b.close()
-
