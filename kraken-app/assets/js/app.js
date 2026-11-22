@@ -570,7 +570,7 @@
       ${row("", `<svg viewBox="0 0 24 24" class="ico"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>`, "Envoyer des commentaires")}
     </div>`);
     const go = (sel, fn) => { const el = $(sel); if (el) el.addEventListener("click", fn); };
-    go("#acctNotifs", () => { closeSheet(); sheetNotifSettings(); });
+    go("#acctNotifs", () => { closeSheet(); openNotifs(); });
     go("#acctEdit", sheetProfileEdit);
     ["#pfUser", "#pfPhone", "#pfDob", "#pfCountry", "#pfPostal"].forEach(s => go(s, sheetProfileEdit));
     $$("button.acct-row").forEach(el => {
