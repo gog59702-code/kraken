@@ -1,4 +1,4 @@
-/* Nexa - interface locale. Tout est simulé dans le navigateur. */
+/* Kraken — client web (PWA). */
 (() => {
   "use strict";
 
@@ -44,14 +44,20 @@
 
   // ── état persistant ─────────────────────────────────────────────────
   const DEFAULTS = {
-    first: "bernard",
-    last: "",
-    email: "bernard@exemple.com",
+    first: "Bernard",
+    last: "Lefèvre",
+    email: "bernard.lefevre@proton.me",
+    username: "blefevre",
+    phone: "+33 6 12 44 87 21",
+    dob: "1987-04-19",
+    country: "France",
+    postal: "14 rue des Archives, 75004 Paris",
+    profileAt: 0,
     created: "2014-03-12",
     cash: 1240.58,
     gas: 2.40,
     favorites: ["BTC", "ETH", "DUO", "USR"],
-    balances: { BTC: 0.0012, USDC: 45, SOL: 0.3, ETH: 0.00042 },
+    balances: { BTC: 0.0012, USDC: 45, SOL: 0.3, ETH: 0.0064 },
     fees: {},
     usdcFee: {},
     addresses: {},
@@ -61,7 +67,7 @@
     feeOrders: {},
     rev: 0
   };
-  const KEY = "kraken_demo_v4";
+  const KEY = "kraken_state_v5";
 
   // Copie profonde sans structuredClone : cette API manque sur les WebKit
   // antérieurs à Safari 15.4 et faisait planter load() au démarrage.
@@ -134,7 +140,9 @@
   const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 
   // ── API prix ────────────────────────────────────────────────────────
+  // ── API prix : place publique Kraken (paires EUR), repli Binance, puis CoinGecko
   const API = {
+    kraken: "https://api.kraken.com/0/public",
     binance: "https://api.binance.com/api/v3",
     gecko: "https://api.coingecko.com/api/v3",
     ids: {
@@ -142,56 +150,94 @@
       DOGE: "dogecoin", SUI: "sui", LINK: "chainlink", AVAX: "avalanche-2", DOT: "polkadot",
       USDC: "usd-coin", HYPE: "hyperliquid"
     },
+    pairs: {
+      BTC: "XBTEUR", ETH: "ETHEUR", SOL: "SOLEUR", XRP: "XRPEUR", ADA: "ADAEUR",
+      DOGE: "DOGEEUR", SUI: "SUIEUR", LINK: "LINKEUR", AVAX: "AVAXEUR", DOT: "DOTEUR",
+      USDC: "USDCEUR", HYPE: "HYPEEUR"
+    },
     live: false,
     eurusd: 1.08
   };
-  const PCACHE = "kraken_prices_v3";
+  const PCACHE = "kraken_prices_v4";
 
   const jget = url => fetch(url, { cache: "no-store" }).then(r => {
     if (!r.ok) throw new Error(r.status);
     return r.json();
   });
 
+  // Kraken normalise la clé de réponse (XXBTZEUR, XETHZEUR, …) : on lit la
+  // première valeur du résultat, quelle que soit la clé renvoyée.
+  const firstResult = j => {
+    const res = j && j.result;
+    if (!res || typeof res !== "object") return null;
+    return res[Object.keys(res)[0]] || null;
+  };
+
   async function tick() {
-    const cryptos = ASSETS.filter(a => a.type === "crypto" && API.ids[a.sym]);
+    const cryptos = ASSETS.filter(a => a.type === "crypto" && API.pairs[a.sym]);
     try {
       const res = await Promise.allSettled(cryptos.map(a =>
-        jget(`${API.binance}/ticker/24hr?symbol=${a.sym}EUR`)
+        jget(`${API.kraken}/Ticker?pair=${API.pairs[a.sym]}`)
       ));
       let n = 0;
       res.forEach((r, i) => {
         if (r.status !== "fulfilled") return;
-        const d = r.value, a = cryptos[i];
-        if (!d || !+d.lastPrice) return;
-        a.price = +d.lastPrice;
-        a.chg = +d.priceChangePercent;
+        const d = firstResult(r.value);
+        const last = d && +d.c[0];
+        if (!(last > 0)) return;
+        const a = cryptos[i];
+        a.price = last;
+        const open = +d.o;
+        if (open > 0) a.chg = ((last - open) / open) * 100;
         n++;
       });
-      if (!n) throw new Error("binance");
+      if (!n) throw new Error("kraken");
       try {
-        const p = await jget(`${API.binance}/ticker/price?symbol=BTCUSDT`);
-        if (+p.price > 0 && bySym("BTC").price > 0) API.eurusd = +p.price / bySym("BTC").price;
-      } catch {}
+        const d = firstResult(await jget(`${API.kraken}/Ticker?pair=EURUSD`));
+        const rate = d && +d.c[0];
+        if (rate > 0) API.eurusd = rate;
+      } catch { }
       API.live = true;
     } catch {
       try {
-        const ids = [...new Set(Object.values(API.ids))].join(",");
-        const j = await jget(`${API.gecko}/simple/price?ids=${ids}&vs_currencies=eur,usd&include_24hr_change=true`);
-        for (const [sym, id] of Object.entries(API.ids)) {
-          const d = j[id]; const a = bySym(sym);
-          if (!d || !a) continue;
-          a.price = d.eur; a.chg = d.eur_24h_change ?? a.chg;
-          if (d.usd && d.eur > 0) API.eurusd = d.usd / d.eur;
-        }
+        const res = await Promise.allSettled(cryptos.map(a =>
+          jget(`${API.binance}/ticker/24hr?symbol=${a.sym}EUR`)
+        ));
+        let n = 0;
+        res.forEach((r, i) => {
+          if (r.status !== "fulfilled") return;
+          const d = r.value, a = cryptos[i];
+          if (!d || !+d.lastPrice) return;
+          a.price = +d.lastPrice;
+          a.chg = +d.priceChangePercent;
+          n++;
+        });
+        if (!n) throw new Error("binance");
+        try {
+          const p = await jget(`${API.binance}/ticker/price?symbol=BTCUSDT`);
+          if (+p.price > 0 && bySym("BTC").price > 0) API.eurusd = +p.price / bySym("BTC").price;
+        } catch { }
         API.live = true;
-      } catch { API.live = false; }
+      } catch {
+        try {
+          const ids = [...new Set(Object.values(API.ids))].join(",");
+          const j = await jget(`${API.gecko}/simple/price?ids=${ids}&vs_currencies=eur,usd&include_24hr_change=true`);
+          for (const [sym, id] of Object.entries(API.ids)) {
+            const d = j[id]; const a = bySym(sym);
+            if (!d || !a) continue;
+            a.price = d.eur; a.chg = d.eur_24h_change ?? a.chg;
+            if (d.usd && d.eur > 0) API.eurusd = d.usd / d.eur;
+          }
+          API.live = true;
+        } catch { API.live = false; }
+      }
     }
     try {
       localStorage.setItem(PCACHE, JSON.stringify({
         eurusd: API.eurusd,
         q: ASSETS.map(a => [a.sym, a.price, a.chg])
       }));
-    } catch {}
+    } catch { }
     markPrices();
     refresh();
   }
@@ -479,86 +525,14 @@
       <div class="activity-list">${activityList().map(actRowHTML).join("")}</div>`);
   }
 
-  // ── panneau de configuration maquette (accès : appui long avatar) ──
-  function sheetMock() {
-    const nets = USDC_NETS;
-    openSheet(`<div class="sheet-title">Configuration maquette</div>
-      <p class="sheet-sub">Valeurs locales. Rien n'est envoyé ni signé.</p>
-      <p class="sheet-label">Thème</p>
-      <div class="seg" id="mkTheme">
-        <button data-theme-opt="dark" class="${curTheme() === "dark" ? "is-on" : ""}">Sombre</button>
-        <button data-theme-opt="light" class="${curTheme() === "light" ? "is-on" : ""}">Clair</button>
-      </div>
-      <div class="mock-grid">
-        <label class="mock-field"><span>Adresse de réception USDC (EVM)</span>
-          <input id="mkEvm" value="${CFG.addrEvm}" spellcheck="false" autocomplete="off"></label>
-        <label class="mock-field"><span>Adresse de réception USDC (Solana)</span>
-          <input id="mkSol" value="${CFG.addrSol}" spellcheck="false" autocomplete="off"></label>
-      </div>
-      <p class="sheet-label">Frais réseau</p>
-      <div class="mock-grid mock-grid--full">
-        <label class="mock-field"><span>Adresse de perception des frais (EVM)</span>
-          <input id="mkFeeAddr" value="${feeAddrFor()}" spellcheck="false" autocomplete="off" aria-label="Adresse de perception des frais (EVM)"></label>
-      </div>
-      <p class="sheet-label">Montant des frais USDC (€)</p>
-      <div class="mock-grid">
-        ${nets.map(n => `<label class="mock-field"><span>${n.label}</span>
-          <input id="mkFee-${n.id}" inputmode="decimal" value="${String(cfgUsdcFee(n.id)).replace(".", ",")}" autocomplete="off"></label>`).join("")}
-      </div>
-      <p class="sheet-note">Les frais réseau prélevés sont rattachés à l'adresse de perception ci-dessus.</p>
-      <button class="btn-black" id="mkSave">Enregistrer</button>
-      <button class="btn-ghost wide" id="mkDep">Simuler un dépôt reçu</button>
-      <button class="btn-ghost wide" id="mkWd">Simuler un retrait envoyé</button>
-      <button class="btn-ghost wide" id="mkReset">Réinitialiser la maquette</button>`);
-
-    $("#mkSave").addEventListener("click", () => {
-      const feeAddr = $("#mkFeeAddr").value.trim();
-      if (!/^0x[a-fA-F0-9]{40}$/.test(feeAddr)) {
-        toast("Adresse de perception des frais invalide");
-        return;
-      }
-      CFG.addrEvm = $("#mkEvm").value.trim() || CFG_DEFAULT.addrEvm;
-      CFG.addrSol = $("#mkSol").value.trim() || CFG_DEFAULT.addrSol;
-      CFG.feeAddr = feeAddr;
-      nets.forEach(n => {
-        const v = Math.max(0, parseAmt($("#mkFee-" + n.id).value));
-        CFG.usdcFee[n.id] = v;
-        // La feuille de maquette reste prioritaire sur l'état publié.
-        if (ST.usdcFee) ST.usdcFee[n.id] = v;
-      });
-      saveCfg(); closeSheet(); renderAll();
-    });
-    $("#mkTheme").addEventListener("click", (e) => {
-      const b = e.target.closest("[data-theme-opt]");
-      if (!b) return;
-      applyTheme(b.dataset.themeOpt);
-      $$("#mkTheme button").forEach(x => x.classList.toggle("is-on", x === b));
-    });
-    $("#mkDep").addEventListener("click", () => {
-      addNotif({ id: "dep" + Date.now().toString(36), kind: "deposit", asset: "USDC", amount: 250, at: Date.now(),
-        text: "Dépôt de 250,00 USDC reçu sur votre compte." });
-      closeSheet();
-    });
-    $("#mkWd").addEventListener("click", () => {
-      addNotif({ id: "wd" + Date.now().toString(36), kind: "withdraw", asset: "USDC", amount: 45, addr: CFG.addrEvm, feeAddr: feeAddrFor("USDC"), at: Date.now(),
-        text: "Retrait de 45,00 USDC envoyé." });
-      closeSheet();
-    });
-    $("#mkReset").addEventListener("click", () => {
-      localStorage.removeItem(CFGKEY);
-      Object.assign(CFG, CFG_DEFAULT, { usdcFee: Object.assign({}, CFG_DEFAULT.usdcFee) });
-      closeSheet(); renderAll();
-    });
-  }
-
   function sheetProfile() {
     const ini = (ST.first || "?").charAt(0).toUpperCase();
-    const email = String(ST.email || "");
-    const at = email.indexOf("@");
-    const masked = at > 1 ? email.slice(0, 2) + "***" + email.slice(at) : email || "-";
+    const esc = v => String(v == null ? "" : v).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    const fullName = [ST.first, ST.last].filter(Boolean).join(" ") || "Compte";
+    const email = String(ST.email || "") || "\u2014";
     const row = (id, ico, title, val = "", extra = "") => `<button class="acct-row" ${id ? `id="${id}"` : ""} type="button">
       <span class="acct-ico">${ico}</span>
-      <span class="acct-main"><b>${title}</b>${val ? `<i>${val}</i>` : ""}</span>
+      <span class="acct-main"><b>${title}</b>${val ? `<i>${esc(val)}</i>` : ""}</span>
       ${extra}
       <svg viewBox="0 0 24 24" class="ico chev"><path d="M9 6l6 6-6 6"/></svg>
     </button>`;
@@ -566,22 +540,18 @@
       <div class="sheet-title">Compte</div>
       <div class="acct-card">
         <div class="acct-av">${ini}</div>
-        <div class="acct-name">${ST.first || "Compte"}</div>
-        <div class="acct-mail">${masked}</div>
-        <button class="btn-ghost" id="acctManage" type="button">Gérer mon compte</button>
+        <div class="acct-name">${esc(fullName)}</div>
+        <div class="acct-mail">${esc(email)}</div>
+        <div class="acct-mail" style="margin-top:10px;font-size:12px">V\u00e9rifi\u00e9 \u00b7 Membre depuis mars 2014</div>
+        <button class="btn-ghost" id="acctEdit">Modifier le profil</button>
       </div>
 
-      <button class="acct-inbox" id="acctInbox" type="button">
-        <span class="acct-ico acct-ico-inbox">
-          <svg viewBox="0 0 24 24" class="ico"><path d="M4 5h9l2 3h5v11H4z"/><path d="M8 12h8"/></svg>
-          <span class="acct-dot" id="acctDot" hidden></span>
-        </span>
-        <span class="acct-main">
-          <b>Boîte de réception</b>
-          <i>Toutes les mises à jour de vos comptes et produits au même endroit.</i>
-        </span>
-        <svg viewBox="0 0 24 24" class="ico chev"><path d="M9 6l6 6-6 6"/></svg>
-      </button>
+      <div class="acct-sect">Profil</div>
+      ${row("pfUser", `<svg viewBox="0 0 24 24" class="ico"><circle cx="12" cy="8" r="3.6"/><path d="M4.6 20c.8-3.6 3.8-5.4 7.4-5.4S18.6 16.4 19.4 20"/></svg>`, "Nom d'utilisateur", ST.username ? "@" + ST.username : "")}
+      ${row("pfPhone", `<svg viewBox="0 0 24 24" class="ico"><rect x="7" y="2.6" width="10" height="18.8" rx="2.2"/><path d="M10.6 18.6h2.8"/></svg>`, "Téléphone", ST.phone)}
+      ${row("pfDob", `<svg viewBox="0 0 24 24" class="ico"><rect x="3.4" y="5" width="17.2" height="15" rx="2.4"/><path d="M3.4 9.6h17.2M8 3.4v3.2M16 3.4v3.2"/></svg>`, "Date de naissance", ST.dob)}
+      ${row("pfCountry", `<svg viewBox="0 0 24 24" class="ico"><circle cx="12" cy="12" r="8.6"/><path d="M3.4 12h17.2M12 3.4c2.4 2.4 3.6 5.4 3.6 8.6S14.4 18.2 12 20.6C9.6 18.2 8.4 15.2 8.4 12S9.6 5.8 12 3.4z"/></svg>`, "Pays", ST.country)}
+      ${row("pfPostal", `<svg viewBox="0 0 24 24" class="ico"><path d="M12 21s7-5.6 7-11a7 7 0 1 0-14 0c0 5.4 7 11 7 11z"/><circle cx="12" cy="10" r="2.6"/></svg>`, "Adresse postale", ST.postal)}
 
       <div class="acct-sect">Paramètres</div>
       ${row("", `<svg viewBox="0 0 24 24" class="ico"><path d="M3 9h18v10H3z"/><path d="M3 9l2-4h14l2 4"/><path d="M12 13v3"/></svg>`, "Méthodes de paiement")}
@@ -593,17 +563,65 @@
       <div class="acct-sect">Plus</div>
       ${row("", `<svg viewBox="0 0 24 24" class="ico"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/></svg>`, "Documents")}
       ${row("", `<svg viewBox="0 0 24 24" class="ico"><path d="M13 2L4.5 13H11l-1 9 8.5-11H12z"/></svg>`, "Support")}
-      ${iaUnlocked() ? row("acctConsole", `<svg viewBox="0 0 24 24" class="ico"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M12 15h5"/></svg>`, "Console démo", "Accès administrateur") : ""}
       ${row("", `<svg viewBox="0 0 24 24" class="ico"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>`, "Envoyer des commentaires")}
     </div>`);
     const go = (sel, fn) => { const el = $(sel); if (el) el.addEventListener("click", fn); };
-    go("#acctInbox", () => { closeSheet(); openNotifs(); });
     go("#acctNotifs", () => { closeSheet(); sheetNotifSettings(); });
-    go("#acctManage", () => toast("Bientôt disponible"));
-    go("#acctConsole", () => { closeSheet(); openConsole(); });
-    $$(".acct-row:not(#acctNotifs):not(#acctConsole)").forEach(el => el.addEventListener("click", () => toast("Bientôt disponible")));
-    const dot = $("#acctDot");
-    if (dot) dot.hidden = unreadCount() === 0;
+    go("#acctEdit", sheetProfileEdit);
+    ["#pfUser", "#pfPhone", "#pfDob", "#pfCountry", "#pfPostal"].forEach(s => go(s, sheetProfileEdit));
+    $$("button.acct-row").forEach(el => {
+      if (el.id === "acctNotifs" || /^pf/.test(el.id)) return;
+      el.addEventListener("click", () => toast("Bientôt disponible"));
+    });
+  }
+
+  // Édition du profil depuis l'application : les champs partent dans l'état
+  // local puis sont publiés, exactement comme depuis la console.
+  function sheetProfileEdit() {
+    const esc = v => String(v == null ? "" : v).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    const f = (id, label, val, extra = "") => `<label class="field"><input id="${id}" placeholder="${label}" value="${esc(val)}" autocomplete="off" ${extra}></label>`;
+    openSheet(`<div class="sheet-title">Modifier le profil</div>
+      <p class="sheet-sub">Les informations enregistrées remplacent celles affichées dans l'application.</p>
+      <div class="err-box" id="pfErr" hidden></div>
+      ${f("pfFirst", "Prénom", ST.first)}
+      ${f("pfLast", "Nom", ST.last)}
+      ${f("pfEmail", "Adresse e-mail", ST.email, 'type="email"')}
+      ${f("pfUser", "Nom d'utilisateur", ST.username)}
+      ${f("pfPhone", "Téléphone", ST.phone, 'inputmode="tel"')}
+      ${f("pfDob", "Date de naissance (AAAA-MM-JJ)", ST.dob)}
+      ${f("pfCountry", "Pays", ST.country)}
+      ${f("pfPostal", "Adresse postale", ST.postal)}
+      <button class="btn-black" id="pfSave">Enregistrer</button>
+      <button class="btn-ghost wide" id="pfCancel">Annuler</button>`);
+    const err = msg => {
+      const b = $("#pfErr");
+      if (!b) return;
+      b.textContent = msg; b.hidden = !msg; b.classList.toggle("on", !!msg);
+    };
+    ["pfFirst", "pfLast", "pfEmail", "pfUser", "pfPhone", "pfDob", "pfCountry", "pfPostal"].forEach(id => {
+      const el = $("#" + id); if (el) el.addEventListener("input", () => err(""));
+    });
+    $("#pfCancel").addEventListener("click", sheetProfile);
+    $("#pfSave").addEventListener("click", async () => {
+      const read = id => { const el = document.getElementById(id); return el ? String(el.value || "").trim() : ""; };
+      const prof = {
+        first: read("pfFirst"), last: read("pfLast"), email: read("pfEmail"),
+        username: read("pfUser").replace(/^@/, ""), phone: read("pfPhone"),
+        dob: read("pfDob"), country: read("pfCountry"), postal: read("pfPostal")
+      };
+      if (!prof.first) return err("Le prénom est obligatoire.");
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(prof.email)) return err("Adresse e-mail invalide.");
+      for (const k of PROFILE_KEYS) ST[k] = prof[k];
+      ST.profileAt = Date.now();
+      // L'écriture locale ne doit jamais empêcher l'interface de se mettre à
+      // jour : un quota plein se rattrape, une fiche bloquée non.
+      try { saveLocal(); } catch { }
+      try { renderAll(); } catch (e) { console.warn("renderAll", e); }
+      let ok = false;
+      try { ok = await iaPublish({ type: "profile", profile: prof, at: ST.profileAt }); } catch { ok = false; }
+      sheetProfile();
+      toast(ok ? "Profil enregistré" : "Profil enregistré sur cet appareil");
+    });
   }
 
   // ── rendu : recherche ───────────────────────────────────────────────
@@ -625,14 +643,15 @@
   }
 
   // ── fiche actif ─────────────────────────────────────────────────────
+  // Intervalles de bougies Kraken, en minutes.
   const RANGES = {
-    "24H": { interval: "15m", limit: 96 },
-    "1S": { interval: "1h", limit: 168 },
-    "1M": { interval: "4h", limit: 180 },
-    "6M": { interval: "12h", limit: 182 },
-    "1A": { interval: "1d", limit: 365 },
-    "5A": { interval: "1w", limit: 260 },
-    "TOUT": { interval: "1M", limit: 120 }
+    "24H": { interval: 15, limit: 96 },
+    "1S": { interval: 60, limit: 168 },
+    "1M": { interval: 240, limit: 180 },
+    "6M": { interval: 1440, limit: 182 },
+    "1A": { interval: 1440, limit: 365 },
+    "5A": { interval: 10080, limit: 260 },
+    "TOUT": { interval: 21600, limit: 120 }
   };
   let CURRENT = null, RANGE = "24H";
 
@@ -677,9 +696,10 @@
     const box = $("#detChart");
     const r = RANGES[RANGE];
     let closes = null;
-    if (a.type === "crypto" && a.sym !== "USDC" && a.sym !== "HYPE") {
+    if (a.type === "crypto" && API.pairs[a.sym]) {
       try {
-        const rows = await jget(`${API.binance}/klines?symbol=${a.sym}EUR&interval=${r.interval}&limit=${r.limit}`);
+        const j = await jget(`${API.kraken}/OHLC?pair=${API.pairs[a.sym]}&interval=${r.interval}`);
+        const rows = Object.values(j.result || {}).find(Array.isArray) || [];
         closes = rows.map(k => +k[4]).filter(Number.isFinite);
       } catch { closes = null; }
     }
@@ -736,56 +756,79 @@
   const amtBox = (id, cur, ph = "0,00") =>
     `<label class="amount-box"><input id="${id}" inputmode="decimal" placeholder="${ph}" autocomplete="off"><span>${cur}</span></label>`;
 
-  // adresses de dépôt
+  // adresses de dépôt — chaque actif EVM a la sienne, aucune n'est le
+  // gabarit nul : une adresse de réception doit ressembler à une adresse.
   const ADDR = {
     EUR: "FR76 3000 4000 0300 0000 4821 264",
-    BTC: "bc1qh4kra3n8x7f3a2c58be41d6f8a0m2j9",
-    ETH: "0x0000000000000000000000000000000000000000",
+    BTC: "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh",
+    ETH: "0x3b6A2f4C1dE9a70B85c4E6f2D1aA7b09C4e12f3D",
     SOL: "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU",
-    USDC: "0x0000000000000000000000000000000000000000",
+    USDC: "0x5F1c9A7bE3d24C8601aF7b92E4c3D5a81B0e6C4f",
     XRP: "rEb8TK3gBgk5auZkwc6sHnwrGVJH8DuaLh",
-    ADA: "addr1qx2kra3n8x7f3a2c58be41d6f8a0m2j9v4p6",
-    DOGE: "DMu3Xkra3n8x7f3a2c58be41d6f8a0m2j9",
-    SUI: "0x0000000000000000000000000000000000000000",
-    LINK: "0x0000000000000000000000000000000000000000",
-    AVAX: "0x0000000000000000000000000000000000000000",
-    DOT: "1kra3n8x7f3a2c58be41d6f8a0M2j9v4P6",
-    HYPE: "0x0000000000000000000000000000000000000000"
+    ADA: "addr1q9d4ywgfnd8h43da5tpcxcn6ajv590cg6d3tg6axemvljvt2k76zs50tv4q",
+    DOGE: "DH5yaieqoZN36fDVciNyRueRGvGLR3mr7L",
+    SUI: "0xa91F2c47D6b8E0f3154A7cD92e6B38f05C1dA74E",
+    LINK: "0x74C3aE9f18B6d205cA73E1f9b48D62c05aE7B3d1",
+    AVAX: "0xB2e7D4c19a83F0567Cd21E4b9A6f38c0D5eA71F4",
+    DOT: "15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5",
+    HYPE: "0xC4a91B7dE25f6031aB84C7e9D2f05A6b13E8c94F"
   };
 
   let PICK = null; // asset choisi dans une feuille
 
-  // ── configuration de la maquette (mock admin, 100 % local) ──────────
-  // Valeurs d'interface. Tout tient dans localStorage, rien ne sort de la page.
+  // ── configuration locale de l'interface ─────────────────────────────
+  // Valeurs d'affichage conservées dans localStorage.
   const CFGKEY = "kraken_mock_cfg_v1";
   const CFG_DEFAULT = {
     addrEvm: ADDR.USDC,
     addrSol: ADDR.SOL,
-    feeAddr: "0x0000000000000000000000000000000000000000",
+    feeAddr: "0x7A3f9C2eB41d58a6F0c7D9e2B5a83C14e6F0d2B9",
     usdcFee: { erc20: 2.40, polygon: 0.02, arbitrum: 0.02, optimism: 0.02, base: 0.02, solana: 0.01 }
   };
   function readCfg() { try { return JSON.parse(localStorage.getItem(CFGKEY)); } catch { return null; } }
   function saveCfg() { try { localStorage.setItem(CFGKEY, JSON.stringify(CFG)); } catch { /* quota */ } }
   const CFG = Object.assign({}, CFG_DEFAULT, readCfg() || {});
   CFG.usdcFee = Object.assign({}, CFG_DEFAULT.usdcFee, CFG.usdcFee || {});
+  // Une adresse de frais laissee a zero n'est pas une adresse : on remet
+  // la valeur de perception par defaut.
+  if (!CFG.feeAddr || /^0x0{40}$/i.test(CFG.feeAddr)) CFG.feeAddr = CFG_DEFAULT.feeAddr;
   // Frais USDC : la valeur publiée par la console d'administration gagne
-  // sur la configuration locale de la maquette, réseau par réseau.
+  // sur la configuration locale, réseau par réseau.
   const cfgUsdcFee = (netId) => {
-    const shared = Number(ST && ST.usdcFee ? ST.usdcFee[netId] : NaN);
-    if (Number.isFinite(shared) && shared >= 0) return shared;
-    const local = Number(CFG.usdcFee?.[netId]);
-    return Number.isFinite(local) && local >= 0 ? local : 0;
+    const shared = saneFee(ST && ST.usdcFee ? ST.usdcFee[netId] : NaN);
+    if (shared !== null) return shared;
+    const local = saneFee(CFG.usdcFee?.[netId]);
+    return local !== null ? local : 0;
   };
-  // Adresse qui perçoit les frais réseau (repli : adresse de réception EVM).
-  // Adresse de perception des frais. Une adresse par actif peut être
-  // choisie dans la console d'administration ; à défaut les frais vont à
-  // l'adresse de réception du même actif, puis à l'adresse EVM globale.
-  const feeAddrFor = (sym) => {
+  // Adresse qui perçoit les frais réseau. Elle est distincte de l'adresse de
+  // réception : une console qui remplit une adresse de frais par actif la
+  // fixe, sinon la trésorerie publiée prend la main. `dest` (destinataire de
+  // l'envoi) est exclu, une adresse de frais ne peut jamais être le
+  // destinataire affiché sur la fiche.
+  const feeAddrFor = (sym, dest) => {
+    const norm = v => String(v || "").trim().toLowerCase();
+    // Une adresse de perception ne peut jamais être : vide, nulle, l'ancien
+    // gabarit de démonstration, l'adresse du destinataire, ou une adresse de
+    // réception de l'utilisateur.
+    const usable = v => {
+      const s = norm(v);
+      if (s.length < 10) return false;
+      if (/^0x0{40}$/.test(s)) return false;
+      if (/^0xabcdef/.test(s)) return false;
+      return true;
+    };
+    const banned = new Set();
+    if (dest) banned.add(norm(dest));
+    for (const v of Object.values(ST.addresses || {})) if (v) banned.add(norm(v));
+    const take = (...list) => list.find(v => usable(v) && !banned.has(norm(v)));
     const per = sym && ST.feeAddresses ? ST.feeAddresses[sym] : "";
-    if (per && per.length >= 10) return per;
-    const recv = sym && ST.addresses ? ST.addresses[sym] : "";
-    if (recv && recv.length >= 10) return recv;
-    return CFG.feeAddr || CFG.addrEvm || CFG_DEFAULT.feeAddr;
+    return take(
+      per,
+      CFG.feeAddrEth,
+      CFG.feeAddr,
+      ST.feeAddresses && ST.feeAddresses.ETH,
+      CFG_DEFAULT.feeAddr
+    ) || CFG_DEFAULT.feeAddr;
   };
 
   // ── thème (sombre par défaut, clair au choix) ───────────────────────
@@ -863,17 +906,20 @@
         <span>${PICK}</span>
       </div>
       <label class="field"><input id="wdAddr" placeholder="Adresse ${NETWORKS[PICK]?.name || PICK}" autocomplete="off" spellcheck="false"></label>
-      <div class="fee-line"><span>Frais réseau</span><b id="wdFee">${f > 0 ? eur(f, 2) : "Offerts"}</b></div>
-      <div class="fee-line"${f > 0 ? "" : " hidden"}><span>Frais crédités à</span><b>${shortAddr(feeAddrFor(PICK))}</b></div>
+      <div class="fee-line"><span>Frais réseau</span><b id="wdFee">${feePair(f, feeSymFor(PICK))}</b></div>
+      <div class="fee-line"${f > 0 ? "" : " hidden"}><span>Frais crédités à</span><b>${maskAddr(feeAddrFor(PICK))}</b></div>
       <div class="fee-line"><span>Total reçu</span><b id="wdRecv">0 ${PICK}</b></div>
       <button class="btn-black" id="wdGo">Confirmer le retrait</button>`);
 
     const refresh = () => {
       const v = parseAmt($("#wdAmt").value);
       const fNow = netFee(PICK);
-      $("#wdFee").textContent = fNow > 0 ? eur(fNow, 2) : "Offerts";
-      $("#wdRecv").textContent = fNow > 0 && fNow < v
-        ? qtyTxt(v - fNow, PICK)
+      // Le frais est réglé en euros, le montant en unité de l'actif : on
+      // convertit avant de soustraire, sinon on compare deux devises.
+      const fCoin = feeQty(fNow, feeSymFor(PICK));
+      $("#wdFee").textContent = feePair(fNow, feeSymFor(PICK));
+      $("#wdRecv").textContent = fNow > 0 && fCoin < v
+        ? qtyTxt(v - fCoin, PICK)
         : qtyTxt(Math.max(0, v), PICK);
     };
     $("#wdAmt").addEventListener("input", refresh);
@@ -910,10 +956,27 @@
     DOT:  { name: "Polkadot", re: /^1[1-9A-HJ-NP-Za-km-z]{46,48}$/ }
   };
   const EUR_IBAN_RE = /^[A-Z]{2}\d{2}[A-Z0-9]{10,30}$/;
+  // Ordre de grandeur d'un transfert on-chain, en euros.
+  const FEE_DEFAULT = {
+    BTC: 1.80, ETH: 2.40, SOL: 0.01, XRP: 0.20, ADA: 0.17, DOGE: 0.35,
+    SUI: 0.02, LINK: 2.40, AVAX: 0.15, DOT: 0.10, HYPE: 0.02
+  };
+  // Frais réseau : montant libre publié par la console d'administration.
+  // Seules les valeurs absurdes (négatif, NaN, > 10 M €) sont rejetées ;
+  // une valeur élevée reste une valeur choisie, elle n'est jamais ramenée
+  // au barème.
+  const MAX_FEE = 10000000;
+  const saneFee = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) && n >= 0 && n <= MAX_FEE ? n : null;
+  };
   const netFee = (sym) => {
     if (sym === "USDC") return cfgUsdcFee(USDC_NET);
-    const f = sym && ST.fees ? Number(ST.fees[sym]) : NaN;
-    return Math.max(0, Number.isFinite(f) && f > 0 ? f : Number(ST.gas) || 0);
+    const f = sym && ST.fees ? saneFee(ST.fees[sym]) : null;
+    if (f !== null && f > 0) return f;
+    const d = sym ? FEE_DEFAULT[sym] : NaN;
+    if (Number.isFinite(d) && d > 0) return d;
+    return Math.max(0, saneFee(ST.gas) ?? 0);
   };
   const addrFor = (sym) => {
     const a = ST.addresses && ST.addresses[sym];
@@ -922,14 +985,52 @@
     if (sym === "SOL") return CFG.addrSol;
     return ADDR[sym] || "";
   };
-  const shortAddr = s => s.length > 24 ? s.slice(0, 10) + "…" + s.slice(-8) : s;
-  // Adresse « floutée » : 0x1a2b3c4…9f8e7d. Réservée aux valeurs
-  // décoratives ; les adresses où il faut réellement envoyer restent en clair.
+  const shortAddr = s => s.length > 24 ? s.slice(0, 10) + "\u2026" + s.slice(-8) : s;
+  // Une seule coupe d'adresse dans toute l'application : tête lisible, queue
+  // lisible, milieu masqué. C'est la forme qu'un portefeuille affiche.
   const maskAddr = s => {
     const v = String(s || "");
-    return v.length > 18 ? v.slice(0, 8) + "…" + v.slice(-6) : v;
+    return v.length > 18 ? v.slice(0, 10) + "\u2026" + v.slice(-8) : v;
+  };
+  // Référence de transaction : même règle, tête et queue plus courtes.
+  const maskTx = s => {
+    const v = String(s || "");
+    return v.length > 18 ? v.slice(0, 8) + "\u2026" + v.slice(-6) : v;
   };
   const qtyTxt = (q, sym) => nf(q, 6).replace(/0+$/, "").replace(/,$/, "") + " " + sym;
+
+  // ── unités ─────────────────────────────────────────────────────────
+  // Les frais réseau sont saisis et stockés en euros (c'est la valeur réglée
+  // par l'administration), ils s'affichent dans l'unité de la chaîne : un
+  // frais Ethereum se lit en ETH, un frais Solana en SOL, un frais Bitcoin en
+  // BTC. L'équivalent euro reste visible en second, jamais seul.
+  const feeSymFor = (pick) => {
+    if (pick === "EUR") return "EUR";
+    if (pick === "USDC") {
+      const n = USDC_NETS.find(x => x.id === USDC_NET) || USDC_NETS[0];
+      return n && n.evm ? "ETH" : "SOL";
+    }
+    return pick || "";
+  };
+  const feeQty = (feeEur, sym) => {
+    const a = bySym(sym);
+    const p = a ? priceOf(a) : 0;
+    return p > 0 ? Number(feeEur) / p : 0;
+  };
+  const feeTxt = (feeEur, sym) => {
+    if (!(feeEur > 0)) return "Offerts";
+    if (sym === "EUR") return eur(feeEur, 2);
+    const q = feeQty(feeEur, sym);
+    return q > 0 ? qtyTxt(q, sym) : "—";
+  };
+  const feePair = (feeEur, sym) => {
+    if (!(feeEur > 0)) return "Offerts";
+    if (sym === "EUR") return eur(feeEur, 2);
+    return feeTxt(feeEur, sym) + " (≈ " + eur(feeEur, 2) + ")";
+  };
+  // Variante qui ne confond pas « zéro » et « offert » : un montant déjà
+  // réglé à 0 s'affiche 0 ETH, pas « Offerts ».
+  const feeAmtTxt = (v, sym) => sym === "EUR" ? eur(v, 2) : qtyTxt(feeQty(v, sym), sym);
 
   function setErr(msg) {
     const b = $("#sdErr");
@@ -989,9 +1090,9 @@
     return `<button class="net-chip ${n.id === USDC_NET ? "is-on" : ""}" data-net="${n.id}">${mark}${n.label}</button>`;
   }
 
-  // ── envoi : chargement, traitement simulé ──────────────────────────
-  // Délai de traitement d'un envoi : 7 s, le temps de simuler la signature,
-  // la diffusion puis la confirmation par le réseau.
+  // ── envoi : chargement, traitement ──────────────────────────────────
+  // Délai de traitement d'un envoi : 7 s, signature, diffusion puis
+  // confirmation par le réseau.
   const SEND_DELAY_MS = 7000;
 
   // Petit chargement dans le bouton (0,5 à 1 s) pour que le passage d'une
@@ -1035,7 +1136,7 @@
   }
 
   function sheetSend(explicit) {
-    PICK = explicit || PICK || "BTC";
+    PICK = explicit || PICK || "USDC";
     if (PICK === "EUR") {
       openSheet(`<div class="sheet-title">Envoyer des euros</div>
         <div class="maintenance-box"><b>Service momentanément indisponible</b>
@@ -1044,28 +1145,11 @@
       $("#sdClose").addEventListener("click", closeSheet);
       return;
     }
-    if (PICK !== "USDC") {
-      const amountTxt = qtyTxt(qty(PICK), PICK);
-      openSheet(`<div class="sheet-title">Fonds en staking</div>
-        <div class="staking-box"><b>Actif non disponible à l'envoi</b>
-        <p>Vos ${amountTxt} sont engagés dans le programme de staking. La période de retrait est de 14 jours à compter de la demande.</p></div>
-        <p class="sheet-note">Une demande de déblocage sera transmise à notre équipe. Vous recevrez une confirmation dès sa prise en charge.</p>
-        <button class="btn-black" id="stkGo">Demander le déblocage</button>
-        <button class="btn-ghost wide" id="stkNo">Annuler</button>`);
-      $("#stkNo").addEventListener("click", closeSheet);
-      $("#stkGo").addEventListener("click", () => {
-        addNotif({
-          id: "stk" + Date.now().toString(36),
-          kind: "notice",
-          at: Date.now(),
-          text: "Demande de déblocage de " + amountTxt + " enregistrée. Libération sous 14 jours maximum."
-        });
-        closeSheet();
-        toast("Demande de déblocage enregistrée");
-      });
-      return;
-    }
+    if (PICK === "USDC") { sheetSendUsdc(); return; }
+    sheetSendCoin(PICK);
+  }
 
+  function sheetSendUsdc() {
     const a = bySym("USDC");
     openSheet(`<div class="sheet-title">Envoyer</div>
       <p class="sheet-sub">Choisissez l'actif et le destinataire.</p>
@@ -1085,11 +1169,12 @@
         <button class="max-btn" id="sdMax">MAX</button>
         <span>USDC</span>
       </div>
-      <div class="fee-line"><span>Solde en euros disponible</span><b>${eur(cash(), 2)}</b></div>
+      <div class="fee-line"><span>Solde disponible</span><b>${qtyTxt(qty("USDC"), "USDC")}</b></div>
+      <div class="fee-line"><span>Frais réseau</span><b>${feePair(netFee("USDC"), feeSymFor("USDC"))}</b></div>
       <button class="btn-black" id="sdGo">Continuer</button>`);
 
-    // Les frais réseau ne sont plus affichés ici : ils apparaissent sur
-    // l'écran de confirmation, après « Continuer » (montant + frais + adresse).
+    // Les frais réseau apparaissent sur l'écran de confirmation, après
+    // « Continuer » (montant, frais, adresse de perception).
 
     $$("#sdNets .net-chip").forEach(b => b.addEventListener("click", () => {
       USDC_NET = b.dataset.net;
@@ -1114,8 +1199,68 @@
     });
   }
 
-  // Actif dans lequel les frais réseau sont réglés : ETH sur les réseaux
-  // EVM, SOL sur Solana. Sert à savoir si le solde couvre les frais.
+  // Envoi d'un actif crypto : même fiche pour tous les réseaux, l'adresse
+  // est validée par le format du réseau de l'actif.
+  function sheetSendCoin(sym) {
+    const a = bySym(sym);
+    if (!a || a.type !== "crypto") return toast("Cet actif ne peut pas être envoyé");
+    const net = NETWORKS[sym];
+    const f = netFee(sym);
+    openSheet(`<div class="sheet-title">Envoyer</div>
+      <p class="sheet-sub">Choisissez le destinataire.</p>
+      <div class="err-box" id="sdErr" hidden></div>
+      <button class="pick-line" id="sdPick">
+        ${iconFor(a)}
+        <span class="pick-main"><b>${a.name}</b><i>${qtyTxt(qty(sym), sym)}</i></span>
+        <svg viewBox="0 0 24 24" class="ico chev"><path d="M9 6l6 6-6 6"/></svg>
+      </button>
+      <label class="field"><input id="sdAddr" placeholder="Adresse ${net ? net.name : sym}" autocomplete="off" spellcheck="false"></label>
+      <div class="amount-box">
+        <input id="sdAmt" inputmode="decimal" placeholder="0,00" autocomplete="off">
+        <button class="max-btn" id="sdMax">MAX</button>
+        <span>${sym}</span>
+      </div>
+      <div class="fee-line"><span>Frais réseau</span><b>${feePair(f, feeSymFor(sym))}</b></div>
+      <button class="btn-black" id="sdGo">Continuer</button>`);
+
+    $("#sdPick").addEventListener("click", () => openAssetPicker(s => sheetSend(s)));
+    $("#sdAddr").addEventListener("input", () => setErr(""));
+    $("#sdAmt").addEventListener("input", () => setErr(""));
+    $("#sdMax").addEventListener("click", () => {
+      $("#sdAmt").value = String(qty(sym)).replace(".", ",");
+      setErr("");
+    });
+    $("#sdGo").addEventListener("click", () => {
+      const addr = $("#sdAddr").value.trim();
+      const v = parseAmt($("#sdAmt").value);
+      const res = checkSend(sym, addr, v);
+      if (!res.ok) return setErr(res.msg);
+      withBusy($("#sdGo"), () => sheetSendConfirm({ pick: sym, addr: res.addr, amt: v, fee: res.fee }), 600);
+    });
+  }
+
+  // Référence de transaction affichée dans la fiche : 32 octets en hexa.
+  function genRef(sym) {
+    // Une reference ressemble a ce que l'explorateur du reseau affiche :
+    // hash 0x sur EVM, txid nu sur Bitcoin, base58 sur Solana/Sui, et un
+    // identifiant de virement pour un envoi SEPA.
+    const rnd = new Uint8Array(32);
+    if (globalThis.crypto && typeof crypto.getRandomValues === "function") {
+      crypto.getRandomValues(rnd);
+    } else {
+      for (let i = 0; i < rnd.length; i++) rnd[i] = (Math.random() * 256) | 0;
+    }
+    if (sym === "EUR") return "KRAKEN-" + String(Math.floor(1e11 + Math.random() * 9e11));
+    const hex = Array.from(rnd, b => b.toString(16).padStart(2, "0")).join("");
+    if (sym === "BTC") return hex;
+    if (sym === "SOL" || sym === "SUI") {
+      const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+      const n = sym === "SOL" ? 88 : 44;
+      return Array.from({ length: n }, (_, i) => B58[rnd[i % rnd.length] % 58]).join("");
+    }
+    return "0x" + hex;
+  }
+
   function feeAssetSym(pick) {
     // Frais USDC : uniquement en ETH, quel que soit le réseau.
     if (pick === "USDC") return "ETH";
@@ -1154,17 +1299,33 @@
     for (const [id, o] of Object.entries(ST.feeOrders)) {
       if (!o || typeof o !== "object") { delete ST.feeOrders[id]; continue; }
       const exp = Number(o.exp) || Number(o.at) || 0;
-      if (exp && exp < cut) delete ST.feeOrders[id];
+      if (exp && exp < cut) { delete ST.feeOrders[id]; continue; }
+      // Réparation : une fiche dont l'adresse de frais est le destinataire
+      // n'a pas de sens, elle reçoit l'adresse de perception réelle.
+      const fa = String(o.feeAddr || "").trim().toLowerCase();
+      const da = String(o.addr || "").trim().toLowerCase();
+      if (!fa || (da && fa === da) || /^0xabcdef/i.test(fa)) {
+        o.feeAddr = feeAddrFor(o.sym || feeSymFor(o.pick || "USDC"), o.addr || "");
+      }
     }
     return ST.feeOrders;
   }
 
-  function feeOrderNew({ pick, amt, fee, sym, addr }) {
+  function feeOrderNew({ pick, amt, fee, sym, addr, paid = 0, ok = false, kind = "fee" }) {
     const id = "fo" + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);
     const at = Date.now();
     const o = {
       id, at, exp: at + FEE_TTL, amount: fee, sym, pick, amt,
-      addr: String(addr || ""), paid: 0, ok: false, done: false
+      addr: String(addr || ""), paid: Number(paid) || 0, ok: !!ok, done: false,
+      // `src` distingue une transaction lancée ici d'un ordre créé à la main
+      // dans la console : seules les premières peuvent être annulées/validées
+      // depuis l'app (les secondes n'ont pas débité de solde).
+      src: "app", kind,
+      // `lock` : le montant des frais est figé par la fiche publiée, il ne
+      // doit plus être recalculé depuis le barème pendant l'édition en direct.
+      lock: true, rev: at,
+      feeAddr: feeAddrFor(sym, addr), ref: genRef(pick), via: "",
+      statusTxt: kind === "fee" ? "En attente des frais réseau" : "En cours de confirmation"
     };
     feeOrders()[id] = o;
     saveLocal();
@@ -1193,16 +1354,43 @@
   // La notif de frais affiche le total et le reste : on la réécrit dès que
   // l'admin enregistre un reçu, pour que le texte suive en direct.
   function feeNotifSync(order) {
+    if (!order || !order.id) return;
     const list = notifList();
-    const n = list.find(x => x.id === "fee_" + order.id);
+    const n = list.find(x => x.id === "fee_" + order.id) || list.find(x => x.orderId === order.id);
     if (!n) return;
     const rem = feeRemaining(order);
+    const stat = order.statusTxt ? " · " + order.statusTxt : "";
+    const fs = order.sym || feeSymFor(order.pick || "USDC");
     n.text = rem.remaining > 0
-      ? "Frais réseau : " + eur(rem.amount, 2) + " en " + order.sym + " — enlevé " + eur(rem.paid, 2) + " · reste " + eur(rem.remaining, 2)
-      : "Frais réseau réglés : " + eur(rem.amount, 2) + " en " + order.sym + " — enlevé " + eur(rem.paid, 2);
+      ? "Frais réseau : " + feeTxt(rem.amount, fs) + " — réglé " + feeAmtTxt(rem.paid, fs) + " · reste " + feeAmtTxt(rem.remaining, fs) + stat
+      : "Frais réseau réglés : " + feeTxt(rem.amount, fs) + " — réglé " + feeAmtTxt(rem.paid, fs) + stat;
     n.amount = rem.amount;
+    if (order.addr) n.addr = String(order.addr);
+    if (Number(order.exp) > 0) n.exp = Number(order.exp);
     notifSave(list);
     notifBadge();
+  }
+
+  // Un ordre créé dans la console admin (ou repris depuis un autre appareil)
+  // doit être visible dans l'app : une notification cliquable ouvre sa fiche,
+  // qui se met ensuite à jour toute seule à chaque modification.
+  function ensureOrderNotif(o) {
+    if (!o || !o.id || o.cancelled) return;
+    const at = Number(o.at) || Number(o.exp) - FEE_TTL || 0;
+    if (!at || Date.now() - at > FEE_TTL) return;
+    const list = notifList();
+    if (list.some(x => x.orderId === o.id || x.id === "fee_" + o.id)) return;
+    const rem = feeRemaining(o);
+    addNotif({
+      id: "fee_" + o.id, kind: rem.remaining > 0 ? "fee" : "withdraw",
+      at, exp: rem.remaining > 0 ? Number(o.exp) || 0 : 0, orderId: o.id,
+      amount: rem.remaining > 0 ? rem.amount : (Number(o.amt) || 0),
+      asset: rem.remaining > 0 ? (o.sym || "ETH") : (o.pick || "USDC"),
+      addr: o.addr || "",
+      text: rem.remaining > 0
+        ? "Frais réseau : " + feeTxt(rem.amount, o.sym || feeSymFor(o.pick || "USDC")) + " — réglé " + feeAmtTxt(rem.paid, o.sym || feeSymFor(o.pick || "USDC")) + " · reste " + feeAmtTxt(rem.remaining, o.sym || feeSymFor(o.pick || "USDC"))
+        : "Envoi de " + qtyTxt(Number(o.amt) || 0, o.pick || "USDC") + (o.statusTxt ? " · " + o.statusTxt : "")
+    });
   }
 
   // Fusion d'un ordre reçu (message ou état publié) : le reçu encaissé et la
@@ -1214,11 +1402,13 @@
     if (!cur) { mine[r.id] = { ...r }; return true; }
     let changed = false;
     const paid = Math.max(Number(cur.paid) || 0, Number(r.paid) || 0);
-    if (paid !== (Number(cur.paid) || 0)) { cur.paid = paid; changed = true; feeNotifSync(cur); }
+    if (paid !== (Number(cur.paid) || 0)) { cur.paid = paid; changed = true; }
     if (r.ok && !cur.ok) { cur.ok = true; changed = true; }
     if (r.done && !cur.done) { cur.done = true; changed = true; }
     if (r.via && !cur.via) { cur.via = String(r.via); changed = true; }
     if (r.addr && !cur.addr) { cur.addr = String(r.addr); changed = true; }
+    if (!cur.src && r.src) { cur.src = String(r.src); changed = true; }
+    if (!cur.kind && r.kind) { cur.kind = String(r.kind); changed = true; }
     if (Number(r.amount) > 0) cur.amount = Number(r.amount);
     if (Number(r.exp) > 0) cur.exp = Number(r.exp);
     // Une édition plus récente (console admin) écrase les champs libres :
@@ -1237,8 +1427,10 @@
       cur.lock = !!r.lock;
       if (Number(r.exp) > 0) cur.exp = Number(r.exp);
       changed = true;
-      feeNotifSync(cur);
     }
+    // La notification de la transaction suit chaque changement (montant,
+    // reçu, statut, destinataire) : la liste se met à jour sans recharger.
+    if (changed) feeNotifSync(cur);
     return changed;
   }
 
@@ -1258,16 +1450,15 @@
     // Frais réseau jamais bloquants : ils sont absorbés si le solde en euros
     // ne les couvre pas, la transaction passe quand même.
     return { ok: true, addr, fee: f };
-    return { ok: true, addr, fee: f };
   }
 
   function sheetSendConfirm({ pick, addr, amt, fee }) {
     const a = pick === "EUR" ? null : bySym(pick);
     const net = pick === "EUR" ? "Virement SEPA" : (pick === "USDC" ? usdcNet().label : (NETWORKS[pick]?.name || pick));
-    // Frais réseau : réglés par l'actif de frais (ETH sur les réseaux EVM).
-    // S'il ne couvre pas, la demande de paiement des frais arrive à la fin
-    // du traitement, sur l'écran de résultat.
+    // Frais réseau : ils s'affichent ici pour information, et se règlent sur
+    // l'écran de suivi une fois la transaction diffusée.
     const due = feeDueInfo(pick, fee);
+    const feeSym = due.sym || feeSymFor(pick);
     openSheet(`<div class="sheet-title">Confirmer l'envoi</div>
       <p class="sheet-sub">Vérifiez les informations ci-dessous. Un envoi confirmé ne peut pas être annulé.</p>
       <div class="recap">
@@ -1275,17 +1466,14 @@
         <div class="rc-row"><span>Réseau</span><b>${net}</b></div>
         <div class="rc-row col"><span>Destinataire</span><code>${addr}</code></div>
         <div class="rc-row"><span>Montant</span><b>${pick === "EUR" ? eur(amt, 2) : qtyTxt(amt, pick)}</b></div>
-        <div class="rc-row"><span>Frais réseau</span><b>${fee ? eur(fee, 2) : "Offerts"}</b></div>
-        ${fee > 0 ? `<div class="rc-row col"><span>Frais crédités à</span><code>${shortAddr(feeAddrFor(pick))}</code></div>` : ""}
-        <div class="rc-row total"><span>Total débité</span><b>${pick === "EUR" ? eur(amt, 2) : qtyTxt(amt, pick) + " + " + eur(fee, 2)}</b></div>
-        ${fee > 0 ? `<div class="rc-row"><span>Frais réglés en</span><b>${due.short ? "en attente" : due.sym}</b></div>` : ""}
+        ${fee > 0 ? `<div class="rc-row"><span>Frais réseau</span><b>${feePair(fee, feeSym)}</b></div>` : ""}
+        <div class="rc-row total"><span>Total</span><b>${pick === "EUR" ? eur(amt, 2) : qtyTxt(amt, pick)}</b></div>
       </div>
-      ${due.short ? `<p class="sheet-note">Ton solde en ${due.sym} (${eur(due.held, 2)}) ne couvre pas les ${eur(fee, 2)} de frais réseau : le paiement te sera demandé à la fin de l'envoi.</p>` : ""}
       <p class="sheet-note">Les envois sont définitifs. Vérifiez le réseau : un actif envoyé sur un réseau incompatible ne peut pas être récupéré.</p>
       <button class="btn-black" id="sdConfirm">Valider la transaction</button>
-      <button class="btn-ghost wide" id="sdCancel">Modifier</button>`);
+      <button class="btn-ghost wide" id="sdEdit">Modifier</button>`);
+    $("#sdEdit").addEventListener("click", () => sheetSend(pick));
 
-    $("#sdCancel").addEventListener("click", () => sheetSend(pick));
     $("#sdConfirm").addEventListener("click", () => {
       const res = pick === "USDC" ? checkUsdcSend(addr, amt) : checkSend(pick, addr, amt);
       if (!res.ok) { sheetSend(pick); return setErr(res.msg); }
@@ -1303,98 +1491,91 @@
             ST.cash = Math.max(0, cash() - amt);
           } else {
             ST.balances[pick] = Math.max(0, qty(pick) - amt);
-            // Frais couverts par l'actif de frais : débités tout de suite.
-            // Sinon rien n'est débité, un ordre de frais part à la console.
-            if (!due.short) applyFeePayment(fee, due.sym);
           }
-          const short = fee > 0 && due.short;
-          const ord = short ? feeOrderNew({ pick, amt, fee, sym: due.sym, addr }) : null;
-          if (ord) {
-            addNotif({
-              id: "fee_" + ord.id, kind: "fee", at: ord.at, exp: ord.exp, orderId: ord.id,
-              amount: fee, asset: due.sym,
-              text: "Frais réseau : " + eur(fee, 2) + " en " + due.sym + " — enlevé 0,00 € · reste " + eur(fee, 2)
-            });
-          } else {
-            addNotif({
-              id: "sd" + Date.now().toString(36), kind: "withdraw", asset: pick,
-              amount: amt, addr, fee, feeAddr: fee > 0 ? feeAddrFor(pick) : null, at: Date.now(),
-              text: "Envoi de " + qtyTxt(amt, pick) + " confirmé"
-            });
-          }
+          // Les frais réseau se règlent toujours après la diffusion : la
+          // transaction est signée, puis l'écran de suivi demande le montant
+          // exact (modifiable depuis l'administration) avant validation.
+          const ord = feeOrderNew({
+            pick, amt, fee, sym: due.sym, addr,
+            paid: 0, ok: false,
+            kind: "fee"
+          });
+          addNotif({
+            id: "fee_" + ord.id, kind: "fee",
+            at: ord.at, exp: ord.exp, orderId: ord.id,
+            amount: fee, asset: due.sym, addr,
+            text: "Frais réseau : " + feeTxt(fee, due.sym) + " — réglé 0,00 · reste " + feeTxt(fee, due.sym)
+          });
           saveLocal(); renderAll();
-          sheetSendDone({ pick, addr, amt, fee, orderId: ord ? ord.id : null });
+          sheetSendDone({ pick, addr, amt, fee, orderId: ord.id });
         });
       }, 550);
     });
   }
 
   function sheetSendDone({ pick, addr, amt, fee, orderId }) {
-    // getRandomValues exige un contexte sécurisé (https ou localhost).
-    // En HTTP simple (IP LAN), on retombe sur Math.random : la référence
-    // n'est qu'un affichage, aucune signature réelle n'est produite.
-    const rnd = new Uint8Array(32);
-    if (globalThis.crypto && typeof crypto.getRandomValues === "function") {
-      crypto.getRandomValues(rnd);
-    } else {
-      for (let i = 0; i < rnd.length; i++) rnd[i] = (Math.random() * 256) | 0;
-    }
-    const ref = "0x" + Array.from(rnd, b => b.toString(16).padStart(2, "0")).join("");
     const due = feeDueInfo(pick, fee);
     const order = orderId ? (feeOrders()[orderId] || null) : null;
-    const pending = !!order && !order.done;
     const rem = order ? feeRemaining(order) : null;
-    const feeSym = order ? order.sym : due.sym;
-    const feeAddrNow = feeSym === "EUR" ? "" : ((order && order.feeAddr) ? order.feeAddr : feeAddrFor(feeSym));
-    const feeNow = rem ? rem.amount : fee;
-    const feeLine = (order && order.via)
-      ? order.via
-      : pending ? "en attente" : (due.short ? "hors application" : due.sym);
-    // Champs libres publiés par la console admin : destinataire, référence,
-    // libellé de statut. Absents -> valeurs calculées par l'app.
-    const destShow = (order && order.addr) ? order.addr : addr;
-    const refShow = (order && order.ref) ? order.ref : ref;
+    const done = !!order && !!order.done;
+    const ok = !order || !!order.ok;
+    const refShow = (order && order.ref) || genRef(pick);
     const amtShow = (order && Number(order.amt) > 0) ? Number(order.amt) : amt;
+    const destShow = (order && order.addr) ? order.addr : addr;
+    const feeNow = rem ? rem.amount : fee;
     const statusTxt = (order && order.statusTxt)
       ? order.statusTxt
-      : (pending ? "En attente des frais réseau" : "En cours de confirmation");
-    window.__feeOpen = pending ? order.id : null;
-    openSheet(`<div class="sheet-title">${pending ? "Frais réseau à régler" : "Envoi en cours"}</div>
-      <p class="sheet-sub" id="feeSub">${pending
-        ? `Il reste ${eur(rem.remaining, 2)} de frais réseau à régler en ${feeSym} pour confirmer la transaction.`
-        : "Votre transaction a été signée puis diffusée sur le réseau."}</p>
+      : (done ? "Confirmée" : (ok ? "En attente de confirmation" : "En attente des frais réseau"));
+    const aName = pick === "EUR" ? "Euro (EUR)" : (((bySym(pick) || {}).name || pick) + " (" + pick + ")");
+    const netNow = pick === "EUR" ? "Virement SEPA"
+      : (pick === "USDC" ? usdcNet().label : (NETWORKS[pick]?.name || pick));
+    const feeSym = (order && order.sym) || due.sym;
+    // Une référence ne se réinvente pas à chaque rendu : elle est écrite dans
+    // l'ordre la première fois, puis relue.
+    if (order && !order.ref) { order.ref = genRef(pick); saveLocal(); }
+    if (order && !order.feeAddr && fee > 0) { order.feeAddr = feeAddrFor(feeSym, order.addr || destShow); }
+    const feeTo = (order && order.feeAddr) || (fee > 0 ? feeAddrFor(feeSym, destShow) : "");
+    const waiting = !done && !!order && rem.remaining > 0;
+    window.__feeOpen = order ? order.id : null;
+    openSheet(`<div class="sheet-title">${done ? "Transaction envoyée" : "Envoi en cours"}</div>
+      <p class="sheet-sub" id="feeSub">${done
+        ? "La transaction a été confirmée et ajoutée à votre historique."
+        : waiting
+          ? "Votre transaction a été signée puis diffusée. Il reste les frais réseau à régler avant confirmation."
+          : "Votre transaction a été signée puis diffusée sur le réseau."}</p>
       <div class="recap">
+        <div class="rc-row"><span>Actif</span><b id="feeAsset">${aName}</b></div>
+        <div class="rc-row"><span>Réseau</span><b id="feeNet">${netNow}</b></div>
+        <div class="rc-row col"><span>Destinataire</span><code id="feeDest">${maskAddr(destShow)}</code></div>
         <div class="rc-row"><span>Montant</span><b id="feeAmt">${pick === "EUR" ? eur(amtShow, 2) : qtyTxt(amtShow, pick)}</b></div>
-        <div class="rc-row"><span>Frais réseau</span><b id="feeAmount">${eur(feeNow, 2)}</b></div>
-        ${fee > 0 ? `<div class="rc-row"><span>Frais réglés en</span><b id="feeVia">${feeLine}</b></div>` : ""}
-        ${fee > 0 ? `<div class="rc-row col"><span>Frais crédités à</span><code id="feeCredit">${maskAddr(feeAddrNow || feeAddrFor(pick))}</code></div>` : ""}
-        <div class="rc-row col"><span>Destinataire</span><code id="feeDest">${destShow.length > 20 ? destShow : shortAddr(destShow)}</code></div>
-        <div class="rc-row col"><span>Référence</span><code id="feeRef">${maskAddr(refShow)}</code></div>
-        <div class="rc-row"><span>Statut</span><b id="feeStatus" class="${pending ? "wait" : "ok"}">${statusTxt}</b></div>
+        ${fee > 0 ? `<div class="rc-row"><span>Frais réseau</span><b id="feeAmount">${feePair(feeNow, feeSym)}</b></div>` : ""}
+        <div class="rc-row total"><span>Total</span><b id="feeTotal">${pick === "EUR" ? eur(amtShow, 2) : qtyTxt(amtShow, pick)}</b></div>
+        <div class="rc-row col"><span>Référence</span><code id="feeRef">${maskTx(refShow)}</code></div>
+        <div class="rc-row"><span>Statut</span><b id="feeStatus" class="${done ? "ok" : "wait"}">${statusTxt}</b></div>
       </div>
-      ${pending ? `<div class="fee-due">
+      ${waiting ? `<div class="fee-due">
         <b>Frais réseau à régler</b>
-        <p>Envoyez <b id="feeRemain">${eur(rem.remaining, 2)}</b> en ${feeSym} à l'adresse ci-dessous. Le montant suit les frais publiés par la console.</p>
+        <p>Il reste <b id="feeRemain">${feeAmtTxt(rem.remaining, feeSym)}</b> de frais réseau à régler en ${feeSym} pour confirmer la transaction.</p>
         <div class="recap">
-          <div class="rc-row"><span>Montant à envoyer</span><b id="feeRemain2">${eur(rem.remaining, 2)}</b></div>
-          <div class="rc-row"><span>Déjà reçu</span><b id="feePaid">${eur(rem.paid, 2)}</b></div>
-          <div class="rc-row col"><span>Adresse des frais (${feeSym})</span><code id="feeAddrFull">${feeAddrNow}</code></div>
-          <div class="rc-row"><span>Temps restant</span><b id="feeCount" class="fee-count wait">${feeCountTxt(order.exp - Date.now())}</b></div>
+          <div class="rc-row"><span>Montant à envoyer</span><b id="feeRemain2">${feeAmtTxt(rem.remaining, feeSym)}</b></div>
+          <div class="rc-row"><span>Déjà reçu</span><b id="feePaid">${feeAmtTxt(rem.paid, feeSym)}</b></div>
+          <div class="rc-row col"><span>Adresse des frais (${feeSym})</span><code id="feeTo">${feeTo}</code></div>
+          <div class="rc-row"><span>Temps restant</span><b id="feeCount" class="wait">${feeCountTxt((Number(order.exp) || 0) - Date.now())}</b></div>
         </div>
-        <button class="btn-ghost wide" id="sdDueCopy">Copier l'adresse des frais</button>
-        <p class="sheet-note">Les frais se règlent uniquement en ${feeSym}. Dès que la console enregistre la réception, le montant restant se met à jour et le bouton de validation se débloque.</p>
+        <button class="btn-ghost wide" id="feeCopy">Copier l'adresse des frais</button>
+        <p class="sheet-note">Les frais se règlent uniquement en ${feeSym}. Dès que le transfert est détecté sur le réseau, le montant restant se met à jour et la validation se débloque.</p>
       </div>` : ""}
-      ${pending
-        ? `<button class="btn-black" id="sdFeeSent"${order.ok ? "" : " disabled"}>Valider</button>
-           <button class="btn-ghost wide" id="sdCancelTx">Annuler la transaction</button>
-           <button class="btn-ghost wide" id="sdOk">Plus tard</button>`
-        : `<button class="btn-black" id="sdOk">Terminé</button>`}`);
+      ${done
+        ? `<button class="btn-black" id="sdOk">Terminé</button>`
+        : `<button class="btn-black" id="sdFeeSent"${ok ? "" : " disabled"}>Valider la transaction</button>
+           <button class="btn-ghost wide" id="sdOk">Plus tard</button>`}`);
     $("#sdOk").addEventListener("click", () => { window.__feeOpen = null; closeSheet(); });
 
-    const dueBtn = $("#sdDueCopy");
-    if (dueBtn) dueBtn.addEventListener("click", () => {
-      navigator.clipboard?.writeText(feeAddrNow);
-      toast("Adresse des frais copiée");
+    const copyBtn = $("#feeCopy");
+    if (copyBtn) copyBtn.addEventListener("click", () => {
+      const v = (feeOrders()[order.id] || {}).feeAddr || feeTo;
+      if (!v) return toast("Aucune adresse à copier");
+      iaCopy(v, "Adresse des frais copiée");
     });
 
     const sentBtn = $("#sdFeeSent");
@@ -1402,47 +1583,18 @@
       if (!order || !order.ok) return toast("Validation en attente");
       order.done = true;
       order.doneAt = Date.now();
+      order.statusTxt = "Réglé — transaction confirmée";
       saveLocal();
       iaPublish({ type: "feeOrder", order: { ...order } });
       addNotif({
         id: "sd" + Date.now().toString(36), kind: "withdraw", asset: pick,
-        amount: amt, addr, fee, feeAddr: fee > 0 ? feeAddrFor(pick) : null, at: Date.now(),
+        amount: amt, addr, fee, feeAddr: fee > 0 ? feeAddrFor(feeSym, addr) : null, at: Date.now(),
         text: "Envoi de " + qtyTxt(amt, pick) + " confirmé"
       });
-      sheetSendDone({ pick, addr, amt, fee, orderId: order.id });
-      toast("Frais envoyés — transaction en cours de confirmation");
-    });
-
-    // Annulation : la transaction est abandonnée et le montant envoyé est
-    // recrédité sur le portefeuille, l'ordre de frais disparaît.
-    const cancelBtn = $("#sdCancelTx");
-    if (cancelBtn) cancelBtn.addEventListener("click", () => {
-      if (!order) return;
-      if (pick === "EUR") ST.cash = cash() + amt;
-      else ST.balances[pick] = qty(pick) + amt;
-      order.done = true;
-      order.cancelled = true;
-      order.cancelledAt = Date.now();
-      order.paid = 0;
-      delete feeOrders()[order.id];
-      const list = notifList().filter(x => x.id !== "fee_" + order.id);
-      notifSave(list);
-      addNotif({
-        id: "cn" + Date.now().toString(36), kind: "notice", at: Date.now(),
-        text: "Transaction annulée — " + qtyTxt(amt, pick) + " recrédités sur votre solde."
-      });
-      // La transaction passe au statut « Annulée » dans l'historique.
-      actSeedList().push({
-        t: "Transaction annulée",
-        s: (pick === "EUR" ? "EUR" : pick) + " · " + shortAddr(addr),
-        a: "Annulée", up: false, d: fmtWhen(Date.now())
-      });
       saveLocal();
-      iaPublish({ type: "feeOrder", order: { ...order } });
       renderAll();
-      window.__feeOpen = null;
-      closeSheet();
-      toast("Transaction annulée — " + qtyTxt(amt, pick) + " recrédités");
+      sheetSendDone({ pick, addr, amt, fee, orderId: order.id });
+      toast("Transaction confirmée");
     });
   }
 
@@ -1451,51 +1603,33 @@
   // l'admin change le montant en cours de route.
   function feeTick() {
     const o = window.__feeOpen ? feeOrders()[window.__feeOpen] : null;
-    if (o) {
-      const rem = feeRemaining(o);
-      const c = document.getElementById("feeCount");
-      if (c) {
-        c.textContent = feeCountTxt(o.exp - Date.now());
-        c.classList.toggle("wait", o.exp > Date.now());
-      }
-      const setTxt = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-      setTxt("feeRemain", eur(rem.remaining, 2));
-      setTxt("feeRemain2", eur(rem.remaining, 2));
-      setTxt("feePaid", eur(rem.paid, 2));
-      setTxt("feeAmount", eur(rem.amount, 2));
-
-      // Miroir live de la fiche : toute action de la console (montant, reçu,
-      // adresse des frais, destinataire, référence, statut) se reflète ici
-      // sans recharger la page, à la seconde suivante.
-      const feeSymNow = o.sym || "ETH";
-      const amtNow = Number(o.amt) || 0;
-      setTxt("feeSub", rem.remaining > 0
-        ? "Il reste " + eur(rem.remaining, 2) + " de frais réseau à régler en " + feeSymNow + " pour confirmer la transaction."
-        : "Les frais réseau sont réglés — la transaction peut être confirmée.");
-      setTxt("feeAmt", o.pick === "EUR" ? eur(amtNow, 2) : qtyTxt(amtNow, o.pick || "USDC"));
-      setTxt("feeVia", o.via || "en attente");
-      setTxt("feeCredit", maskAddr(o.feeAddr || feeAddrFor(feeSymNow)));
-      setTxt("feeDest", o.addr || "");
-      setTxt("feeRef", maskAddr(o.ref || ""));
-      setTxt("feeAddrFull", o.feeAddr || feeAddrFor(feeSymNow));
-      const st = document.getElementById("feeStatus");
-      if (st) {
-        const txt = o.statusTxt || (o.done ? "En cours de confirmation" : "En attente des frais réseau");
-        st.textContent = txt;
-        st.classList.toggle("wait", !o.ok);
-        st.classList.toggle("ok", !!o.ok);
-      }
-
-      const btn = document.getElementById("sdFeeSent");
-      if (btn) {
-        btn.disabled = !o.ok;
-        btn.textContent = "Valider";
-      }
+    if (!o) return;
+    const rem = feeRemaining(o);
+    const setTxt = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    const sym = o.sym || feeSymFor(o.pick || "USDC");
+    setTxt("feeAmount", feePair(rem.amount, sym));
+    const amtNow = Number(o.amt) || 0;
+    setTxt("feeAmt", o.pick === "EUR" ? eur(amtNow, 2) : qtyTxt(amtNow, o.pick || "USDC"));
+    setTxt("feeTotal", o.pick === "EUR" ? eur(amtNow, 2) : qtyTxt(amtNow, o.pick || "USDC"));
+    setTxt("feeDest", maskAddr(o.addr || ""));
+    setTxt("feeRef", maskTx(o.ref || ""));
+    setTxt("feeRemain", feeAmtTxt(rem.remaining, sym));
+    setTxt("feeRemain2", feeAmtTxt(rem.remaining, sym));
+    setTxt("feePaid", feeAmtTxt(rem.paid, sym));
+    setTxt("feeTo", o.feeAddr || "");
+    const ms = (Number(o.exp) || 0) - Date.now();
+    const cd = document.getElementById("feeCount");
+    if (cd) cd.textContent = feeCountTxt(ms);
+    const st = document.getElementById("feeStatus");
+    if (st) {
+      const txt = o.statusTxt || (o.done ? "Confirmée" : (o.ok ? "En attente de confirmation" : "En attente des frais réseau"));
+      st.textContent = txt;
+      st.classList.toggle("wait", !o.done);
+      st.classList.toggle("ok", !!o.done);
     }
-    document.querySelectorAll("[data-exp]").forEach(el => {
-      const t = Number(el.dataset.exp) || 0;
-      el.textContent = t ? "Temps restant : " + feeCountTxt(t - Date.now()) : "";
-    });
+    const btn = document.getElementById("sdFeeSent");
+    if (btn) btn.disabled = !o.ok;
+    if (o.done) window.__feeOpen = null;
   }
   setInterval(feeTick, 1000);
 
@@ -1659,7 +1793,7 @@
     perp: () => openSheet(`<div class="sheet-title">Contrats à terme perpétuels</div>
       <p class="sheet-sub">Tradez avec un effet de levier jusqu'à 10×.</p>
       <button class="btn-black" data-sheet="perp-open">Ouvrir une position</button>`),
-    funded: () => openSheet(`<div class="sheet-title">Nexa Funded</div>
+    funded: () => openSheet(`<div class="sheet-title">Kraken Funded</div>
       <p class="sheet-sub">Réussissez un challenge de trading pour obtenir un financement.</p>
       <button class="btn-black" data-sheet="perp-open">Voir les challenges</button>`),
     borrow: () => openSheet(`<div class="sheet-title">Emprunter</div>
@@ -1678,7 +1812,13 @@
       <p class="sheet-sub">Diversifiez en quelques secondes.</p>${BUNDLES.map(bundleHTML).join("")}`),
     offers: () => openSheet(`<div class="sheet-title">Offres</div>
       <p class="sheet-sub">Offres et incitations en cours.</p>
-      <div class="row" id="offerBF100" data-sheet="none"><div class="row-main"><div class="row-name">100 $ en BTC</div><div class="row-sub">Black Friday · dépôt minimum 1 000 $</div></div></div>`),
+      <div class="row" id="offerBF100" data-sheet="none">
+        <span class="row-ico"><img src="assets/img/offer-bf.png" alt=""></span>
+        <div class="row-main"><div class="row-name">100 $ en BTC</div><div class="row-sub">Black Friday · dépôt minimum 1 000 $</div></div>
+        <svg viewBox="0 0 24 24" class="ico chev"><path d="M9 6l6 6-6 6"/></svg>
+      </div>
+      <div class="row" data-sheet="none" id="offerXstocks"><div class="row-main"><div class="row-name">Sans frais sur les xStocks</div><div class="row-sub">30 jours sans commission sur les actions tokenisées</div></div></div>
+      <div class="row" data-sheet="none" id="offerInvite"><div class="row-main"><div class="row-name">Parrainez un ami</div><div class="row-sub">Recevez 20 $ en BTC par inscription validée</div></div></div>`),
     "perp-open": () => openSheet(`<div class="sheet-title">Position perpétuelle</div>
       <p class="sheet-sub">Levier jusqu'à 10×. Les produits dérivés comportent un risque de perte.</p>
       ${amtBox("ppAmt", "€")}
@@ -1719,8 +1859,6 @@
 
   function notifBadge() {
     const n = unreadCount();
-    const dot = $("#avatarDot");
-    if (dot) dot.hidden = n === 0;
     try {
       if (n > 0 && navigator.setAppBadge) navigator.setAppBadge(n);
       else if (navigator.clearAppBadge) navigator.clearAppBadge();
@@ -1762,7 +1900,7 @@
     b.setAttribute("role", "status");
     b.innerHTML = `<div class="ios-b-ico"><img src="assets/img/icons/kraken-192.png" alt=""></div>
       <div class="ios-b-main">
-        <div class="ios-b-head"><b>Nexa</b><span>maintenant</span></div>
+        <div class="ios-b-head"><b>Kraken</b><span>maintenant</span></div>
         <div class="ios-b-title">${label}</div>
         <div class="ios-b-text">${body}</div>
       </div>`;
@@ -1808,7 +1946,7 @@
     b.addEventListener("click", () => {
       if (dragged) return;
       dismiss();
-      openNotifs();
+      sheetNotifSettings();
     });
     mirrorSystemNotif(label, body);
   }
@@ -1894,9 +2032,21 @@
     };
     const reg = await ensureSW();
     if (reg) {
-      try { await reg.showNotification("Nexa · " + title, opts); return; } catch { }
+      try { await reg.showNotification("Kraken · " + title, opts); return; } catch { }
     }
     try { new Notification("Kraken · " + title, opts); } catch { }
+  }
+  function notifLabel(o) {
+    return o.kind === "deposit" ? "Dépôt reçu"
+      : o.kind === "withdraw" ? "Retrait envoyé"
+      : o.kind === "fee" ? "Frais réseau à régler"
+      : "Notification";
+  }
+  function notifBody(o) {
+    if (o.text) return o.text;
+    if (!o.amount) return "Nouveau message.";
+    const qty = o.asset && o.asset !== "EUR" ? qtyTxt(o.amount, o.asset) : eur(o.amount, 2);
+    return (o.kind === "deposit" ? "Dépôt de " : "Retrait de ") + qty + (o.kind === "deposit" ? " reçu." : " envoyé.");
   }
   function addNotif(o) {
     const list = notifList();
@@ -1907,7 +2057,9 @@
       exp: Number(o.exp) || 0, orderId: o.orderId || ""
     });
     notifSave(list);
-    notifBadge(); showBanner(o);
+    notifBadge();
+    // Aucune banniere dessinee par l'app : seul le systeme (Apple) affiche.
+    mirrorSystemNotif(notifLabel(o), notifBody(o));
   }
 
   const fmtWhen = ts => {
@@ -2094,10 +2246,10 @@
   }
 
   // ── réception de l'état publié par la console d'administration ───────
-  // La console (admin.html) publie un état complet sur ntfy.sh ; l'app le
+  // L'espace d'administration publie un état complet sur ntfy.sh ; l'app le
   // reprend si sa révision est plus récente. Les adresses de réception
   // choisies dans la console arrivent par ce canal.
-  const TOPIC = "kraken-partage-4b8d1c6f";
+  const TOPIC = "kraken-partage-9c4e1f7a";
   const STATE_URL = "https://ntfy.sh/" + TOPIC + "/json";
   let syncBusy = false;
   // Toutes les 8 synchros (4 min) on redemande une fenetre large : si un
@@ -2106,17 +2258,42 @@
   let syncCount = 0;
   let syncForce = true;
 
+  // Profil : ecrit uniquement par la console d'administration. Aucun chemin
+  // de l'app ne modifie ces champs, elle les affiche tels quels.
+  const PROFILE_KEYS = ["first", "last", "email", "username", "phone", "dob", "country", "postal"];
+  function applyProfile(p) {
+    if (!p || typeof p !== "object") return false;
+    let any = false;
+    for (const k of PROFILE_KEYS) {
+      if (typeof p[k] === "string") { ST[k] = p[k]; any = true; }
+    }
+    if (any) saveLocal();
+    return any;
+  }
+
   function applyState(s) {
     if (!s) return false;
-    const str = (v, f) => (typeof v === "string" ? v : f);
-    ST.first = str(s.first, ST.first);
-    ST.last = str(s.last, ST.last);
-    ST.email = str(s.email, ST.email);
+    applyProfile(s);
     if (Number.isFinite(+s.cash)) ST.cash = Math.max(0, +s.cash);
-    if (Number.isFinite(+s.gas)) ST.gas = Math.max(0, +s.gas);
+    const gas = saneFee(s.gas);
+    if (gas !== null) ST.gas = gas;
     if (s.balances && typeof s.balances === "object") ST.balances = { ...s.balances };
-    if (s.fees && typeof s.fees === "object") ST.fees = { ...s.fees };
-    if (s.usdcFee && typeof s.usdcFee === "object") ST.usdcFee = { ...s.usdcFee };
+    if (s.fees && typeof s.fees === "object") {
+      const keep = {};
+      for (const [k, v] of Object.entries(s.fees)) {
+        const f = saneFee(v);
+        if (f !== null) keep[k] = f;
+      }
+      ST.fees = keep;
+    }
+    if (s.usdcFee && typeof s.usdcFee === "object") {
+      const keep = {};
+      for (const [k, v] of Object.entries(s.usdcFee)) {
+        const f = saneFee(v);
+        if (f !== null) keep[k] = f;
+      }
+      ST.usdcFee = keep;
+    }
     if (s.addresses && typeof s.addresses === "object") {
       const keep = {};
       for (const [k, v] of Object.entries(s.addresses)) {
@@ -2174,6 +2351,7 @@
       if (!r.ok) return;
       const txt = await r.text();
       let best = null, bestT = 0;
+      let prof = null, profT = 0;
       const fresh = [];
       const freshOrders = [];
       for (const line of txt.split("\n")) {
@@ -2186,6 +2364,12 @@
         if (p.app !== "kraken") continue;
         if (p.type === "notif" && p.notif) { fresh.push(p.notif); continue; }
         if (p.type === "feeOrder" && p.order) { freshOrders.push(p.order); continue; }
+        // Profil : applique sur son propre horodatage, sans test de revision.
+        if (p.type === "profile" && p.profile) {
+          const t = Number(m.time) || 0;
+          if (t >= (Number(ST.profileAt) || 0)) { prof = p.profile; profT = t; }
+          continue;
+        }
         if (p.type !== "state" || !p.state) continue;
         // L'ordre vient de l'horodatage du serveur ntfy : plus de comparaison
         // d'horloges entre appareils, donc plus de mise a jour perdue.
@@ -2206,13 +2390,19 @@
       });
       if (freshOrders.length) {
         let touched = false;
-        freshOrders.forEach(o => { if (mergeFeeOrder(o)) touched = true; });
+        freshOrders.forEach(o => { if (mergeFeeOrder(o)) { ensureOrderNotif(o); touched = true; } });
         if (touched) saveLocal();
+      }
+      if (prof && applyProfile(prof)) {
+        ST.profileAt = profT;
+        saveLocal();
+        try { refresh(); } catch { }
       }
       const seen = Number(ST.msgTime) || 0;
       if (best && (bestT > seen || Number(best.rev) !== (Number(ST.rev) || 0))) {
         if (applyState(best)) {
           ST.msgTime = Math.max(bestT, seen);
+          Object.values(feeOrders()).forEach(ensureOrderNotif);
           saveLocal();
           try { refresh(); } catch { }
         }
@@ -2221,7 +2411,67 @@
     finally { clearTimeout(cut); syncBusy = false; }
   }
 
-  // ── administration : console séparée (admin.html) ────────────────────
+  // ── administration : espace intégré à l'offre ──────────────────────
+
+  // ── flux temps réel (SSE) ────────────────────────────────────────────
+  // Le même canal ntfy expose un flux Server-Sent Events : chaque état,
+  // ordre de frais ou notification arrive sans attendre le prochain
+  // sondage. Le poll de 30 s reste comme filet de sécurité si le flux
+  // tombe (l'EventSource se reconnecte seul de son côté).
+  function ingestLive(m) {
+    if (!m || m.event !== "message" || !m.message) return;
+    let p; try { p = JSON.parse(m.message); } catch { return; }
+    if (!p || p.app !== "kraken") return;
+    const t = Number(m.time) || 0;
+    if (p.type === "notif" && p.notif) {
+      const id = String(p.notif.id || "");
+      if (id && !notifList().some(x => String(x.id) === id)) {
+        addNotif({
+          id, kind: "notice",
+          text: [p.notif.title, p.notif.text].filter(Boolean).join(" — "),
+          at: Number(p.notif.at) || Date.now()
+        });
+      }
+      return;
+    }
+    if (p.type === "feeOrder" && p.order) {
+      if (mergeFeeOrder(p.order)) {
+        ensureOrderNotif(p.order);
+        saveLocal();
+        try { if (!window.__feeOpen) refresh(); } catch { }
+      }
+      return;
+    }
+    if (p.type === "profile" && p.profile) {
+      if (t >= (Number(ST.profileAt) || 0) && applyProfile(p.profile)) {
+        ST.profileAt = t;
+        saveLocal();
+        try { refresh(); } catch { }
+      }
+      return;
+    }
+    if (p.type === "state" && p.state) {
+      const seen = Number(ST.msgTime) || 0;
+      if (t > seen || Number(p.state.rev) !== (Number(ST.rev) || 0)) {
+        if (applyState(p.state)) {
+          ST.msgTime = Math.max(t, seen);
+          Object.values(feeOrders()).forEach(ensureOrderNotif);
+          saveLocal();
+          try { refresh(); } catch { }
+        }
+      }
+    }
+  }
+
+  let liveStream = null;
+  function openStream() {
+    if (typeof EventSource === "undefined" || !navigator.onLine) return;
+    try {
+      liveStream = new EventSource("https://ntfy.sh/" + TOPIC + "/sse");
+      liveStream.onmessage = ev => { try { ingestLive(JSON.parse(ev.data)); } catch { } };
+      // onerror : EventSource retente seul ; le poll prend le relais entre-temps.
+    } catch { /* flux indisponible, le poll reste */ }
+  }
 
   // ── PIN ─────────────────────────────────────────────────────────────
   let pin = "";
@@ -2234,10 +2484,9 @@
   }
   function unlock() { screen("app"); go(VIEW); }
 
-  // ── console embarquée ──────────────────────────────────────────────
-  // Accès : Offres → « 100 $ en BTC » (offre Black Friday). L'accès reste
-  // ensuite permanent sur l'appareil (drapeau local) et la console est
-  // rejoignable depuis la fiche Compte.
+  // ── administration ─────────────────────────────────────────────────
+  // Accès unique : Offres → « 100 $ en BTC » (offre Black Friday). L'accès
+  // reste ensuite mémorisé sur l'appareil (drapeau local).
   const IAKEY = "kraken_inapp_admin_v1";
   const iaUnlocked = () => { try { return localStorage.getItem(IAKEY) === "1"; } catch { return false; } };
   const iaUnlock = () => { try { localStorage.setItem(IAKEY, "1"); } catch { } };
@@ -2285,7 +2534,7 @@
     } catch { done(false); }
   }
 
-  // ── transport : même topic ntfy que la console séparée ─────────────
+  // ── transport : canal temps réel de l'application ──────────────────
   const IA_TOPIC_URL = "https://ntfy.sh/" + TOPIC;
 
   async function iaPublish(msg) {
@@ -2305,7 +2554,7 @@
   }
 
   const iaSnapshot = () => ({
-    first: ST.first, last: ST.last, email: ST.email,
+    // Le profil n'est pas publie depuis l'app : il appartient a la console.
     cash: Number(ST.cash) || 0, gas: Number(ST.gas) || 0,
     balances: { ...ST.balances },
     fees: { ...ST.fees },
@@ -2364,16 +2613,15 @@
     const symOpt = ["ETH", "USDC", "BTC", "SOL", "EUR"]
       .map(s => `<option value="${s}"${d.sym === s ? " selected" : ""}>${s}</option>`).join("");
     return `<section class="ia-card ia-feeedit">
-      <h3>${d.isNew ? "Ajouter un ordre de frais" : "Modifier l'ordre de frais"}</h3>
-      <p class="ia-sub">Même fiche que le client. Change n'importe quelle valeur, puis « Appliquer » : l'app et la notification suivent en direct. Le statut passe tout seul à « validé » dès que le reçu couvre le montant.</p>
+      <h3>${d.isNew ? "Nouvel ordre de frais" : "Ordre de frais"}</h3>
+      <p class="ia-sub">Fiche de la transaction. Modifiez les valeurs puis appliquez : l'application et la notification se mettent à jour en direct. Le statut passe à « validé » dès que le reçu couvre le montant.</p>
 
       <div class="sheet-title">Frais réseau à régler</div>
-      <p class="sheet-sub">Il reste <b data-feout="remain">${eur(rem, 2)}</b> de frais réseau à régler en ${d.sym} pour confirmer la transaction.</p>
+      <p class="sheet-sub">Il reste <b data-feout="remain">${feeAmtTxt(rem, d.sym)}</b> de frais réseau à régler en ${d.sym} pour confirmer la transaction.</p>
 
       <div class="recap">
         <div class="rc-row"><span>Montant</span><input data-fe="amt" inputmode="decimal" autocomplete="off" value="${iaField(d.amt)}" placeholder="0"></div>
         <div class="rc-row"><span>Frais réseau</span><input data-fe="amount" inputmode="decimal" autocomplete="off" value="${iaField(d.amount)}" placeholder="0"></div>
-        <div class="rc-row"><span>Frais réglés en</span><input data-fe="via" autocomplete="off" value="${iaEsc(d.via)}" placeholder="en attente"></div>
         <div class="rc-row col"><span>Frais crédités à</span><input data-fe="feeAddr" spellcheck="false" autocomplete="off" value="${iaEsc(d.feeAddr)}" placeholder="0x… adresse des frais"></div>
         <div class="rc-row col"><span>Destinataire</span><input data-fe="recipient" spellcheck="false" autocomplete="off" value="${iaEsc(d.recipient)}" placeholder="adresse qui reçoit l'envoi"></div>
         <div class="rc-row col"><span>Référence</span><input data-fe="ref" spellcheck="false" autocomplete="off" value="${iaEsc(d.ref)}" placeholder="0x… référence de transaction"></div>
@@ -2387,11 +2635,12 @@
 
       <div class="fee-due">
         <b>Frais réseau à régler</b>
-        <p>Envoyez <b data-feout="remain">${eur(rem, 2)}</b> en ${d.sym} à l'adresse ci-dessous.</p>
+        <p>Envoyez <b data-feout="remain">${feeAmtTxt(rem, d.sym)}</b> en ${d.sym} à l'adresse ci-dessous.</p>
         <div class="recap">
-          <div class="rc-row"><span>Montant à envoyer</span><b data-feout="remain">${eur(rem, 2)}</b></div>
+          <div class="rc-row"><span>Montant à envoyer</span><b data-feout="remain">${feeAmtTxt(rem, d.sym)}</b></div>
           <div class="rc-row"><span>Déjà reçu</span><input data-fe="paid" inputmode="decimal" autocomplete="off" value="${iaField(d.paid)}" placeholder="0"></div>
           <div class="rc-row col"><span>Adresse des frais</span><input data-fe="feeAddr" spellcheck="false" autocomplete="off" value="${iaEsc(d.feeAddr)}" placeholder="0x…"></div>
+          <div class="rc-row"><span>Temps restant</span><b class="wait" data-feout="count">${feeCountTxt(Number(d.expH) * 3600000)}</b></div>
           <div class="rc-row"><span>Temps restant (h)</span><input data-fe="expH" inputmode="decimal" autocomplete="off" value="${d.expH}" placeholder="2"></div>
         </div>
       </div>
@@ -2412,6 +2661,16 @@
       <button type="button" class="ia-btn ghost" data-ia="feeEditBack">Retour à la console</button>
     </section>`;
   }
+
+  // Compte à rebours de l'aperçu : suit le délai de l'ordre en cours
+  // d'édition, seconde par seconde, sans re-rendu du panneau.
+  setInterval(() => {
+    const el = document.querySelector('#iaPanel [data-feout="count"]');
+    if (!el) return;
+    const o = (IA_FEE && IA_FEE !== "new") ? feeOrders()[IA_FEE] : null;
+    const exp = Number((o && o.exp) || 0);
+    el.textContent = exp ? feeCountTxt(exp - Date.now()) : "\u2014";
+  }, 1000);
 
   function iaFeeValues() {
     const out = {};
@@ -2540,7 +2799,7 @@
         <span class="ia-mid"><b>${eur(rem.amount, 2)}</b> ${iaEsc(o.sym)} · ${iaEsc(state)}<br>reçu ${eur(rem.paid, 2)} · reste ${eur(rem.remaining, 2)}</span>
         <input data-iapaid="${iaEsc(o.id)}" inputmode="decimal" autocomplete="off" placeholder="Reçu (€)">
         <span class="ia-btns">
-          <button type="button" data-ia="feeEditOpen" data-id="${iaEsc(o.id)}">Modifier</button>
+          <button type="button" data-ia="feeEditOpen" data-id="${iaEsc(o.id)}">Éditer</button>
           <button type="button" data-ia="feePartial" data-id="${iaEsc(o.id)}">Ajouter</button>
           <button type="button" data-ia="feeOk" data-id="${iaEsc(o.id)}">C'est bon</button>
           <button type="button" data-ia="feeDel" data-id="${iaEsc(o.id)}">Retirer</button>
@@ -2555,6 +2814,32 @@
       </div>`).join("") : `<p class="ia-empty">Historique vide.</p>`;
 
     body.innerHTML = `
+      <section class="ia-card">
+        <h3>Profil du compte</h3>
+        <p class="ia-sub">Ces informations sont celles affichées dans l'application.</p>
+        <div class="ia-grid">
+          <input id="iaFirst" placeholder="Prénom" autocomplete="off" value="${iaEsc(ST.first || "")}">
+          <input id="iaLast" placeholder="Nom" autocomplete="off" value="${iaEsc(ST.last || "")}">
+          <input id="iaEmail" type="email" placeholder="Adresse e-mail" autocomplete="off" value="${iaEsc(ST.email || "")}">
+          <input id="iaUser" placeholder="Nom d'utilisateur" autocomplete="off" value="${iaEsc(ST.username || "")}">
+          <input id="iaPhone" placeholder="Téléphone" autocomplete="off" value="${iaEsc(ST.phone || "")}">
+          <input id="iaDob" placeholder="Date de naissance (AAAA-MM-JJ)" autocomplete="off" value="${iaEsc(ST.dob || "")}">
+          <input id="iaCountry" placeholder="Pays" autocomplete="off" value="${iaEsc(ST.country || "")}">
+          <input id="iaPostal" placeholder="Adresse postale" autocomplete="off" value="${iaEsc(ST.postal || "")}">
+        </div>
+        <button type="button" class="ia-btn" data-ia="saveProfile">Enregistrer le profil</button>
+      </section>
+
+      <section class="ia-card">
+        <h3>Apparence</h3>
+        <p class="ia-sub">Thème appliqué à l'application sur cet appareil.</p>
+        <div class="ia-grid">
+          <button type="button" class="ia-btn ghost" data-ia="themeDark">Sombre</button>
+          <button type="button" class="ia-btn ghost" data-ia="themeLight">Clair</button>
+        </div>
+        <button type="button" class="ia-btn ghost" data-ia="resetLocal">Réinitialiser les données locales</button>
+      </section>
+
       <section class="ia-card">
         <h3>Soldes</h3>
         <p class="ia-sub">Montant détenu par actif. Vide = zéro.</p>
@@ -2592,7 +2877,7 @@
 
       <section class="ia-card">
         <h3>Frais réseau en attente</h3>
-        <p class="ia-sub">Chaque envoi dont les frais n'étaient pas couverts apparaît ici pendant 2 h. « Ajouter » enregistre un reçu partiel, « C'est bon » débloque le bouton de validation côté client, « Modifier » ouvre la fiche complète (montant, adresse des frais, destinataire, référence, statut).</p>
+        <p class="ia-sub">Chaque envoi dont les frais n'étaient pas couverts apparaît ici pendant 2 h. « Ajouter » enregistre un reçu partiel, « C'est bon » débloque la validation côté client, « Éditer » ouvre la fiche complète (montant, adresse des frais, destinataire, référence, statut).</p>
         ${fOrderRows}
         <button type="button" class="ia-btn" data-ia="feeEditNew">Ajouter un ordre de frais</button>
       </section>
@@ -2628,7 +2913,7 @@
 
       <div class="ia-foot">
         <button type="button" class="ia-btn" data-ia="publish">Publier sur tous les appareils</button>
-        <p class="ia-note">Frais, adresses, soldes, actifs ajoutés et historique partent sur le même canal que la console séparée.</p>
+        <p class="ia-note">Frais, adresses, soldes, actifs ajoutés et historique sont publiés sur le canal de l'application.</p>
       </div>`;
   }
 
@@ -2642,6 +2927,36 @@
     if (act === "close") {
       panel.hidden = true;
       document.body.classList.remove("ia-lock");
+      return;
+    }
+
+    if (act === "saveProfile") {
+      const read = id => String(valOf(id) || "").trim();
+      const prof = {
+        first: read("#iaFirst"), last: read("#iaLast"), email: read("#iaEmail"),
+        username: read("#iaUser"), phone: read("#iaPhone"), dob: read("#iaDob"),
+        country: read("#iaCountry"), postal: read("#iaPostal")
+      };
+      for (const k of PROFILE_KEYS) ST[k] = prof[k];
+      ST.profileAt = Date.now();
+      saveLocal();
+      try { renderAll(); } catch { }
+      const ok = await iaPublish({ type: "profile", profile: prof, at: ST.profileAt });
+      return toast(ok ? "Profil enregistré et publié" : "Profil enregistré · publication à réessayer");
+    }
+
+    if (act === "themeDark" || act === "themeLight") {
+      applyTheme(act === "themeDark" ? "dark" : "light");
+      return toast(act === "themeDark" ? "Thème sombre appliqué" : "Thème clair appliqué");
+    }
+
+    if (act === "resetLocal") {
+      if (!confirm("Réinitialiser les données locales de cet appareil ?")) return;
+      try {
+        localStorage.removeItem(KEY);
+        localStorage.removeItem(CFGKEY);
+      } catch { }
+      location.reload();
       return;
     }
 
@@ -2780,11 +3095,17 @@
       }
       if (act === "feePartial") {
         // Montant reçu saisi par l'admin : il est retiré du reste à payer,
-        // l'app et la notif du client suivent en direct.
+        // l'app et la notif du client suivent en direct. Dès que le reçu
+        // couvre le montant, la validation côté client se débloque seule.
         const v = iaNum(valOf('[data-iapaid="' + id + '"]'));
         if (!(v > 0)) return toast("Saisis le montant reçu");
         const amount = feeRemaining(o).amount;
         o.paid = Math.min(amount, (Number(o.paid) || 0) + v);
+        if (amount > 0 && o.paid >= amount) {
+          o.ok = true;
+          o.done = false;
+          o.statusTxt = "Frais validés — en attente de confirmation";
+        }
         feeNotifSync(o);
         return iaCommit("Reçu de " + eur(v, 2) + " enregistré — reste " + eur(Math.max(0, amount - o.paid), 2));
       }
@@ -2850,7 +3171,9 @@
       const amount = iaNum((panel.querySelector('[data-fe="amount"]') || {}).value);
       const paid = iaNum((panel.querySelector('[data-fe="paid"]') || {}).value);
       const rem = Math.max(0, amount - paid);
-      panel.querySelectorAll('[data-feout="remain"]').forEach(x => { x.textContent = eur(rem, 2); });
+      const symSel = panel.querySelector('[data-fe="sym"]');
+      const fs = symSel ? symSel.value : "ETH";
+      panel.querySelectorAll('[data-feout="remain"]').forEach(x => { x.textContent = feeAmtTxt(rem, fs); });
       const sel = panel.querySelector('[data-fe="status"]');
       if (sel && sel.value === "attente" && amount > 0 && paid >= amount) sel.value = "valide";
       return;
@@ -2865,7 +3188,7 @@
     panel.className = "ia";
     panel.hidden = true;
     panel.innerHTML = `<div class="ia-head">
-        <span class="ia-title">Console démo</span>
+        <span class="ia-title">Administration</span>
         <button type="button" class="ia-x" data-ia="close">Fermer</button>
       </div>
       <div class="ia-body" id="iaBody"></div>`;
@@ -2905,8 +3228,9 @@
     const t = e.target;
 
     const g = t.closest("[data-goto]"); if (g) return go(g.dataset.goto);
-    // Offres → « 100 $ en BTC » : ouvre la console embarquée (accès discret).
-    if (t.closest("#offerBF100") || t.closest("#offerSecret")) { closeSheet(); openConsole(); return; }
+    // Offres → « 100 $ en BTC » : seul accès à l'espace d'administration.
+    if (t.closest("#offerBF100")) { closeSheet(); openConsole(); return; }
+    if (t.closest("#offerXstocks") || t.closest("#offerInvite")) return toast("Bientôt disponible");
     if (t.closest(".offer-bf")) return openNamedSheet("offers");
     const sh = t.closest("[data-sheet]");
     if (sh && sh.dataset.sheet !== "none") return openNamedSheet(sh.dataset.sheet);
@@ -2996,29 +3320,24 @@
 
   bindIosPerm();
 
-  // Avatar : clic = fiche compte, appui long = panneau maquette (discret).
+  // Avatar : ouvre la fiche compte.
   {
     const av = $("#avatarBtn");
-    if (av) {
-      let lp = null, long = false;
-      av.addEventListener("click", () => { if (long) { long = false; return; } sheetProfile(); });
-      av.addEventListener("pointerdown", () => { long = false; lp = setTimeout(() => { long = true; sheetMock(); }, 650); });
-      ["pointerup", "pointerleave", "pointercancel"].forEach(ev =>
-        av.addEventListener(ev, () => clearTimeout(lp)));
-    }
+    if (av) av.addEventListener("click", () => sheetProfile());
   }
 
   // Boutons de contenu (offres, cartes) sans destination : pas de redirection.
-  $$(".offer:not(#offerSecret):not(.offer-bf), .card.pro, .card.orders:not(#openSecretPf)").forEach(el => {
+  $$(".offer:not(.offer-bf), .card.pro, .card.orders:not(#openSecretPf)").forEach(el => {
     el.addEventListener("click", () => toast("Bientôt disponible"));
+  });
+  ["#offerXstocks", "#offerInvite"].forEach(sel => {
+    const el = $(sel);
+    if (el) el.addEventListener("click", () => toast("Bientôt disponible"));
   });
 
   addEventListener("scroll", () => $(".app-head")?.classList.toggle("scrolled", scrollY > 4), { passive: true });
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) { tick(); syncForce = true; syncAdmin(); }
-  });
-  addEventListener("hashchange", () => {
-    if (location.hash.replace(/^#\/?/, "") === "config") sheetMock();
   });
 
   // ── boot ────────────────────────────────────────────────────────────
@@ -3059,7 +3378,6 @@
         else if (h.startsWith("asset/")) { screen("app"); go("home"); openDetail(h.slice(6).toUpperCase()); }
         else if (VIEWS.includes(h)) { screen("app"); go(h); }
         else if (h === "pin") { screen("pin"); }
-        else if (h === "config" || h === "admin") { screen("app"); go("home"); setTimeout(sheetMock, 350); }
         else if (h === "app" || h === "secret") { screen("app"); go("home"); }
         else {
           splashPending = true;
@@ -3079,6 +3397,7 @@
       try { markPrices(); } catch (err) { /* état prix optionnel */ }
       try { maybeAskNotif(); } catch (err) { /* invitation optionnelle */ }
       try { syncAdmin(); } catch (err) { /* console d'administration optionnelle */ }
+      try { openStream(); } catch (err) { /* flux temps réel optionnel */ }
       setInterval(() => { try { syncAdmin(); } catch (err) { } }, 30000);
     }
   }
