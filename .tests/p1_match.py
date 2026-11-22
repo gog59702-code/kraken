@@ -14,6 +14,8 @@ threading.Thread(target=srv.serve_forever, daemon=True).start()
 with sync_playwright() as p:
     b = p.chromium.launch()
     pg = b.new_page(viewport={"width": 390, "height": 844}, device_scale_factor=2)
+    # La synchro distante fausserait les captures : on la coupe sur le reseau.
+    pg.route("**ntfy.sh/**", lambda r: r.abort())
     pg.goto(f"http://127.0.0.1:{PORT}/index.html")
     pg.wait_for_timeout(2400)
     sk = pg.query_selector("#pinSkip")

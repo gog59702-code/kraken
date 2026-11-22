@@ -389,8 +389,8 @@ img{display:block}
 .det-actions{display:flex;align-items:center;gap:0;background:var(--grey);border-radius:999px;padding:0 2px}
 .det-actions .round-btn{background:transparent;width:48px;height:48px}
 .det-sep{width:1px;height:24px;background:#d9d9df}
-.star.is-on{color:#f5a524}
-.star.is-on .ico{fill:#f5a524;stroke:#f5a524}
+.star.is-on{color:var(--ink)}
+.star.is-on .ico{fill:currentColor;stroke:currentColor}
 .det-body{padding:6px 20px 0}
 .det-coin{width:44px;height:44px;border-radius:12px}
 .det-name{font-family:"KrakenBrand";font-size:24px;font-weight:500;margin:14px 0 4px}
@@ -415,7 +415,7 @@ img{display:block}
 .det-ranges button.is-on::after{content:"";position:absolute;left:16%;right:16%;bottom:-1px;height:3px;background:#101114;border-radius:2px}
 .det-chips{display:flex;gap:10px;overflow-x:auto;margin:18px -20px 0;padding:0 20px;scrollbar-width:none}
 .det-chips::-webkit-scrollbar{display:none}
-.det-chips .chip-solid,.det-chips .chip-line{height:46px;font-size:14.5px}
+.det-chips .chip-solid,.det-chips .chip-line{height:46px;font-size:14.5px;padding:0 16px;gap:7px}
 .perp-row{display:flex;align-items:center;gap:12px;width:100%;padding:18px 0;border-bottom:1px solid var(--line)}
 .perp-ico{color:#e5484d;width:26px;height:26px}
 .perp-row b{display:block;font-size:16px;font-weight:500}

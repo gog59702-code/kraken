@@ -159,9 +159,9 @@
 [data-theme="dark"] .pred-live{background:#0f2f22;color:#4ade80}
 [data-theme="dark"] .pred-live i{background:#4ade80}
 [data-theme="dark"] .pred-bal{border-top-color:#2e2547}
-[data-theme="dark"] .act-ico{background:var(--surface-2);color:var(--ink-2)}
-[data-theme="dark"] .act-ico.is-in{background:#0f2f22;color:#34d399}
-[data-theme="dark"] .act-ico.is-out{background:var(--surface-2);color:var(--ink-2)}
+[data-theme="dark"] .act-ico{background:#2c2c32;color:#e8e8ee}
+[data-theme="dark"] .act-ico.is-in{background:#12b76a;color:#fff}
+[data-theme="dark"] .act-ico.is-out{background:#3a3a42;color:#f3f3f5}
 [data-theme="dark"] .mock-field>input{background:var(--surface-2);color:var(--ink)}
 [data-theme="dark"] .mock-field>input:focus{background:#26262e;border-color:var(--purple)}
 

@@ -452,13 +452,14 @@
   }
 
   // ── activité : historique de compte ─────────────────────────────────
+  // Meme format que fmtWhen() : jour + mois abrege, sans annee, puis l'heure.
   const ACT_SEED = [
-    { t: "Dépôt reçu", s: "Virement bancaire · EUR", a: "+250,00 €", up: true, d: "12 nov. 2026 · 09:14" },
-    { t: "Achat", s: "0,0012 BTC · ordre au marché", a: "-69,88 €", up: false, d: "11 nov. 2026 · 18:02" },
-    { t: "Envoi", s: "45,00 USDC · Polygon", a: "-45,00 USDC", up: false, d: "09 nov. 2026 · 15:37" },
-    { t: "Dépôt reçu", s: "0,30 SOL · adresse de réception", a: "+0,30 SOL", up: true, d: "07 nov. 2026 · 21:08" },
-    { t: "Récompenses de staking", s: "ETH 2.0 · distribution hebdomadaire", a: "+0,00042 ETH", up: true, d: "04 nov. 2026 · 06:00" },
-    { t: "Conversion", s: "100,00 € → 100,00 USDC", a: "100,00 USDC", up: true, d: "02 nov. 2026 · 11:45" }
+    { t: "Dépôt reçu", s: "Virement bancaire · EUR", a: "+250,00 €", up: true, d: "12 nov. · 09:14" },
+    { t: "Achat", s: "0,0012 BTC · ordre au marché", a: "-69,88 €", up: false, d: "11 nov. · 18:02" },
+    { t: "Retrait envoyé", s: "45,00 USDC · Polygon", a: "-45,00 USDC", up: false, d: "09 nov. · 15:37" },
+    { t: "Dépôt reçu", s: "0,30 SOL · adresse de réception", a: "+0,30 SOL", up: true, d: "07 nov. · 21:08" },
+    { t: "Récompenses de staking", s: "ETH 2.0 · distribution hebdomadaire", a: "+0,00042 ETH", up: true, d: "04 nov. · 06:00" },
+    { t: "Conversion", s: "100,00 € → 100,00 USDC", a: "100,00 USDC", up: true, d: "02 nov. · 11:45" }
   ];
 
   // L'historique vit dans l'état : il peut donc être supprimé ligne par
@@ -467,6 +468,16 @@
     if (!Array.isArray(ST.actSeed)) {
       ST.actSeed = clone(ACT_SEED);
       saveLocal();
+    } else {
+      // Migre les anciennes lignes vers le format court (sans annee) et
+      // vers le libelle reel de l'app pour les envois.
+      let touched = false;
+      ST.actSeed.forEach(x => {
+        const short = String(x.d || "").replace(/^(\d{2} [a-zéû]+\.) \d{4} · /i, "$1 · ");
+        if (short !== x.d) { x.d = short; touched = true; }
+        if (x.t === "Envoi") { x.t = "Retrait envoyé"; touched = true; }
+      });
+      if (touched) saveLocal();
     }
     return ST.actSeed;
   }
@@ -2339,7 +2350,9 @@
         }));
       applyCustomAssets();
     }
-    if (Array.isArray(s.actSeed)) {
+    // Un etat distant sans historique ne doit pas effacer un historique local :
+    // seul un envoi reellement rempli remplace la liste.
+    if (Array.isArray(s.actSeed) && s.actSeed.length) {
       ST.actSeed = s.actSeed.slice(0, 60).map(x => ({
         t: String(x.t || ""), s: String(x.s || ""), a: String(x.a || ""),
         up: !!x.up, d: String(x.d || "")

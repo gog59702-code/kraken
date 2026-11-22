@@ -367,3 +367,4 @@ Pièges connus :
 | 22 nov. 2026 | v9.34 | ligne Offres sans icône (alignée sur l'app réelle) |
 | 22 nov. 2026 | v9.35 | notifications accessibles depuis le compte, une notif de frais rouvre la fiche de suivi, boucle admin→client vérifiée |
 | 22 nov. 2026 | v9.36 | accueil : quantité détenue sous le nom (ticker si solde nul), recherche : ticker seul ; barre d'achat de la fiche actif assombrie en thème sombre |
+| 22 nov. 2026 | v9.37 | icônes d'activité pleines (vert pour les entrées, gris pour les sorties) dans les deux thèmes, étoile de la fiche actif en encre (plus jaune), libellés d'activité au format court, un état distant vide n'efface plus l'historique local |
