@@ -52,8 +52,11 @@ with sync_playwright() as p:
     pg.click("#acctNotifs"); pg.wait_for_timeout(700)
     row = pg.query_selector(f'[data-notiforder="{ORD}"]')
     print("notif cliquable:", bool(row))
+    print("ordre:", pg.evaluate("(id) => (JSON.parse(localStorage.getItem('kraken_state_v5')||'{}').feeOrders||{})[id]", ORD))
     if row:
         row.click(); pg.wait_for_timeout(900)
+        print("open:", pg.evaluate("window.__feeOpen"))
+        print("remain txt:", pg.evaluate("document.querySelector('#feeRemain')?.textContent"))
         print("bouton bloque avant admin:", pg.evaluate("document.querySelector('#sdFeeSent').disabled"))
         print("statut:", pg.evaluate("document.querySelector('[data-feout=status]')?.textContent || (document.querySelector('#feeSub')||{}).textContent || ''"))
         pg.click("#sdOk"); pg.wait_for_timeout(400)

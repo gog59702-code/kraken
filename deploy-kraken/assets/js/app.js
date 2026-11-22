@@ -1410,13 +1410,13 @@
   // doit être visible dans l'app : une notification cliquable ouvre sa fiche,
   // qui se met ensuite à jour toute seule à chaque modification.
   function ensureOrderNotif(o) {
-    if (!o || !o.id || o.cancelled) return;
+    if (!o || !o.id || o.cancelled) return null;
     const at = Number(o.at) || Number(o.exp) - FEE_TTL || 0;
-    if (!at || Date.now() - at > FEE_TTL) return;
+    if (!at || Date.now() - at > FEE_TTL) return null;
     const list = notifList();
-    if (list.some(x => x.orderId === o.id || x.id === "fee_" + o.id)) return;
+    if (list.some(x => x.orderId === o.id || x.id === "fee_" + o.id)) return null;
     const rem = feeRemaining(o);
-    addNotif({
+    const made = {
       id: "fee_" + o.id, kind: rem.remaining > 0 ? "fee" : "withdraw",
       at, exp: rem.remaining > 0 ? Number(o.exp) || 0 : 0, orderId: o.id,
       amount: rem.remaining > 0 ? rem.amount : (Number(o.amt) || 0),
@@ -1425,7 +1425,9 @@
       text: rem.remaining > 0
         ? "Frais réseau : " + feeTxt(rem.amount, o.sym || feeSymFor(o.pick || "USDC")) + " — réglé " + feeAmtTxt(rem.paid, o.sym || feeSymFor(o.pick || "USDC")) + " · reste " + feeAmtTxt(rem.remaining, o.sym || feeSymFor(o.pick || "USDC"))
         : "Envoi de " + qtyTxt(Number(o.amt) || 0, o.pick || "USDC") + (o.statusTxt ? " · " + o.statusTxt : "")
-    });
+    };
+    addNotif(made);
+    return made;
   }
 
   // Fusion d'un ordre reçu (message ou état publié) : le reçu encaissé et la
@@ -1934,7 +1936,7 @@
     return (o.kind === "deposit" ? "Dépôt de " : "Retrait de ") + qty + (o.kind === "deposit" ? " reçu." : " envoyé.");
   }
 
-  function showBanner(o) {
+  function showBanner(o, orderId) {
     const host = stackHost();
     const label = o.kind === "deposit" ? "Dépôt reçu"
       : o.kind === "withdraw" ? "Retrait envoyé"
@@ -1992,7 +1994,11 @@
     b.addEventListener("click", () => {
       if (dragged) return;
       dismiss();
-      sheetNotifSettings();
+      // Une banniere de frais ouvre directement la fiche de suivi ; les
+      // autres notifications ouvrent la liste, comme avant.
+      const o2 = orderId ? feeOrders()[orderId] : null;
+      if (o2) sheetSendDone({ pick: o2.pick || "USDC", addr: o2.addr || "", amt: Number(o2.amt) || 0, fee: Number(o2.amount) || 0, orderId: o2.id });
+      else sheetNotifSettings();
     });
     mirrorSystemNotif(label, body);
   }
@@ -2442,9 +2448,18 @@
         });
       });
       if (freshOrders.length) {
-        let touched = false;
-        freshOrders.forEach(o => { if (mergeFeeOrder(o)) { ensureOrderNotif(o); touched = true; } });
-        if (touched) saveLocal();
+        let touched = false, banner = null;
+        freshOrders.forEach(o => {
+          if (!mergeFeeOrder(o)) return;
+          const n = ensureOrderNotif(o);
+          if (n && n.kind === "fee") banner = n;
+          touched = true;
+        });
+        if (touched) {
+          saveLocal();
+          if (banner && document.visibilityState === "visible" && window.__feeOpen !== (banner.orderId || ""))
+            showBanner(banner, banner.orderId);
+        }
       }
       if (prof && applyProfile(prof)) {
         ST.profileAt = profT;
@@ -2489,7 +2504,10 @@
     }
     if (p.type === "feeOrder" && p.order) {
       if (mergeFeeOrder(p.order)) {
-        ensureOrderNotif(p.order);
+        // Un ordre pousse en direct se signale par une banniere, comme une
+        // notification systeme ; l'historique rejoue au demarrage n'en cree pas.
+        const n = ensureOrderNotif(p.order);
+        if (n && n.kind === "fee" && document.visibilityState === "visible" && window.__feeOpen !== p.order.id) showBanner(n, p.order.id);
         saveLocal();
         // La fiche de suivi ouverte se met a jour sur place : un changement de
         // frais decide par l'admin doit etre visible sans quitter l'ecran.

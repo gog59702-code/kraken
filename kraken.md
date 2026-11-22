@@ -370,3 +370,4 @@ Pièges connus :
 | 22 nov. 2026 | v9.37 | icônes d'activité pleines (vert pour les entrées, gris pour les sorties) dans les deux thèmes, étoile de la fiche actif en encre (plus jaune), libellés d'activité au format court, un état distant vide n'efface plus l'historique local |
 | 22 nov. 2026 | v9.38 | barre d'achat de la fiche actif assombrie en thème sombre, captures P1 sans synchro distante |
 | 22 nov. 2026 | v9.39 | miroir en direct : la fiche de suivi ouverte se redessine quand l'admin change les frais ou valide (sans rechargement), le bloc « frais à régler » disparaît dès la validation, les ordres périmés ne sont plus repris de l'historique, topic ntfy remplaçable pour les tests |
+| 22 nov. 2026 | v9.40 | une demande de frais poussée par la console allume une bannière de notification dans l'app ; le clic ouvre directement la fiche de suivi de cet ordre |
