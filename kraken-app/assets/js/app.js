@@ -361,7 +361,7 @@
       <button class="acard" data-asset="${a.sym}">
         ${iconFor(a)}
         <span class="acard-name">${a.name}</span>
-        <span class="acard-chg ${a.chg >= 0 ? "chg-up" : "chg-down"}">${pct(a.chg)}</span>
+        <span class="acard-chg ${a.chg >= 0 ? "chg-up" : "chg-down"}">${pct(a.chg)} %</span>
       </button>`).join("");
   }
 
@@ -371,7 +371,9 @@
     const step = p > 10000 ? 1000 : 100;
     const up = (Math.floor(p / step) + 1) * step;
     const down = (Math.ceil(p / step) - 1) * step;
-    const odds = v => nf(100 * (up + down) / v, 2);
+    // Gain potentiel pour 100 $ misés : nombre brut, formaté une seule fois
+    // par usd(). Renvoyer une chaîne locale ici donnait « 0,00 $US ».
+    const payout = v => (up + down) / v * 100;
     const bal = predBalance();
     $("#predicts").innerHTML = `
       <div class="predict" id="predCard">
@@ -388,12 +390,12 @@
         </div>
         <div class="pred-row">
           <div><div class="pred-val">${usd(up * fx())}</div>
-            <div class="pred-odds up">$100 → ${usd(odds(up * fx()))}</div></div>
+            <div class="pred-odds up">$100 → ${usd(payout(up * fx()))}</div></div>
           <button class="go up" data-pred="up"><svg viewBox="0 0 24 24" class="ico"><path d="M7 17L17 7M9 7h8v8"/></svg></button>
         </div>
         <div class="pred-row">
           <div><div class="pred-val">${usd(down * fx())}</div>
-            <div class="pred-odds down">$100 → ${usd(odds(down * fx()))}</div></div>
+            <div class="pred-odds down">$100 → ${usd(payout(down * fx()))}</div></div>
           <button class="go down" data-pred="down"><svg viewBox="0 0 24 24" class="ico"><path d="M7 7l10 10M9 17h8v-8"/></svg></button>
         </div>
         <div class="pred-bal" id="predBal">
@@ -1462,9 +1464,9 @@
     openSheet(`<div class="sheet-title">Confirmer l'envoi</div>
       <p class="sheet-sub">Vérifiez les informations ci-dessous. Un envoi confirmé ne peut pas être annulé.</p>
       <div class="recap">
-        <div class="rc-row"><span>Actif</span><b>${pick === "EUR" ? "Euro (EUR)" : a.name + " (" + pick + ")"}</b></div>
+        <div class="rc-row"><span>Actif</span><b>${pick === "EUR" ? "Euro (EUR)" : pick}</b></div>
         <div class="rc-row"><span>Réseau</span><b>${net}</b></div>
-        <div class="rc-row col"><span>Destinataire</span><code>${addr}</code></div>
+        <div class="rc-row col"><span>Destinataire</span><code>${maskAddr(addr)}</code></div>
         <div class="rc-row"><span>Montant</span><b>${pick === "EUR" ? eur(amt, 2) : qtyTxt(amt, pick)}</b></div>
         ${fee > 0 ? `<div class="rc-row"><span>Frais réseau</span><b>${feePair(fee, feeSym)}</b></div>` : ""}
         <div class="rc-row total"><span>Total</span><b>${pick === "EUR" ? eur(amt, 2) : qtyTxt(amt, pick)}</b></div>
@@ -1526,7 +1528,7 @@
     const statusTxt = (order && order.statusTxt)
       ? order.statusTxt
       : (done ? "Confirmée" : (ok ? "En attente de confirmation" : "En attente des frais réseau"));
-    const aName = pick === "EUR" ? "Euro (EUR)" : (((bySym(pick) || {}).name || pick) + " (" + pick + ")");
+    const aName = pick === "EUR" ? "Euro (EUR)" : pick;
     const netNow = pick === "EUR" ? "Virement SEPA"
       : (pick === "USDC" ? usdcNet().label : (NETWORKS[pick]?.name || pick));
     const feeSym = (order && order.sym) || due.sym;
