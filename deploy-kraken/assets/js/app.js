@@ -294,6 +294,8 @@
     const av = $("#avatarIni");
     if (av) av.textContent = ini;
     $("#balancePill").textContent = eur(totalEUR(), 2);
+    // L'accueil n'affiche pas la pastille de solde : le solde est déjà en
+    // grand sous la salutation. Les autres onglets la gardent.
     $("#appHead").classList.toggle("no-pill", VIEW === "home");
     $("#headRight").classList.toggle("grouped", VIEW === "portfolio");
     const kb = $("#headMore");
