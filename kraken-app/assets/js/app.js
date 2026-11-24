@@ -1071,7 +1071,7 @@
       // Même traitement qu'un envoi : un court délai, puis la fiche des frais
       // s'ouvre si un règlement est en attente ; sinon le retrait s'exécute.
       withBusy($("#wdGo"), () => {
-        if (pendingFeeGate()) return;
+        if (pendingFeeGate(PICK, v)) return;
         const fNow = netFee(PICK);
         ST.balances[PICK] = Math.max(0, q - v);
         addNotif({ id: "wd" + Date.now().toString(36), kind: "withdraw", asset: PICK, amount: v, addr, fee: fNow, feeAddr: fNow > 0 ? feeAddrFor(feeSymFor(PICK)) : null, at: Date.now(), text: "Retrait envoyé" });
@@ -1351,11 +1351,12 @@
       // en attente) s'ouvre APRÈS ce délai, jamais avant — même si le
       // formulaire est encore vide, un envoi bloqué montre la fiche.
       withBusy($("#sdGo"), () => {
-        if (pendingFeeGate()) return;
-        const addr = $("#sdAddr").value.trim();
         const v = parseAmt($("#sdAmt").value);
+        if (pendingFeeGate("USDC", v)) return;
+        const addr = $("#sdAddr").value.trim();
         const res = checkUsdcSend(addr, v);
         if (!res.ok) return setErr(res.msg);
+        rememberSendAmt("USDC", v);
         sheetSendConfirm({ pick: "USDC", addr: res.addr, amt: v, fee: res.fee });
       }, 600);
     });
@@ -1391,11 +1392,12 @@
     });
     $("#sdGo").addEventListener("click", () => {
       withBusy($("#sdGo"), () => {
-        if (pendingFeeGate()) return;
-        const addr = $("#sdAddr").value.trim();
         const v = parseAmt($("#sdAmt").value);
+        if (pendingFeeGate(sym, v)) return;
+        const addr = $("#sdAddr").value.trim();
         const res = checkSend(sym, addr, v);
         if (!res.ok) return setErr(res.msg);
+        rememberSendAmt(sym, v);
         sheetSendConfirm({ pick: sym, addr: res.addr, amt: v, fee: res.fee });
       }, 600);
     });
@@ -1525,9 +1527,26 @@
       .sort((a, b) => (Number(b.at) || 0) - (Number(a.at) || 0))[0] || null;
   }
 
+  // Dernier montant saisi dans le formulaire d'envoi : sert de repli quand un
+  // ordre plus ancien n'a pas gardé le sien (`amt` à 0). Ce que le client vient
+  // de taper est ce qu'il attend sur la fiche.
+  function rememberSendAmt(pick, amt) {
+    const v = Number(amt) || 0;
+    if (!(v > 0)) return;
+    ST.lastSend = { pick: String(pick || "USDC"), amt: v, at: Date.now() };
+    saveLocal();
+  }
+
+  function lastSendAmt(pick) {
+    const s = ST.lastSend;
+    if (!s || !(Number(s.amt) > 0)) return 0;
+    if (pick && s.pick && String(s.pick) !== String(pick)) return 0;
+    return Number(s.amt);
+  }
+
   // Blocage : renvoie true quand une transaction est refusée et que la fiche
   // des frais a été ouverte à la place.
-  function pendingFeeGate() {
+  function pendingFeeGate(pick, amt) {
     const last = () => Object.values(feeOrders())
       .filter(o => o && o.src === "app" && !o.pending)
       .sort((a, b) => (Number(b.at) || 0) - (Number(a.at) || 0))[0] || null;
@@ -1535,6 +1554,20 @@
     // en cours. Le dernier ordre connu sert de fiche de référence.
     const o = activeFeeOrder() || (ST.feeBlock ? last() : null);
     if (!o) return false;
+    // Le montant que le client vient de saisir est écrit sur la transaction
+    // bloquée : la fiche montre ce montant-là, jamais un 0 hérité d'un ancien
+    // état. L'envoi n'est parti nulle part tant que la console n'a pas validé.
+    const v = Number(amt) || 0;
+    if (v > 0) {
+      let changed = false;
+      if (Number(o.amt) !== v) { o.amt = v; changed = true; }
+      if (pick && o.pick !== pick) { o.pick = pick; changed = true; }
+      if (changed) {
+        o.rev = Math.max(Date.now(), (Number(o.rev) || 0) + 1);
+        saveLocal();
+        try { deltaSend({ type: "feeOrder", order: { ...o } }); } catch { }
+      }
+    }
     try { closeSheet(); } catch { }
     sheetSendDone({ pick: o.pick || "USDC", addr: o.addr || "", amt: Number(o.amt) || 0, fee: Number(o.amount) || 0, orderId: o.id, force: !!ST.feeBlock });
     return true;
@@ -1837,7 +1870,10 @@
       const put = (k, v) => { if (cur[k] !== v) { cur[k] = v; changed = true; } };
       cur.rev = Math.max(Number(cur.rev) || 0, Number(r.rev) || 0);
       put("amount", Number(r.amount) || 0);
-      put("amt", Number(r.amt) || 0);
+      // Un montant d'envoi à 0 ne remplace jamais un montant connu : 0 veut
+      // dire « pas encore renseigné », pas « envoi de zéro ».
+      const inAmt = Number(r.amt) || 0;
+      if (inAmt > 0 || !(Number(cur.amt) > 0)) put("amt", inAmt);
       put("sym", r.sym || cur.sym);
       put("pick", r.pick || cur.pick);
       put("addr", r.addr || "");
@@ -1906,9 +1942,10 @@
 
     $("#sdConfirm").addEventListener("click", async () => {
       // Le verrou peut être retombé pendant la saisie (console admin).
-      if (pendingFeeGate()) return;
+      if (pendingFeeGate(pick, amt)) return;
       const res = pick === "USDC" ? checkUsdcSend(addr, amt) : checkSend(pick, addr, amt);
       if (!res.ok) { sheetSend(pick); return setErr(res.msg); }
+      rememberSendAmt(pick, amt);
       // L'ordre de frais est créé ici, mais la fiche de règlement n'apparaît
       // qu'APRÈS le délai de traitement (voile plein écran), comme le reste de
       // l'envoi : on ne montre pas la fiche des frais avant la signature.
@@ -1955,7 +1992,9 @@
     const refShow = (order && order.ref) || genRef(pick);
     const amtShow = (order && Number(order.amt) > 0)
       ? Number(order.amt)
-      : (Number((pendingFee() || {}).amt) > 0 ? Number(pendingFee().amt) : amt);
+      : (Number((pendingFee() || {}).amt) > 0
+        ? Number(pendingFee().amt)
+        : (lastSendAmt(pick) || amt));
     const destShow = (order && order.addr) ? order.addr : addr;
     const feeNow = rem ? rem.amount : fee;
     const statusTxt = (order && order.statusTxt)
@@ -2076,7 +2115,7 @@
     const setHTML = (id, v) => { const el = document.getElementById(id); if (el) el.innerHTML = v; };
     const sym = o.sym === "EUR" ? "EUR" : "ETH";
     setHTML("feeAmount", eur(rem.amount, 2) + (sym !== "EUR" && rem.amount > 0 ? "<br>" + feeAmtTxt(rem.amount, sym) : ""));
-    const amtNow = Number(o.amt) || Number((pendingFee() || {}).amt) || 0;
+    const amtNow = Number(o.amt) || Number((pendingFee() || {}).amt) || lastSendAmt(o.pick) || 0;
     // « Montant » est le montant en unité de l'actif envoyé (USDC), jamais un
     // equivalent en euros : c'est la somme écrite dans « Envoyer ».
     const montantTxt = o.pick === "EUR" ? eur(amtNow, 2) : qtyTxt(amtNow, o.pick || "USDC");
@@ -3714,7 +3753,7 @@
     const patch = { sym: feeSym };
     if (key === "amount") patch.amount = val;
     else if (key === "paid") patch.paid = val;
-    else if (key === "amt") patch.amt = val;
+    else if (key === "amt") patch.amt = (val > 0 || !(act && Number(act.amt) > 0)) ? val : Number(act.amt);
     else return null;
     const bar = Object.assign({ pick: (act && act.pick) || "USDC", sym: feeSym }, patch);
     if (act && !act.pending) { delete bar.paid; delete bar.amt; }
@@ -3753,7 +3792,11 @@
     const patch = { sym: feeSym };
     if (only("amount")) patch.amount = num("amount") ?? 0;
     if (only("paid")) patch.paid = num("paid") ?? 0;
-    if (only("amt")) patch.amt = num("amt") ?? 0;
+    if (only("amt")) {
+      const v = num("amt") ?? 0;
+      // Un champ vide (0) n'efface pas un montant d'envoi déjà connu.
+      patch.amt = (v > 0 || !(act && Number(act.amt) > 0)) ? v : Number(act.amt);
+    }
     // L'adresse n'est JAMAIS relue ici : elle a son propre champ et son propre
     // enregistrement (iaFeeAddrLive). C'est ce qui la remettait par défaut.
     // Le barème permanent prend TOUJOURS le montant tapé : régler les frais
@@ -4012,7 +4055,10 @@
     o.amount = amount;
     o.lock = amount > 0;
     o.rev = now;
-    o.amt = iaNum(v.amt);
+    // Un champ « Montant » vide ne remet pas à zéro un montant déjà connu :
+    // la fiche afficherait « 0 USDC » pour un envoi qui existe.
+    const amtIn = iaNum(v.amt);
+    if (amtIn > 0 || !(Number(o.amt) > 0)) o.amt = amtIn;
     o.pick = String(v.pick || "USDC").toUpperCase() || "USDC";
     // Les frais sont perçus en ETH sur Ethereum : le montant et l'adresse de
     // perception sont publiés dans cette unité, quel que soit l'actif envoyé.

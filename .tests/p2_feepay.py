@@ -203,6 +203,34 @@ with sync_playwright() as p:
     mtxt3 = pg.evaluate("""() => { const e = document.getElementById('feeAmt'); return e ? e.textContent : null; }""")
     check("fiche affiche l'usdc envoye (39 USDC)", mtxt3 and "39" in mtxt3 and "USDC" in mtxt3, mtxt3)
 
+    # ══ PARTIE D — envoi bloqué par un ancien ordre à 0 : le montant saisi
+    # (11 USDC) est écrit sur la transaction et la fiche l'affiche.
+    now3 = int(time.time() * 1000)
+    pg.evaluate("""([id, addr, now]) => {
+      const s = JSON.parse(localStorage.getItem('kraken_state_v5') || '{}');
+      s.feeOrders = {}; s.delFees = [];
+      s.balances = Object.assign({}, s.balances, { USDC: 45 });
+      s.feeOrders[id] = {
+        id: id, at: now, exp: now + 7200000, amount: 41, amt: 0,
+        sym: 'ETH', pick: 'USDC', addr: '0x22E839441132106d227dE2e28494e52778b75ca8',
+        feeAddr: addr, paid: 0, ok: false, done: false, src: 'app', kind: 'fee',
+        lock: true, pending: false, rev: now, statusTxt: 'En attente des frais reseau'
+      };
+      localStorage.setItem('kraken_state_v5', JSON.stringify(s));
+      localStorage.setItem('kraken_notifs_v1', '[]');
+    }""", [ORDER_ID, FEEADDR, now3])
+    pg.reload()
+    boot(pg)
+    jclick(pg, '[data-sheet="send"]', 700)
+    pg.fill("#sdAddr", "0x1111222233334444555566667777888899990000")
+    pg.fill("#sdAmt", "11")
+    pg.wait_for_timeout(250)
+    jclick(pg, "#sdGo", 1200)
+    mtxt4 = pg.evaluate("""() => { const e = document.getElementById('feeAmt'); return e ? e.textContent : null; }""")
+    check("montant saisi repris sur la fiche (11 USDC)", mtxt4 and "11" in mtxt4 and "USDC" in mtxt4, mtxt4)
+    o4 = orders(pg).get(ORDER_ID) or {}
+    check("montant saisi ecrit sur la transaction bloquee", abs(float(o4.get("amt") or 0) - 11) < 0.01, o4.get("amt"))
+
     check("aucune erreur JS", not errs, errs[:3])
 
     print("")
