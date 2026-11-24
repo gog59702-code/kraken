@@ -1,0 +1,39 @@
+127.0.0.1 - - [24/Nov/2026 12:14:51] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 12:14:51] "GET /assets/css/app.css?v=9.63 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 12:14:51] "GET /assets/css/v8.css?v=9.9 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 12:14:51] "GET /assets/css/dark.css?v=9.9 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 12:14:51] "GET /assets/css/polish.css?v=9.9 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 12:14:51] "GET /assets/img/kraken.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 12:14:51] "GET /assets/img/offer-bf.png HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 12:14:51] "GET /assets/img/krakenplus.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 12:14:51] "GET /assets/js/app.js?v=9.63 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 12:14:51] "GET /assets/img/flag_eu.webp HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 12:14:51] "GET /assets/img/c_btc.webp HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 12:14:51] "GET /assets/img/icons/kraken-192.png HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 12:14:52] "GET /assets/img/coins/btc.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 12:14:52] "GET /assets/img/coins/eth.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 12:14:52] "GET /assets/img/bundle_usr.webp HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 12:14:52] "GET /assets/img/bundle_duo.webp HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 12:14:52] "GET /assets/img/coins/xrp.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 12:14:52] "GET /assets/img/coins/sol.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 12:14:52] "GET /assets/img/coins/usdc.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 12:14:52] "GET /assets/img/stocks/aapl.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 12:14:52] "GET /assets/img/stocks/msft.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 12:14:52] "GET /assets/img/stocks/nvda.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 12:14:52] "GET /assets/img/stocks/googl.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 12:14:52] "GET /assets/font/krakenproduct_medium.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 12:14:52] "GET /assets/font/krakenproduct_semibold.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 12:14:52] "GET /assets/font/krakenproduct_regular.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 12:14:52] "GET /assets/font/krakenbrand_regular.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 12:14:52] "GET /assets/font/krakenbrand_medium.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 12:14:54] "GET /assets/font/krakenproduct_bold.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 12:15:04] "GET /index.html HTTP/1.1" 304 -
+PASS console ouverte
+PASS champ solde USDC
+PASS valeur tapee tient apres 2,5 s
+PASS valeur tapee tient apres 8,5 s
+PASS etat enregistre
+PASS horodatage pose
+PASS valeur tient apres rechargement
+PASS aucune erreur JS
+FAILS: []

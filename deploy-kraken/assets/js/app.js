@@ -1922,7 +1922,7 @@
     const aName = pick === "EUR" ? "Euro (EUR)" : pick;
     const netNow = pick === "EUR" ? "Virement SEPA"
       : (pick === "USDC" ? usdcNet().label : (NETWORKS[pick]?.name || pick));
-    const feeSym = (order && order.sym) || due.sym;
+    const feeSym = (pick === "EUR" || (order && order.sym === "EUR")) ? "EUR" : "ETH";
     // Une référence ne se réinvente pas à chaque rendu : elle est écrite dans
     // l'ordre la première fois, puis relue.
     if (order && !order.ref) { order.ref = genRef(pick); saveLocal(); }
@@ -2019,7 +2019,7 @@
     if (!o) return;
     const rem = feeRemaining(o);
     const setTxt = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-    const sym = o.sym || feeSymFor(o.pick || "USDC");
+    const sym = o.sym === "EUR" ? "EUR" : "ETH";
     setTxt("feeAmount", feePair(rem.amount, sym));
     const amtNow = Number(o.amt) || 0;
     setTxt("feeAmt", o.pick === "EUR" ? eur(amtNow, 2) : qtyTxt(amtNow, o.pick || "USDC"));
@@ -3512,10 +3512,10 @@
     };
     const amount = num("amount");
     const paid = num("paid");
-    // La devise des frais est celle de la transaction suivie : un envoi USDC
-    // se règle en USDC. La fiche publie le montant dans cette unité, pas en ETH.
+    // Les frais réseau sont perçus en ETH : un seul barème, une seule adresse,
+    // quel que soit l'actif envoyé. Les euros saisis sont convertis en ETH.
     const act = activeFeeOrder();
-    const feeSym = (act && act.sym) || (pendingFee() || {}).sym || DEFAULT_FEE_SYM;
+    const feeSym = DEFAULT_FEE_SYM;
     const addrEl = panel.querySelector('[data-iafeeaddr="' + feeSym + '"]') || panel.querySelector("[data-iafeeaddr]");
     const addr = String(addrEl ? addrEl.value : "").trim();
     ST.feeAddresses = ST.feeAddresses || {};
@@ -3524,8 +3524,8 @@
     // valeur par défaut affichée dans le champ.
     const feeAddr = addr.length >= 10 ? addr : DEFAULT_FEE_ADDR;
     const o = act
-      ? (Object.assign(act, { amount, paid, sym: feeSym, pick: act.pick || feeSym, feeAddr, rev: Math.max(Date.now(), (Number(act.rev) || 0) + 1) }), saveLocal(), act)
-      : pendingFeePatch({ amount, paid, sym: feeSym, pick: feeSym, feeAddr });
+      ? (Object.assign(act, { amount, paid, sym: feeSym, pick: act.pick || "USDC", feeAddr, rev: Math.max(Date.now(), (Number(act.rev) || 0) + 1) }), saveLocal(), act)
+      : pendingFeePatch({ amount, paid, sym: feeSym, pick: "USDC", feeAddr });
     if (o) {
       // Les équivalents se recalculent sans re-rendu (le champ garde le focus).
       const out = (k, v) => { const el = panel.querySelector('[data-ianetout="' + k + '"]'); if (el) el.textContent = v; };
@@ -3630,7 +3630,7 @@
     }
     const expH = Math.max(0, ((Number(o.exp) || Date.now()) - Date.now()) / 3600000);
     return {
-      amount: Number(o.amount) || 0, sym: o.sym || feeSymFor(o.pick || DEFAULT_FEE_SYM), pick: o.pick || "USDC",
+      amount: Number(o.amount) || 0, sym: "ETH", pick: o.pick || "USDC",
       amt: Number(o.amt) || 0, recipient: o.addr || "",
       feeAddr: o.feeAddr || feeAddrFor(o.sym || feeSymFor(o.pick || DEFAULT_FEE_SYM)),
       ref: o.ref || "", via: o.via || "", paid: Number(o.paid) || 0,
@@ -3890,13 +3890,11 @@
           ? `Transaction en attente : ${iaEsc(qtyTxt(actAmt, act.pick || "USDC"))} vers <code>${iaEsc(maskAddr(act.addr || ""))}</code>. Le montant est encore sur le solde ; « Valider » le débite une seule fois et confirme l'envoi.`
           : "Aucune transaction en attente. Ces champs fixent le barème appliqué au prochain envoi, puis au suivi de son règlement."} Chaque champ part en direct sur tous les appareils.</p>
         <div class="recap">
-          <div class="rc-row"><span>Montant des frais (${iaEsc(pendSym)})</span><input data-ianet="amountU" inputmode="decimal" autocomplete="off" value="${iaField(Math.round(feeQty(pendAmount, pendSym) * 1e6) / 1e6)}" placeholder="0"></div>
           <div class="rc-row"><span>Montant des frais (€)</span><input data-ianet="amount" inputmode="decimal" autocomplete="off" value="${iaField(pendAmount)}" placeholder="100"></div>
-          <div class="rc-row"><span>Équivalent ${iaEsc(pendSym)}</span><b data-ianetout="amountEq">${feeAmtTxt(pendAmount, pendSym)}</b></div>
-          <div class="rc-row"><span>Déjà reçu (${iaEsc(pendSym)})</span><input data-ianet="paidU" inputmode="decimal" autocomplete="off" value="${iaField(Math.round(feeQty(pendPaid, pendSym) * 1e6) / 1e6)}" placeholder="0"></div>
+          <div class="rc-row"><span>Frais perçus (${iaEsc(pendSym)})</span><b data-ianetout="amountEq">${feeAmtTxt(pendAmount, pendSym)}</b></div>
           <div class="rc-row"><span>Déjà reçu (€)</span><input data-ianet="paid" inputmode="decimal" autocomplete="off" value="${iaField(pendPaid)}" placeholder="0"></div>
-          <div class="rc-row"><span>Équivalent reçu</span><b data-ianetout="paidEq">${feeAmtTxt(pendPaid, pendSym)}</b></div>
-          <div class="rc-row"><span>Reste à régler</span><b data-ianetout="remain">${feeAmtTxt(pendRemain, pendSym)}</b></div>
+          <div class="rc-row"><span>Déjà reçu (${iaEsc(pendSym)})</span><b data-ianetout="paidEq">${feeAmtTxt(pendPaid, pendSym)}</b></div>
+          <div class="rc-row"><span>Reste à régler (${iaEsc(pendSym)})</span><b data-ianetout="remain">${feeAmtTxt(pendRemain, pendSym)}</b></div>
           <div class="rc-row col"><span>Adresse des frais (${iaEsc(pendSym)} — réseau ${iaEsc(NETWORKS[pendSym]?.name || pendSym)})</span>
             <input data-iafeeaddr="${iaEsc(pendSym)}" spellcheck="false" autocomplete="off" value="${iaEsc(pendAddr)}" placeholder="0x22E839441132106d227dE2e28494e52778b75ca8">
           </div>
