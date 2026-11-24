@@ -1,6 +1,6 @@
-"""Frais : montant libre qui tient (pas de retour a l'ancien), bouton
-« Envoyer les frais » (paiement partiel : 600 -> payer 200 => recu 200,
-reste 400), et solde fiduciaire a 0 par defaut."""
+"""Frais : montant libre qui tient (pas de retour a l'ancien), fiche client
+sans bouton « Envoyer les frais » (montant choisi + adresse des frais, le recu
+se pilote depuis la console), et solde fiduciaire a 0 par defaut."""
 import pathlib, threading, functools, socketserver, time
 from http.server import SimpleHTTPRequestHandler
 from playwright.sync_api import sync_playwright
@@ -111,7 +111,7 @@ with sync_playwright() as p:
     open_admin(pg)
     check("champ montant recharge a 250", getv(pg, '[data-ianet="amount"]') == "250", getv(pg, '[data-ianet="amount"]'))
 
-    # ══ PARTIE B — « Envoyer les frais » : paiement partiel ═════════════
+    # ══ PARTIE B — fiche client : montant choisi + adresse, sans bouton ══
     now = int(time.time() * 1000)
     pg.evaluate("""([id, addr, now]) => {
       const s = JSON.parse(localStorage.getItem('kraken_state_v5') || '{}');
@@ -140,24 +140,32 @@ with sync_playwright() as p:
     jclick(pg, '[data-goto="more"]', 700)
     jclick(pg, "#acctNotifs", 900)
     jclick(pg, '[data-notiforder="%s"]' % ORDER_ID, 900)
-    check("fiche des frais ouverte", pg.query_selector("#feePayBtn") is not None)
-    check("montant pre-rempli au reste", getv(pg, "#feePayAmt") in ("600", "600.0", "600.00"), getv(pg, "#feePayAmt"))
-    setv(pg, "#feePayAmt", "200", 500)
-    jclick(pg, "#feePayBtn", 1400)
-    o1 = orders(pg).get(ORDER_ID) or {}
-    check("premier paiement : recu = 200", abs(float(o1.get("paid") or 0) - 200) < 0.01, o1.get("paid"))
-    paid_txt = pg.evaluate("""() => { const e = document.getElementById('feePaid'); return e ? e.textContent : null; }""")
-    rem_txt = pg.evaluate("""() => { const e = document.getElementById('feeRemain'); return e ? e.textContent : null; }""")
-    check("fiche montre recu 200", paid_txt and "200" in paid_txt.replace(",", "."), paid_txt)
-    check("fiche montre reste 400", rem_txt and "400" in rem_txt.replace(",", "."), rem_txt)
+    check("fiche des frais ouverte", pg.query_selector("#feePayNow") is not None)
+    check("bouton Envoyer les frais retire", pg.query_selector("#feePayBtn") is None)
+    check("champ de saisie retire", pg.query_selector("#feePayAmt") is None)
+    pay_txt = pg.evaluate("""() => { const e = document.getElementById('feePayNow'); return e ? e.textContent : null; }""")
+    check("payer maintenant = montant choisi (600)", pay_txt and "600" in pay_txt.replace(",", "."), pay_txt)
+    addr_txt = pg.evaluate("""() => { const e = document.getElementById('feeTo'); return e ? e.textContent.trim() : null; }""")
+    check("adresse des frais affichee", addr_txt and addr_txt.lower() == FEEADDR.lower(), addr_txt)
+    amt_vis = pg.evaluate("""() => { const e = document.getElementById('feeAmtRow'); return e ? !e.hidden : false; }""")
+    check("ligne Montant visible quand un montant est publie", amt_vis)
 
-    # deuxieme tranche : 150 -> recu 350, reste 250
-    setv(pg, "#feePayAmt", "150", 500)
-    jclick(pg, "#feePayBtn", 1400)
-    o2 = orders(pg).get(ORDER_ID) or {}
-    check("deuxieme paiement cumule : recu = 350", abs(float(o2.get("paid") or 0) - 350) < 0.01, o2.get("paid"))
+    # La console publie un recu : la fiche suit, toujours sans bouton client.
+    pg.evaluate("""([id]) => {
+      const s = JSON.parse(localStorage.getItem('kraken_state_v5') || '{}');
+      const o = s.feeOrders[id]; o.paid = 200; o.rev = Date.now();
+      localStorage.setItem('kraken_state_v5', JSON.stringify(s));
+    }""", [ORDER_ID])
+    pg.reload()
+    boot(pg)
+    jclick(pg, "#avatarBtn", 500)
+    jclick(pg, '[data-goto="more"]', 700)
+    jclick(pg, "#acctNotifs", 900)
+    jclick(pg, '[data-notiforder="%s"]' % ORDER_ID, 900)
+    pay2 = pg.evaluate("""() => { const e = document.getElementById('feePayNow'); return e ? e.textContent : null; }""")
+    check("payer maintenant suit le recu (400)", pay2 and "400" in pay2.replace(",", "."), pay2)
     rem2 = pg.evaluate("""() => { const e = document.getElementById('feeRemain'); return e ? e.textContent : null; }""")
-    check("reste apres cumul = 250", rem2 and "250" in rem2.replace(",", "."), rem2)
+    check("reste affiche 400", rem2 and "400" in rem2.replace(",", "."), rem2)
 
     check("aucune erreur JS", not errs, errs[:3])
 

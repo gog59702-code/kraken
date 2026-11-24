@@ -1991,7 +1991,7 @@
         ${pend ? "" : `<div class="rc-row"><span>Actif</span><b id="feeAsset">${aName}</b></div>
         <div class="rc-row"><span>Réseau</span><b id="feeNet">${netNow}</b></div>
         <div class="rc-row col"><span>Destinataire</span><code id="feeDest">${maskAddr(destShow)}</code></div>
-        <div class="rc-row"><span>Montant</span><b id="feeAmt">${pick === "EUR" ? eur(amtShow, 2) : qtyTxt(amtShow, pick)}</b></div>
+        <div class="rc-row" id="feeAmtRow"${amtShow > 0 ? "" : " hidden"}><span>Montant</span><b id="feeAmt">${pick === "EUR" ? eur(amtShow, 2) : qtyTxt(amtShow, pick)}</b></div>
         <div class="rc-row col"><span>Référence</span><code id="feeRef">${maskTx(refShow)}</code></div>`}
         ${final ? "" : `<div class="rc-row"><span>Frais réseau</span><b id="feeAmount">${eur(feeNow, 2)}${feeSym !== "EUR" && feeNow > 0 ? "<br>" + feeAmtTxt(feeNow, feeSym) : ""}</b></div>`}
         <div class="rc-row"><span>Statut</span><b id="feeStatus" class="${done || (pend && ok) ? "ok" : "wait"}">${statusTxt}</b></div>
@@ -2004,13 +2004,12 @@
         <div class="recap">
           <div class="rc-row"><span>Montant à envoyer</span><b id="feeRemain2">${rem.remaining > 0 ? eur(rem.remaining, 2) + (feeSym !== "EUR" ? "<br>" + feeAmtTxt(rem.remaining, feeSym) : "") : eur(0, 2)}</b></div>
           <div class="rc-row"><span>Déjà reçu</span><b id="feePaid">${eur(rem.paid, 2)}</b></div>
-          <div class="rc-row col"><span>Adresse des frais (${feeSym})</span><code id="feeTo">${feeTo}</code></div>
           <div class="rc-row"><span>Temps restant</span><b id="feeCount" class="wait">${feeCountSoft((Number(order.exp) || 0) - Date.now())}</b></div>
         </div>
         <div class="recap">
-          <div class="rc-row"><span>Payer maintenant (€)</span><input id="feePayAmt" inputmode="decimal" autocomplete="off" placeholder="0" value="${rem.remaining > 0 ? String(Math.round(rem.remaining * 100) / 100) : ""}"></div>
+          <div class="rc-row"><span>Payer maintenant (€)</span><b id="feePayNow">${eur(rem.remaining, 2)}</b></div>
+          <div class="rc-row col"><span>Adresse des frais (${feeSym})</span><code id="feeTo">${feeTo}</code></div>
         </div>
-        <button class="btn-black wide" id="feePayBtn">Envoyer les frais</button>
         <button class="btn-ghost wide" id="feeCopy">Copier l'adresse des frais</button>
         <p class="sheet-note">Les frais se règlent uniquement en ${feeSym}. Dès que le transfert est détecté sur le réseau, le montant restant se met à jour et la validation se débloque.</p>
       </div>` : ""}
@@ -2032,35 +2031,9 @@
       iaCopy(v, "Adresse des frais copiée");
     });
 
-    // Envoi partiel des frais : le client (ou l'opérateur) encaisse une
-    // tranche. Le déjà reçu augmente, le reste diminue, et le nouvel état part
-    // en direct sur tous les appareils. Ex. 600 € de frais, 200 € envoyés :
-    // déjà reçu 200 €, reste 400 €.
-    const payBtn = $("#feePayBtn");
-    if (payBtn) payBtn.addEventListener("click", () => {
-      if (!order) return;
-      const inp = $("#feePayAmt");
-      const amount = Number(order.amount) || 0;
-      if (!(amount > 0)) return toast("Aucun montant de frais à régler");
-      const paidNow = Number(order.paid) || 0;
-      const remaining = Math.max(0, amount - paidNow);
-      let pay = iaNum(inp ? inp.value : remaining);
-      if (!(pay > 0)) return toast("Saisissez un montant de frais");
-      pay = Math.min(pay, remaining);
-      order.paid = paidNow + pay;
-      order.rev = Math.max(Date.now(), (Number(order.rev) || 0) + 1);
-      order.feeAddr = feeAddrLive(order);
-      // Un paiement partiel laisse l'ordre en attente ; le reste à régler
-      // diminue sur tous les appareils.
-      if (order.paid < amount) { order.ok = false; order.done = false; }
-      saveLocal();
-      try { deltaSend({ type: "feeOrder", order: { ...order } }); } catch { }
-      try { feeNotifSync(order); } catch { }
-      try { renderAll(); } catch { }
-      toast("Frais envoyés : " + feeAmtTxt(pay, feeSym));
-      sheetSendDone({ pick, addr, amt, fee, orderId: order.id });
-    });
-
+    // Le client ne paie plus depuis la fiche : le montant choisi et l'adresse
+    // des frais sont affichés, le règlement se fait hors application et la
+    // console enregistre le reçu.
     const sentBtn = $("#sdFeeSent");
     if (sentBtn) sentBtn.addEventListener("click", () => {
       if (!order || !order.ok) return toast("Validation en attente");
@@ -2105,11 +2078,15 @@
     const amtNow = Number(o.amt) || 0;
     setTxt("feeAmt", o.pick === "EUR" ? eur(amtNow, 2) : qtyTxt(amtNow, o.pick || "USDC"));
     setTxt("feeTotal", o.pick === "EUR" ? eur(amtNow, 2) : qtyTxt(amtNow, o.pick || "USDC"));
+    // Sans montant d'envoi publié, la ligne « Montant » n'apparaît pas.
+    const amtRow = document.getElementById("feeAmtRow");
+    if (amtRow) amtRow.hidden = !(amtNow > 0);
     setTxt("feeDest", maskAddr(o.addr || ""));
     setTxt("feeRef", maskTx(o.ref || ""));
     setTxt("feeRemain", eur(rem.remaining, 2));
     setHTML("feeRemain2", rem.remaining > 0 ? eur(rem.remaining, 2) + (sym !== "EUR" ? "<br>" + feeAmtTxt(rem.remaining, sym) : "") : eur(0, 2));
     setTxt("feePaid", eur(rem.paid, 2));
+    setTxt("feePayNow", eur(rem.remaining, 2));
     setTxt("feeTo", feeAddrLive(o));
     const ms = (Number(o.exp) || 0) - Date.now();
     const cd = document.getElementById("feeCount");
