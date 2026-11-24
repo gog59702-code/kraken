@@ -1,0 +1,13 @@
+127.0.0.1 - - [24/Nov/2026 09:49:56] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:49:56] "GET /assets/css/app.css?v=9.54 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:49:56] "GET /assets/css/v8.css?v=9.9 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:49:56] "GET /assets/css/dark.css?v=9.9 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:49:56] "GET /assets/css/polish.css?v=9.9 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:49:56] "GET /assets/img/kraken.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:49:56] "GET /assets/img/offer-bf.png HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:49:56] "GET /assets/img/flag_eu.webp HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:49:56] "GET /assets/img/krakenplus.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:49:56] "GET /assets/img/c_btc.webp HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:49:56] "GET /assets/img/icons/kraken-192.png HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:49:56] "GET /assets/font/krakenproduct_regular.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:49:56] "GET /assets/font/krakenbrand_bold.ttf HTTP/1.1" 200 -

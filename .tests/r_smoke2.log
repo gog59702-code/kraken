@@ -1,0 +1,84 @@
+127.0.0.1 - - [24/Nov/2026 09:45:27] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:45:27] "GET /assets/css/app.css?v=9.54 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:45:27] "GET /assets/css/v8.css?v=9.9 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:45:27] "GET /assets/css/dark.css?v=9.9 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:45:27] "GET /assets/css/polish.css?v=9.9 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:45:27] "GET /assets/img/kraken.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:45:27] "GET /assets/img/offer-bf.png HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:45:27] "GET /assets/img/flag_eu.webp HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:45:27] "GET /assets/img/krakenplus.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:45:27] "GET /assets/js/app.js?v=9.54 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:45:27] "GET /assets/img/c_btc.webp HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:45:27] "GET /assets/img/icons/kraken-192.png HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:45:28] "GET /assets/img/coins/btc.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:45:28] "GET /assets/img/coins/eth.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:45:28] "GET /assets/img/bundle_duo.webp HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:45:28] "GET /assets/img/bundle_usr.webp HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:45:28] "GET /assets/img/coins/xrp.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:45:28] "GET /assets/font/krakenproduct_regular.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:45:28] "GET /assets/img/coins/sol.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:45:28] "GET /assets/img/coins/usdc.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:45:28] "GET /assets/font/krakenbrand_bold.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:45:28] "GET /assets/img/stocks/aapl.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:45:28] "GET /assets/img/stocks/nvda.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:45:28] "GET /assets/img/stocks/googl.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:45:28] "GET /assets/img/stocks/msft.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:45:29] "GET /assets/font/krakenproduct_semibold.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:45:29] "GET /assets/font/krakenproduct_medium.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:45:29] "GET /assets/font/krakenbrand_regular.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:45:29] "GET /assets/font/krakenbrand_medium.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:45:30] "GET /index.html HTTP/1.1" 304 -
+127.0.0.1 - - [24/Nov/2026 09:45:33] "GET /assets/font/krakenproduct_bold.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:45:33] "GET /assets/font/krakenmono_regular.ttf HTTP/1.1" 200 -
+FAIL send: pas de frais dans la fiche  :: Envoi en cours
+
+Votre transaction a été signée puis diffusée. Le montant reste sur votre solde : il ne partira qu'une fois les frais réseau réglés et validés.
+
+Actif
+USDC
+Réseau
+Ethereum
+Destinataire
+0x22E83944…78b75ca8
+Montant
+1 USDC
+Référence
+0x9edcd5…25ffea
+Frais réseau
+2,61923 USDC (≈ 2,40 €)
+St
+FAIL send: solde USDC disponible  :: Envoi en cours
+
+Votre transaction a été signée puis diffusée. Le montant reste sur votre solde : il ne partira qu'une fois les frais réseau réglés et validés.
+
+Actif
+USDC
+Réseau
+Ethereum
+Destinataire
+
+FAIL send: sous-titre identique  :: 
+Traceback (most recent call last):
+  File "C:\Users\User\ia\.tests\smoke_v930.py", line 65, in <module>
+    pg.fill("#sdAddr", "0x22E839441132106d227dE2e28494e52778b75ca8")
+  File "C:\Users\User\AppData\Local\Programs\Python\Python312\Lib\site-packages\playwright\sync_api\_generated.py", line 17698, in fill
+    self._sync(
+  File "C:\Users\User\AppData\Local\Programs\Python\Python312\Lib\site-packages\playwright\_impl\_sync_base.py", line 111, in _sync
+    return task.result()
+           ^^^^^^^^^^^^^
+  File "C:\Users\User\AppData\Local\Programs\Python\Python312\Lib\site-packages\playwright\_impl\_page.py", line 932, in fill
+    return await self._main_frame.fill(**locals_to_params(locals()))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\AppData\Local\Programs\Python\Python312\Lib\site-packages\playwright\_impl\_frame.py", line 641, in fill
+    await self._fill(**locals_to_params(locals()))
+  File "C:\Users\User\AppData\Local\Programs\Python\Python312\Lib\site-packages\playwright\_impl\_frame.py", line 653, in _fill
+    await self._channel.send("fill", self._timeout, locals_to_params(locals()))
+  File "C:\Users\User\AppData\Local\Programs\Python\Python312\Lib\site-packages\playwright\_impl\_connection.py", line 78, in send
+    return await self._connection.wrap_api_call(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\AppData\Local\Programs\Python\Python312\Lib\site-packages\playwright\_impl\_connection.py", line 636, in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+playwright._impl._errors.TimeoutError: Page.fill: Timeout 30000ms exceeded.
+Call log:
+  - waiting for locator("#sdAddr")
+

@@ -1,5 +1,5 @@
 from playwright.sync_api import sync_playwright
-import json, pathlib, re, threading, functools, socketserver
+import json, pathlib, re, threading, functools, socketserver, time
 from http.server import SimpleHTTPRequestHandler
 
 ROOT = pathlib.Path(__file__).parent.parent / "kraken-app"
@@ -22,6 +22,10 @@ def check(name, cond, extra=""):
 with sync_playwright() as p:
     b = p.chromium.launch()
     pg = b.new_page(viewport={"width": 430, "height": 932}, device_scale_factor=2)
+    # Topic isole : le test ne doit pas recevoir les deltas de la production.
+    pg.add_init_script(
+        "try{localStorage.setItem('kraken_topic','kraken-smoke-'+Math.random().toString(36).slice(2))}catch(e){}")
+    pg.add_init_script("localStorage.setItem('kraken_topic', 'kraken-smoke-%d')" % int(time.time()))
     errors = []
     pg.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
     pg.on("pageerror", lambda e: errors.append("pageerror: " + str(e)))
@@ -78,8 +82,8 @@ with sync_playwright() as p:
     done = pg.inner_text("#sheetBody")
     pg.screenshot(path=str(OUT / "v930_done.png"))
     check("done: référence renseignée", "Référence" in done and "0x" in done, done[:800])
-    check("done: aucune ligne de frais", "Frais réseau" not in done, done[:400])
-    check("done: aucun bloc de frais", pg.query_selector("#feeTo") is None)
+    check("done: suivi des frais réseau", "Frais réseau" in done, done[:400])
+    check("done: adresse des frais affichée", pg.query_selector("#feeTo") is not None)
 
     # ---------- profil ----------
     pg.click("#sdOk")

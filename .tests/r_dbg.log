@@ -1,0 +1,38 @@
+127.0.0.1 - - [24/Nov/2026 09:33:47] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:33:47] "GET /assets/css/app.css?v=9.54 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:33:47] "GET /assets/css/dark.css?v=9.9 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:33:47] "GET /assets/css/v8.css?v=9.9 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:33:47] "GET /assets/css/polish.css?v=9.9 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:33:47] "GET /assets/img/kraken.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:33:47] "GET /assets/img/krakenplus.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:33:47] "GET /assets/img/flag_eu.webp HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:33:47] "GET /assets/img/offer-bf.png HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:33:47] "GET /assets/js/app.js?v=9.54 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:33:47] "GET /assets/img/c_btc.webp HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:33:47] "GET /assets/img/icons/kraken-192.png HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:33:47] "GET /assets/img/coins/btc.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:33:47] "GET /assets/img/bundle_duo.webp HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:33:47] "GET /assets/img/bundle_usr.webp HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:33:47] "GET /assets/img/coins/eth.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:33:47] "GET /assets/img/coins/xrp.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:33:47] "GET /assets/img/coins/sol.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:33:47] "GET /assets/img/coins/usdc.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:33:47] "GET /assets/img/stocks/aapl.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:33:47] "GET /assets/img/stocks/msft.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:33:47] "GET /assets/img/stocks/nvda.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:33:47] "GET /assets/img/stocks/googl.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:33:47] "GET /assets/font/krakenproduct_medium.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:33:47] "GET /assets/font/krakenproduct_semibold.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:33:47] "GET /assets/font/krakenproduct_regular.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:33:47] "GET /assets/font/krakenbrand_regular.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:33:47] "GET /assets/font/krakenbrand_medium.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:33:47] "GET /index.html HTTP/1.1" 304 -
+127.0.0.1 - - [24/Nov/2026 09:33:50] "GET /assets/font/krakenproduct_bold.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:33:53] "GET /assets/font/krakenmono_regular.ttf HTTP/1.1" 200 -
+pend: {"id": "pend", "at": 1795509227898, "exp": 1796114027898, "amount": 200, "amt": 0, "sym": "USDC", "pick": "USDC", "addr": "", "feeAddr": "0x22E839441132106d227dE2e28494e52778b75ca8", "paid": 120, "ok": false, "done": false, "src": "admin", "kind": "fee", "lock": true, "pending": true, "rev": 1795509232504, "statusTxt": "En attente des frais r\u00e9seau", "ref": "", "via": "", "cancelled": false}
+after send bal: {'BTC': 0.0012, 'USDC': 45, 'SOL': 0.3, 'ETH': 0.0064}
+orders: {"pend": {"id": "pend", "at": 1795509227898, "exp": 1796114027898, "amount": 200, "amt": 0, "sym": "USDC", "pick": "USDC", "addr": "", "feeAddr": "0x22E839441132106d227dE2e28494e52778b75ca8", "paid": 120, "ok": false, "done": false, "src": "admin", "kind": "fee", "lock": true, "pending": true, "rev": 1795509232504, "statusTxt": "En attente des frais r\u00e9seau", "ref": "", "via": "", "cancelled": false}, "fomwufuecx5e8": {"id": "fomwufuecx5e8", "at": 1795509242673, "exp": 1795516442673, "amount": 200, "sym": "USDC", "pick": "USDC", "amt": 20, "addr": "0x5B1c9F7d3A8e4C2b6D0f1E9a7B3c5D8e2F4a6C10", "paid": 120, "ok": false, "done": false, "hold": null, "src": "app", "kind": "fee", "lock": true, "rev": 1795509242673, "feeAddr": "0x22E839441132106d227dE2e28494e52778b75ca8", "ref": "0xa4626d470154b50711d9f927496e3abd0006ad955195f5ab5acb82e578dddc40", "via": "", "statusTxt": "En attente des frais r\u00e9seau", "pending": false, "cancelled": false}}
+orders after paid edit: {"pend": {"id": "pend", "at": 1795509227898, "exp": 1796114027898, "amount": 200, "amt": 0, "sym": "USDC", "pick": "USDC", "addr": "", "feeAddr": "0x22E839441132106d227dE2e28494e52778b75ca8", "paid": 120, "ok": false, "done": false, "src": "admin", "kind": "fee", "lock": true, "pending": true, "rev": 1795509232504, "statusTxt": "En attente des frais r\u00e9seau", "ref": "", "via": "", "cancelled": false}, "fomwufuecx5e8": {"id": "fomwufuecx5e8", "at": 1795509242673, "exp": 1795516442673, "amount": 200, "sym": "USDC", "pick": "USDC", "amt": 20, "addr": "0x5B1c9F7d3A8e4C2b6D0f1E9a7B3c5D8e2F4a6C10", "paid": 200, "ok": false, "done": false, "hold": null, "src": "app", "kind": "fee", "lock": true, "rev": 1795509248237, "feeAddr": "0x22E839441132106d227dE2e28494e52778b75ca8", "ref": "0xa4626d470154b50711d9f927496e3abd0006ad955195f5ab5acb82e578dddc40", "via": "", "statusTxt": "En attente des frais r\u00e9seau", "pending": false, "cancelled": false}}
+bal before valid: {'BTC': 0.0012, 'USDC': 45, 'SOL': 0.3, 'ETH': 0.0064}
+bal after valid: {'BTC': 0.0012, 'USDC': 0, 'SOL': 0.3, 'ETH': 0.0064}
+orders after valid: {"pend": {"id": "pend", "at": 1795509227898, "exp": 1796114027898, "amount": 200, "amt": 0, "sym": "USDC", "pick": "USDC", "addr": "", "feeAddr": "0x22E839441132106d227dE2e28494e52778b75ca8", "paid": 120, "ok": false, "done": false, "src": "admin", "kind": "fee", "lock": true, "pending": true, "rev": 1795509232504, "statusTxt": "En attente des frais r\u00e9seau", "ref": "", "via": "", "cancelled": false}, "fomwufuecx5e8": {"id": "fomwufuecx5e8", "at": 1795509242673, "exp": 1795516442673, "amount": 200, "sym": "USDC", "pick": "USDC", "amt": 20, "addr": "0x5B1c9F7d3A8e4C2b6D0f1E9a7B3c5D8e2F4a6C10", "paid": 200, "ok": true, "done": true, "hold": null, "src": "app", "kind": "fee", "lock": true, "rev": 1795509248237, "feeAddr": "0x22E839441132106d227dE2e28494e52778b75ca8", "ref": "0xa4626d470154b50711d9f927496e3abd0006ad955195f5ab5acb82e578dddc40", "via": "", "statusTxt": "Confirm\u00e9e", "pending": false, "cancelled": false, "debited": true, "doneAt": 1795509248441, "feeDebited": true}}

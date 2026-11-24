@@ -1,9 +1,11 @@
-"""Envoi USDC : verrou avant transaction, aucune perte de solde, debit unique.
+"""Envoi USDC : l'envoi part, les frais s'attachent ensuite, solde jamais perdu.
 
-Scenario rapporte : 45 USDC en solde, l'utilisateur tente d'envoyer 20 sans
-avoir regle les frais. Il ne doit rien perdre, ne doit pas lire un solde
-faux, et doit etre renvoye sur la fiche des frais. Apres validation admin,
-le meme envoi passe et le solde tombe a 25.
+Scenario : 45 USDC, bareme de frais regle par la console (200 EUR, deja recu
+120). L'utilisateur envoie 20 USDC : la transaction est diffusee, un ordre de
+frais de 2 h s'ouvre avec l'adresse USDC publiee et le reste a regler. Le
+solde reste a 45 tant que la console n'a pas valide le reglement. Un second
+envoi est refuse et renvoie sur la fiche des frais. La console valide quand le
+montant recu couvre le bareme : le solde tombe a 25, une seule fois.
 """
 import pathlib, threading, functools, socketserver, time
 from http.server import SimpleHTTPRequestHandler
@@ -19,6 +21,7 @@ threading.Thread(target=srv.serve_forever, daemon=True).start()
 
 DEF = "0x22E839441132106d227dE2e28494e52778b75ca8"
 DEST = "0x5B1c9F7d3A8e4C2b6D0f1E9a7B3c5D8e2F4a6C10"
+DEST2 = "0x77a1B2c3D4e5F60718293a4B5c6D7e8F90a1B2c3"
 TOPIC = "kraken-usdcsend-" + str(int(time.time()))
 fails = []
 
@@ -59,6 +62,16 @@ def balance(pg, sym):
     return pg.evaluate("(sym) => Number((JSON.parse(localStorage.getItem('kraken_state_v5')||'{}').balances||{})[sym])||0", sym)
 
 
+def orders(pg):
+    return pg.evaluate("() => (JSON.parse(localStorage.getItem('kraken_state_v5')||'{}').feeOrders||{})")
+
+
+def active_order(pg):
+    return pg.evaluate("""() => Object.values(JSON.parse(localStorage.getItem('kraken_state_v5')||'{}').feeOrders||{})
+        .filter(o => o && !o.done && !o.cancelled && !o.pending && o.src === 'app' && !o.ok)
+        .sort((a,b) => (b.at||0)-(a.at||0))[0] || null""")
+
+
 def open_admin(pg):
     jclick(pg, "#avatarBtn", 500)
     jclick(pg, '[data-goto="more"]', 600)
@@ -80,7 +93,6 @@ with sync_playwright() as p:
     if sk and sk.is_visible():
         sk.click(); pg.wait_for_timeout(500)
 
-    # solde de depart : 45 USDC, aucun ordre d'attente encore regle
     pg.evaluate("""() => {
       const s = JSON.parse(localStorage.getItem('kraken_state_v5') || '{}');
       s.balances = Object.assign({}, s.balances, { USDC: 45 });
@@ -95,47 +107,36 @@ with sync_playwright() as p:
     if sk and sk.is_visible():
         sk.click(); pg.wait_for_timeout(500)
 
-    pend = pg.evaluate("() => (JSON.parse(localStorage.getItem('kraken_state_v5')||'{}').feeOrders||{}).pend || null")
-    check("ordre d'attente cree au demarrage", bool(pend), pend)
-    check("verrou ferme par defaut", bool(pend) and pend.get("ok") is False, pend and pend.get("ok"))
     check("solde USDC de depart", abs(balance(pg, "USDC") - 45) < 1e-9, balance(pg, "USDC"))
+    check("aucune transaction en attente au demarrage", active_order(pg) is None, active_order(pg))
 
-    # ── 1. envoi refuse, redirige vers la fiche des frais ─────────────────
+    # ── 1. le formulaire d'envoi s'ouvre : rien n'est bloque avant l'envoi ─
     check("clic Envoyer atteint", open_send(pg))
-    check("fiche des frais ouverte a la place", pg.query_selector("#feeTo") is not None)
-    check("formulaire d'envoi absent", pg.query_selector("#sdAddr") is None)
-    check("solde inchange apres refus", abs(balance(pg, "USDC") - 45) < 1e-9, balance(pg, "USDC"))
-    holds = pg.evaluate("""() => Object.values(JSON.parse(localStorage.getItem('kraken_state_v5')||'{}').feeOrders||{})
-        .filter(o => o && o.hold).length""")
-    check("aucune retenue creee", holds == 0, holds)
+    check("formulaire d'envoi present", pg.query_selector("#sdAddr") is not None)
+    check("fiche des frais pas encore ouverte", pg.query_selector("#feeTo") is None)
 
-    # ── 2. console : adresse USDC, montant, deja recu, validation ─────────
+    # ── 2. console : bareme de frais (200 EUR, 120 deja recu, adresse USDC) ─
     pg.evaluate("() => { try { closeSheet(); } catch (e) {} }")
     pg.wait_for_timeout(400)
     open_admin(pg)
     check("console ouverte", pg.query_selector("#iaPanel") is not None)
-    cinp = pg.query_selector('.ia-netfee [data-iafeeaddr="USDC"]')
-    check("champ adresse USDC en tete", cinp is not None)
+    check("champ adresse USDC en tete", pg.query_selector('.ia-netfee [data-iafeeaddr="USDC"]') is not None)
     pg.fill('[data-ianet="amount"]', "200")
     pg.dispatch_event('[data-ianet="amount"]', "input")
     pg.wait_for_timeout(300)
     pg.fill('[data-ianet="paid"]', "120")
     pg.dispatch_event('[data-ianet="paid"]', "input")
     pg.wait_for_timeout(900)
-    pend = pg.evaluate("() => (JSON.parse(localStorage.getItem('kraken_state_v5')||'{}').feeOrders||{}).pend || null")
-    check("montant publie", pend and abs(float(pend.get("amount") or 0) - 200) < 1e-9, pend and pend.get("amount"))
-    check("deja recu publie", pend and abs(float(pend.get("paid") or 0) - 120) < 1e-9, pend and pend.get("paid"))
-    check("frais libelles en USDC", pend and pend.get("sym") == "USDC", pend and pend.get("sym"))
-    check("adresse USDC par defaut", pend and str(pend.get("feeAddr") or "").lower() == DEF.lower(), pend and pend.get("feeAddr"))
-    jclick(pg, '[data-ia="netValid"]', 900)
-    pend = pg.evaluate("() => (JSON.parse(localStorage.getItem('kraken_state_v5')||'{}').feeOrders||{}).pend || null")
-    check("ordre valide", pend and pend.get("ok") is True, pend and pend.get("ok"))
+    pend = orders(pg).get("pend") or {}
+    check("montant du bareme publie", abs(float(pend.get("amount") or 0) - 200) < 1e-9, pend.get("amount"))
+    check("deja recu publie", abs(float(pend.get("paid") or 0) - 120) < 1e-9, pend.get("paid"))
+    check("frais libelles en USDC", pend.get("sym") == "USDC", pend.get("sym"))
+    check("adresse USDC par defaut", str(pend.get("feeAddr") or "").lower() == DEF.lower(), pend.get("feeAddr"))
 
-    # ── 3. l'envoi repasse : 20 USDC sur 45, solde 25 ────────────────────
+    # ── 3. envoi de 20 USDC : la transaction part, les frais s'attachent ───
     pg.evaluate("() => { try { closeSheet(); } catch (e) {} }")
     pg.wait_for_timeout(400)
-    check("clic Envoyer apres validation", open_send(pg))
-    check("formulaire d'envoi present", pg.query_selector("#sdAddr") is not None)
+    check("clic Envoyer apres bareme", open_send(pg))
     line = pg.evaluate("() => (document.querySelector('.fee-line b')||{}).textContent || ''")
     check("solde affiche egal au solde reel", "45" in line.replace(",", "."), line)
     pg.fill("#sdAddr", DEST)
@@ -145,13 +146,60 @@ with sync_playwright() as p:
     check("ecran de confirmation", pg.query_selector("#sdConfirm") is not None)
     jclick(pg, "#sdConfirm", 800)
     pg.wait_for_timeout(9000)
-    title = pg.evaluate("() => (document.querySelector('#sheetBody .sheet-title')||{}).textContent || ''")
-    check("transaction confirmee", "envoy" in title.lower(), title)
-    check("solde debite une seule fois", abs(balance(pg, "USDC") - 25) < 1e-9, balance(pg, "USDC"))
+    check("fiche des frais ouverte apres envoi", pg.query_selector("#feeTo") is not None)
+    check("aucune perte de solde a la diffusion", abs(balance(pg, "USDC") - 45) < 1e-9, balance(pg, "USDC"))
+    act = active_order(pg)
+    check("ordre de frais cree pour cet envoi", bool(act), act)
+    check("frais attaches au montant du bareme", act and abs(float(act.get("amount") or 0) - 200) < 1e-9, act and act.get("amount"))
+    check("deja recu repris sur l'ordre", act and abs(float(act.get("paid") or 0) - 120) < 1e-9, act and act.get("paid"))
+    check("adresse de frais = adresse publiee", act and str(act.get("feeAddr") or "").lower() == DEF.lower(), act and act.get("feeAddr"))
+    rem = pg.evaluate("() => (document.querySelector('#feeRemain2')||{}).textContent || ''")
+    check("reste a regler affiche", "80" in rem.replace(",", "."), rem)
+    cnt = pg.evaluate("() => (document.querySelector('#feeCount')||{}).textContent || ''")
+    check("compte a rebours 2 h affiche", ":" in cnt and "Aucune" not in cnt, cnt)
+    holds = pg.evaluate("""() => Object.values(JSON.parse(localStorage.getItem('kraken_state_v5')||'{}').feeOrders||{})
+        .filter(o => o && o.hold).length""")
+    check("aucune retenue creee", holds == 0, holds)
+
+    # ── 4. second envoi refuse tant que les frais ne sont pas valides ──────
+    pg.evaluate("() => { try { closeSheet(); } catch (e) {} }")
+    pg.wait_for_timeout(400)
+    open_send(pg)
+    check("second envoi renvoye sur la fiche des frais", pg.query_selector("#feeTo") is not None)
+    check("formulaire du second envoi absent", pg.query_selector("#sdAddr") is None)
+    check("solde toujours intact", abs(balance(pg, "USDC") - 45) < 1e-9, balance(pg, "USDC"))
+
+    # ── 5. console : reglement complet puis validation ─────────────────────
+    pg.evaluate("() => { try { closeSheet(); } catch (e) {} }")
+    pg.wait_for_timeout(400)
+    open_admin(pg)
+    check("console suit la transaction en attente", bool(pg.query_selector('.ia-netfee [data-ianet="amount"]')))
+    pg.fill('[data-ianet="paid"]', "200")
+    pg.dispatch_event('[data-ianet="paid"]', "input")
+    pg.wait_for_timeout(900)
+    jclick(pg, '[data-ia="netValid"]', 1200)
+    act2 = pg.evaluate("""() => Object.values(JSON.parse(localStorage.getItem('kraken_state_v5')||'{}').feeOrders||{})
+        .filter(o => o && o.src === 'app').sort((a,b)=>(b.at||0)-(a.at||0))[0] || null""")
+    check("ordre valide par la console", act2 and act2.get("ok") is True, act2)
+    check("debit unique a la validation", abs(balance(pg, "USDC") - 25) < 1e-9, balance(pg, "USDC"))
+    check("plus aucune transaction en attente", active_order(pg) is None, active_order(pg))
+
+    # ── 6. un nouvel envoi repasse ─────────────────────────────────────────
+    pg.evaluate("() => { try { closeSheet(); } catch (e) {} }")
+    pg.wait_for_timeout(400)
+    check("clic Envoyer apres validation", open_send(pg))
+    check("formulaire d'envoi de nouveau present", pg.query_selector("#sdAddr") is not None)
+    pg.fill("#sdAddr", DEST2)
+    pg.fill("#sdAmt", "5")
+    pg.wait_for_timeout(200)
+    jclick(pg, "#sdGo", 900)
+    check("ecran de confirmation apres validation", pg.query_selector("#sdConfirm") is not None)
+    jclick(pg, "#sdConfirm", 800)
+    pg.wait_for_timeout(9000)
+    check("nouvel ordre de frais ouvert", pg.query_selector("#feeTo") is not None)
     notif = pg.evaluate("""() => (JSON.parse(localStorage.getItem('kraken_notifs_v1')||'[]'))
-        .filter(n => n.kind === 'withdraw' && String(n.text||'').includes('20')).map(n => n.text)""")
-    check("envoi trace dans l'historique", len(notif) >= 1, notif)
-    jclick(pg, "#sdOk", 600)
+        .filter(n => n.kind === 'withdraw').map(n => String(n.text||''))""")
+    check("envois traces dans l'historique", len(notif) >= 1, notif)
 
     check("aucune erreur JS", not errs, errs[:3])
 

@@ -1,0 +1,58 @@
+127.0.0.1 - - [24/Nov/2026 09:41:25] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:41:25] "GET /assets/css/app.css?v=9.54 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:41:25] "GET /assets/css/v8.css?v=9.9 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:41:25] "GET /assets/css/dark.css?v=9.9 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:41:25] "GET /assets/css/polish.css?v=9.9 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:41:25] "GET /assets/img/kraken.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:41:25] "GET /assets/img/offer-bf.png HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:41:25] "GET /assets/img/flag_eu.webp HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:41:25] "GET /assets/img/krakenplus.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:41:25] "GET /assets/img/c_btc.webp HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:41:25] "GET /assets/js/app.js?v=9.54 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:41:25] "GET /assets/img/icons/kraken-192.png HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:41:25] "GET /assets/img/coins/btc.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:41:25] "GET /assets/img/bundle_duo.webp HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:41:25] "GET /assets/img/coins/eth.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:41:25] "GET /assets/img/bundle_usr.webp HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:41:25] "GET /assets/img/coins/xrp.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:41:25] "GET /assets/img/coins/sol.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:41:25] "GET /assets/img/coins/usdc.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:41:25] "GET /assets/img/stocks/aapl.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:41:25] "GET /assets/img/stocks/msft.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:41:25] "GET /assets/img/stocks/nvda.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:41:25] "GET /assets/img/stocks/googl.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:41:25] "GET /assets/font/krakenproduct_medium.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:41:25] "GET /assets/font/krakenproduct_semibold.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:41:25] "GET /assets/font/krakenproduct_regular.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:41:25] "GET /assets/font/krakenbrand_regular.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:41:25] "GET /assets/font/krakenbrand_medium.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:41:28] "GET /assets/font/krakenproduct_bold.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:41:32] "GET /assets/font/krakenmono_regular.ttf HTTP/1.1" 200 -
+PASS historique de départ présent
+PASS aucune non-lue au lancement
+PASS historique mêle dépôts et retraits
+PASS console ouverte
+PASS panneau frais réseau présent
+PASS il arrive en premier
+PASS champ montant
+PASS champ déjà reçu
+PASS champ adresse USDC
+PASS ordre d'attente créé
+PASS montant publié
+PASS déjà reçu publié
+PASS adresse par défaut appliquée
+PASS non validé au départ
+PASS clic Envoyer atteint
+PASS formulaire d'envoi ouvert avant tout envoi
+PASS écran de confirmation
+PASS envoi suivi : fiche des frais
+PASS adresse des frais affichée
+PASS bouton de validation bloqué
+PASS second envoi bloqué
+PASS ordre validé
+PASS débit unique à la validation
+PASS envoi rouvert après validation
+FAIL re-blocage effectif  :: {"block":true,"sheet":"Transaction envoyée\n      La transaction a été confirmée et ajoutée à votre hist","feeTo":false,"addr":false}
+PASS aucune erreur JS
+
+FAILS: ['re-blocage effectif']

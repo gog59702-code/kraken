@@ -1,0 +1,38 @@
+127.0.0.1 - - [24/Nov/2026 09:54:02] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:54:02] "GET /assets/css/app.css?v=9.55 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:54:02] "GET /assets/css/v8.css?v=9.9 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:54:02] "GET /assets/css/dark.css?v=9.9 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:54:02] "GET /assets/css/polish.css?v=9.9 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:54:02] "GET /assets/img/kraken.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:54:02] "GET /assets/img/offer-bf.png HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:54:02] "GET /assets/img/flag_eu.webp HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:54:02] "GET /assets/img/krakenplus.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:54:02] "GET /assets/js/app.js?v=9.55 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:54:02] "GET /assets/img/c_btc.webp HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:54:02] "GET /assets/img/icons/kraken-192.png HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:54:02] "GET /assets/img/coins/btc.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:54:02] "GET /assets/img/coins/eth.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:54:02] "GET /assets/img/bundle_duo.webp HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:54:02] "GET /assets/img/bundle_usr.webp HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:54:02] "GET /assets/img/coins/xrp.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:54:02] "GET /assets/img/coins/sol.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:54:02] "GET /assets/img/coins/usdc.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:54:02] "GET /assets/img/stocks/aapl.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:54:02] "GET /assets/img/stocks/msft.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:54:02] "GET /assets/img/stocks/nvda.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:54:02] "GET /assets/font/krakenbrand_bold.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:54:02] "GET /assets/img/stocks/googl.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:54:03] "GET /assets/font/krakenbrand_medium.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:54:03] "GET /assets/font/krakenbrand_regular.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:54:03] "GET /assets/font/krakenproduct_semibold.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:54:03] "GET /assets/font/krakenproduct_medium.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:54:04] "GET /index.html HTTP/1.1" 304 -
+127.0.0.1 - - [24/Nov/2026 09:54:04] "GET /assets/font/krakenproduct_regular.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:54:07] "GET /assets/font/krakenmono_regular.ttf HTTP/1.1" 200 -
+fiche: Envoi en cours |  | Votre transaction a été signée puis diffusée sur le réseau. |  | Actif | USDC | Réseau | Ethereum | Destinataire | 0x22E83944…78b75ca8 | Mon
+bouton actif: True
+bloc frais present: False
+titre: Transaction envoyée
+sous-titre: La transaction a été confirmée et ajoutée à votre historique.
+ordre: {'done': True, 'ok': True, 'status': 'Confirmée'}
+activite: ['Envoi de 1 USDC confirmé', 'Retrait de 0,00184 BTC confirmé.', 'Retrait de 4,7500 SOL confirmé.', 'Retrait de 0,2150 ETH confirmé.']

