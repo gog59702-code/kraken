@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="fr">
+<meta charset="utf-8">
+<title>MCP — Connexions</title>
+<style>
+  :root{
+    --bg:#0b0d10; --panel:#14181d; --line:#232a33; --fg:#e7ecf3; --dim:#8b98a8;
+    --ok:#3ddc84; --warn:#f5b942; --key:#7aa2f7; --oauth:#c792ea;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+       font:15px/1.55 ui-sans-serif,-apple-system,"Segoe UI",Roboto,sans-serif;
+       padding:40px 24px 80px}
+  .wrap{max-width:1080px;margin:0 auto}
+  h1{font-size:26px;margin:0 0 6px;letter-spacing:-.02em}
+  .sub{color:var(--dim);margin:0 0 32px;font-size:14px}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.12em;color:var(--dim);
+     margin:36px 0 12px;font-weight:600}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:13px 15px;
+        display:flex;flex-direction:column;gap:7px;transition:border-color .15s}
+  .card:hover{border-color:#38414e}
+  .card.done{opacity:.42}
+  .row{display:flex;align-items:center;gap:9px}
+  .name{font-weight:600;font-size:14px}
+  .badge{font-size:10.5px;padding:2px 7px;border-radius:20px;font-weight:700;letter-spacing:.04em}
+  .b-auth{background:rgba(199,146,234,.16);color:var(--oauth)}
+  .b-key{background:rgba(122,162,247,.16);color:var(--key)}
+  .b-ok{background:rgba(61,220,132,.14);color:var(--ok)}
+  .b-opt{background:rgba(245,185,66,.15);color:var(--warn)}
+  .hint{color:var(--dim);font-size:12.5px;line-height:1.45}
+  code{background:#0e1217;border:1px solid var(--line);border-radius:4px;
+       padding:1px 5px;font:12.5px ui-monospace,Consolas,monospace;color:#c3ccd9}
+  a{color:#8ab4f8;text-decoration:none;font-size:13px}
+  a:hover{text-decoration:underline}
+  .links{display:flex;flex-wrap:wrap;gap:14px}
+  input[type=checkbox]{accent-color:#3ddc84;width:15px;height:15px;cursor:pointer;margin:0}
+  label{display:flex;align-items:center;gap:8px;cursor:pointer;flex:1}
+  .bar{position:fixed;left:0;right:0;bottom:0;background:#0e1217;border-top:1px solid var(--line);
+       padding:10px 24px;font-size:13px;color:var(--dim);display:flex;justify-content:space-between}
+  .bar b{color:var(--fg)}
+  .note{background:#12161b;border:1px solid var(--line);border-left:3px solid var(--key);
+        border-radius:8px;padding:14px 16px;margin:0 0 8px;font-size:13.5px}
+</style>
+<div class="wrap">
+  <h1>Connexions MCP</h1>
+  <p class="sub">19 serveurs à autoriser · 10 clés API à créer · 9 déjà opérationnels</p>
+
+  <div class="note">
+    <b>OAuth</b> — dans opencode : tape <code>/mcps</code>, choisis le serveur, il ouvre le navigateur et
+    stocke le jeton tout seul. Le lien ci-dessous ne sert qu'à vérifier que tu es bien connecté au bon compte.
+  </div>
+
+  <h2>1 · OAuth — un clic via /mcps</h2>
+  <div class="grid" id="oauth"></div>
+
+  <h2>2 · Clés API — à coller dans les variables d'environnement</h2>
+  <div class="grid" id="keys"></div>
+
+  <h2>3 · Déjà connectés (vérifiés)</h2>
+  <div class="grid" id="ok"></div>
+</div>
+<div class="bar"><span>Progression : <b id="prog">0 / 0</b></span><span>état sauvegardé dans ce navigateur</span></div>
+<script>
+const OAUTH = [
+  ["vercel","Vercel","https://vercel.com/account","Compte Vercel — team concernée"],
+  ["linear","Linear","https://linear.app/settings/api","Workspace Linear"],
+  ["notion","Notion","https://www.notion.so","Espace de travail Notion"],
+  ["railway","Railway","https://railway.com/dashboard","Compte Railway"],
+  ["neon","Neon","https://console.neon.tech","Organisation Neon"],
+  ["supabase","Supabase","https://supabase.com/dashboard","Projet Supabase"],
+  ["figma","Figma","https://www.figma.com/files","Compte Figma (Dev/Full seat)"],
+  ["canva","Canva","https://www.canva.com/","Compte Canva"],
+  ["webflow","Webflow","https://webflow.com/dashboard","Site Webflow"],
+  ["airtable","Airtable","https://airtable.com/","Base Airtable"],
+  ["posthog","PostHog","https://app.posthog.com","Projet PostHog"],
+  ["calendly","Calendly","https://calendly.com/event_types","Compte Calendly"],
+  ["similarweb","Similarweb","https://www.similarweb.com/","Compte Similarweb (plan API)"],
+  ["windsor","Windsor.ai","https://onboard.windsor.ai","Connecteurs Windsor"],
+  ["clickhouse","ClickHouse Cloud","https://console.clickhouse.cloud","Service ClickHouse Cloud"],
+  ["replit","Replit","https://replit.com/","Compte Replit"],
+  ["tinyfish","TinyFish","https://agent.tinyfish.ai","Compte TinyFish"],
+  ["metricool","Metricool","https://app.metricool.com","Brand Metricool"],
+  ["cloudflare","Cloudflare (API)","https://dash.cloudflare.com","Compte Cloudflare"]
+];
+const KEYS = [
+  ["github","GitHub","GITHUB_PAT","https://github.com/settings/personal-access-tokens/new",
+   "Fine-grained, lecture/écriture sur les repos voulus + issues/PR"],
+  ["firecrawl","Firecrawl","FIRECRAWL_API_KEY","https://firecrawl.dev/app/api-keys",
+   "Plan gratuit : 500 crédits"],
+  ["ahrefs","Ahrefs","AHREFS_API_TOKEN","https://app.ahrefs.com/api-keys",
+   "Nécessite un plan API Ahrefs"],
+  ["render","Render","RENDER_API_KEY","https://dashboard.render.com/u/settings?add-api-key",
+   "Account Settings → API Keys"],
+  ["magicpath","MagicPath","MAGICPATH_API_TOKEN","https://magicpath.ai",
+   "Dashboard → API / MCP token"],
+  ["mongodb","MongoDB Atlas","MONGODB_URI","https://cloud.mongodb.com",
+   "Connect → Drivers → chaîne mongodb+srv://"],
+  ["gmail","Gmail","GOOGLE_MCP_CLIENT_ID / _SECRET","https://console.cloud.google.com/apis/credentials",
+   "Activer l'API Gmail, créer un client OAuth « Desktop »"],
+  ["google-calendar","Google Calendar","GOOGLE_MCP_CLIENT_ID / _SECRET","https://console.cloud.google.com/apis/library/calendar-json.googleapis.com",
+   "Même client que Gmail, activer l'API Calendar"],
+  ["asana","Asana","ASANA_CLIENT_ID / _SECRET","https://app.asana.com/0/my-apps",
+   "Create app → OAuth, redirect http://127.0.0.1:19876/callback"],
+  ["hubspot","HubSpot","HUBSPOT_CLIENT_ID / _SECRET","https://developers.hubspot.com/",
+   "Créer une app privée, redirect http://127.0.0.1:19877/callback"]
+];
+const OK = [
+  ["browse","26 outils","Chrome piloté, sessions réelles"],
+  ["madium","37 outils","Client de modules Madium"],
+  ["context7","2 outils","Docs à jour de 30k libs"],
+  ["cloudflare-docs","2 outils","Doc Cloudflare officielle"],
+  ["shopify","11 outils","Création de boutique"],
+  ["shopify-dev","5 outils","Docs + validation Liquid"],
+  ["filesystem","16 outils","4 dossiers autorisés"],
+  ["playwright","25 outils","Navigateur headless"],
+  ["chrome-devtools","33 outils","CDP : réseau, perf, console"]
+];
+const store = JSON.parse(localStorage.getItem('mcp-checks') || '{}');
+function make(host, item, cls, badgeText, badgeCls){
+  const [id, name] = item;
+  const el = document.createElement('div');
+  el.className = 'card' + (store[id] ? ' done' : '');
+  el.innerHTML = `
+    <div class="row">
+      <label><input type="checkbox" data-id="${id}" ${store[id]?'checked':''}>
+        <span class="name">${name}</span></label>
+      <span class="badge ${badgeCls}">${badgeText}</span>
+    </div>`;
+  return el;
+}
+// OAuth
+for (const [id,name,url,hint] of OAUTH){
+  const el = make('oauth',[id,name]);
+  el.insertAdjacentHTML('beforeend',
+    `<div class="hint">${hint}</div>
+     <div class="links"><a href="${url}" target="_blank" rel="noopener">Ouvrir ${name} ↗</a></div>`);
+  document.getElementById('oauth').appendChild(el);
+}
+// Keys
+for (const [id,name,vars,url,hint] of KEYS){
+  const el = make('keys',[id,name]);
+  el.insertAdjacentHTML('beforeend',
+    `<div class="hint">${hint}</div>
+     <div class="hint"><code>${vars}</code></div>
+     <div class="links"><a href="${url}" target="_blank" rel="noopener">Créer la clé ↗</a></div>`);
+  el.querySelector('.badge').outerHTML = '<span class="badge b-key">clé</span>';
+  document.getElementById('keys').appendChild(el);
+}
+document.querySelectorAll('#oauth .badge').forEach(b=>b.className='badge b-auth');
+document.querySelectorAll('#oauth .badge').forEach(b=>b.textContent='oauth');
+// OK
+for (const [name,tools,hint] of OK){
+  const el = document.createElement('div');
+  el.className='card';
+  el.innerHTML = `<div class="row"><span class="name">${name}</span>
+    <span class="badge b-ok">actif</span></div>
+    <div class="hint">${tools} · ${hint}</div>`;
+  document.getElementById('ok').appendChild(el);
+}
+function refresh(){
+  const boxes=[...document.querySelectorAll('#oauth input,#keys input')];
+  const n=boxes.filter(b=>b.checked).length;
+  document.getElementById('prog').textContent = n+' / '+boxes.length;
+}
+document.addEventListener('change', e=>{
+  if(e.target.matches('input[data-id]')){
+    store[e.target.dataset.id]=e.target.checked;
+    localStorage.setItem('mcp-checks',JSON.stringify(store));
+    e.target.closest('.card').classList.toggle('done',e.target.checked);
+    refresh();
+  }
+});
+refresh();
+</script>
+</html>

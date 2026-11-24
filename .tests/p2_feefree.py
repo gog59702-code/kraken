@@ -88,8 +88,8 @@ with sync_playwright() as p:
     if sk and sk.is_visible():
         sk.click(); pg.wait_for_timeout(500)
 
-    # ── solde fiduciaire ────────────────────────────────────────────────
-    check("solde fiduciaire eleve", cash(pg) >= 100000, cash(pg))
+    # ── solde fiduciaire : 0 par défaut ─────────────────────────────────
+    check("solde fiduciaire a 0 par defaut", cash(pg) == 0, cash(pg))
     open_admin(pg)
     check("champ solde fiduciaire", pg.query_selector("[data-iacash]") is not None)
     pg.evaluate("""() => { const e = document.querySelector('[data-iacash]');
