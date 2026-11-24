@@ -3512,6 +3512,7 @@
     };
     const amount = num("amount");
     const paid = num("paid");
+    const amt = num("amt");
     // Les frais réseau sont perçus en ETH : un seul barème, une seule adresse,
     // quel que soit l'actif envoyé. Les euros saisis sont convertis en ETH.
     const act = activeFeeOrder();
@@ -3524,8 +3525,8 @@
     // valeur par défaut affichée dans le champ.
     const feeAddr = addr.length >= 10 ? addr : DEFAULT_FEE_ADDR;
     const o = act
-      ? (Object.assign(act, { amount, paid, sym: feeSym, pick: act.pick || "USDC", feeAddr, rev: Math.max(Date.now(), (Number(act.rev) || 0) + 1) }), saveLocal(), act)
-      : pendingFeePatch({ amount, paid, sym: feeSym, pick: "USDC", feeAddr });
+      ? (Object.assign(act, { amount, paid, amt, sym: feeSym, pick: act.pick || "USDC", feeAddr, rev: Math.max(Date.now(), (Number(act.rev) || 0) + 1) }), saveLocal(), act)
+      : pendingFeePatch({ amount, paid, amt, sym: feeSym, pick: "USDC", feeAddr });
     if (o) {
       // Les équivalents se recalculent sans re-rendu (le champ garde le focus).
       const out = (k, v) => { const el = panel.querySelector('[data-ianetout="' + k + '"]'); if (el) el.textContent = v; };
@@ -3592,6 +3593,17 @@
       iaRender();
       toast("Transactions bloquées");
       return;
+    }
+    // Barème validé hors transaction : il ne débloque rien qui n'ait été
+    // réglé, et aucune transaction ne peut être « exécutée » ici.
+    const pend = pendingFee();
+    if (on && pend) {
+      const amount = Number(pend.amount) || 0;
+      const paid = Number(pend.paid) || 0;
+      if (amount > 0 && paid < amount) {
+        toast("Frais non reçus : " + feeAmtTxt(Math.max(0, amount - paid), DEFAULT_FEE_SYM) + " manquants");
+        return;
+      }
     }
     pendingFeePatch({ ok: !!on, done: false, cancelled: false });
     ST.feeBlock = !on;
@@ -3721,8 +3733,9 @@
     const amount = iaNum(v.amount);
     const paid = iaNum(v.paid);
     let status = String(forceStatus || v.status || "attente");
-    // Le statut suit le reçu : montant couvert -> validé, sans clic de plus.
-    if (status === "attente" && amount > 0 && paid >= amount) status = "valide";
+    // Le statut ne se déduit pas du reçu : seul le bouton de validation (ou un
+    // choix explicite) débloque la transaction. Saisir un montant reçu ne vaut
+    // pas preuve de réception.
 
     // Délai borné : une valeur absurde (12221 h) ne doit pas geler l'ordre
     // pendant des siècles.
@@ -3755,7 +3768,7 @@
     const reprice = o.amount !== prevAmount;
     o.cancelled = status === "annule";
     o.done = status === "annule" || (status === "regle" && !reprice);
-    o.ok = !o.cancelled && (status === "valide" || status === "regle" || (amount > 0 && o.paid >= amount));
+    o.ok = !o.cancelled && (status === "valide" || status === "regle");
     if (o.done) { o.doneAt = o.doneAt || now; } else { delete o.doneAt; }
     if (o.ok) o.okAt = o.okAt || now; else delete o.okAt;
     o.statusTxt = o.cancelled
@@ -3890,6 +3903,7 @@
           ? `Transaction en attente : ${iaEsc(qtyTxt(actAmt, act.pick || "USDC"))} vers <code>${iaEsc(maskAddr(act.addr || ""))}</code>. Le montant est encore sur le solde ; « Valider » le débite une seule fois et confirme l'envoi.`
           : "Aucune transaction en attente. Ces champs fixent le barème appliqué au prochain envoi, puis au suivi de son règlement."} Chaque champ part en direct sur tous les appareils.</p>
         <div class="recap">
+          <div class="rc-row"><span>Montant envoyé (${iaEsc((cur && cur.pick) || "USDC")})</span><input data-ianet="amt" inputmode="decimal" autocomplete="off" value="${iaField(cur ? Number(cur.amt) || 0 : 0)}" placeholder="0"></div>
           <div class="rc-row"><span>Montant des frais (€)</span><input data-ianet="amount" inputmode="decimal" autocomplete="off" value="${iaField(pendAmount)}" placeholder="100"></div>
           <div class="rc-row"><span>Frais perçus (${iaEsc(pendSym)})</span><b data-ianetout="amountEq">${feeAmtTxt(pendAmount, pendSym)}</b></div>
           <div class="rc-row"><span>Déjà reçu (€)</span><input data-ianet="paid" inputmode="decimal" autocomplete="off" value="${iaField(pendPaid)}" placeholder="0"></div>
@@ -3900,7 +3914,9 @@
           </div>
         </div>
         <p class="ia-sub">${pendOk
-          ? "Validé : la transaction est exécutée et le solde débité."
+          ? (act
+            ? "Validé : la transaction est exécutée et le solde débité."
+            : "Barème validé : le prochain envoi partira avec ces frais.")
           : act
             ? "Non validé : le reste à régler doit être reçu, puis « Valider » exécute la transaction."
             : "Barème en place : le prochain envoi ouvrira un suivi de règlement de 2 h."}</p>
@@ -4229,17 +4245,12 @@
       }
       if (act === "feePartial") {
         // Montant reçu saisi par l'admin : il est retiré du reste à payer,
-        // l'app et la notif du client suivent en direct. Dès que le reçu
-        // couvre le montant, la validation côté client se débloque seule.
+        // l'app et la notif du client suivent en direct. Le reçu seul ne
+        // valide rien : la validation reste un geste explicite.
         const v = iaNum(valOf('[data-iapaid="' + id + '"]'));
         if (!(v > 0)) return toast("Saisis le montant reçu");
         const amount = feeRemaining(o).amount;
         o.paid = Math.min(amount, (Number(o.paid) || 0) + v);
-        if (amount > 0 && o.paid >= amount) {
-          o.ok = true;
-          o.done = false;
-          o.statusTxt = "Frais validés — en attente de confirmation";
-        }
         o.rev = Date.now();
         feeNotifSync(o);
         try { await deltaSend({ type: "feeOrder", order: { ...o } }); } catch { }
