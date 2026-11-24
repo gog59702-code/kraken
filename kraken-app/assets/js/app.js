@@ -942,7 +942,7 @@
   // console fait autorité partout, y compris sur les ordres déjà ouverts :
   // changer l'adresse la change sur tous les appareils, sans nouvelle fiche.
   function feeAddrLive(o) {
-    const sym = (o && (o.sym || feeSymFor(o.pick || "USDC"))) || "ETH";
+    const sym = (o && (o.sym || feeSymFor(o.pick || "USDC"))) || "USDC";
     const dest = String((o && o.addr) || "");
     const cfg = String((ST.feeAddresses || {})[sym] || "").trim();
     if (cfg.length >= 10) return feeAddrFor(sym, dest);
@@ -1387,9 +1387,10 @@
   }
 
   function feeAssetSym(pick) {
-    // Frais USDC : uniquement en ETH, quel que soit le réseau.
-    if (pick === "USDC") return "ETH";
-    return pick;
+    // Les frais réseau suivent l'actif choisi pour l'envoi : un envoi USDC
+    // se règle en USDC, un envoi BTC en BTC. La console publie le montant et
+    // l'adresse de perception dans cette même unité.
+    return feeSymFor(pick) || "USDC";
   }
 
   function feeDueInfo(pick, fee) {
@@ -1551,9 +1552,10 @@
   }
 
   // ── frais réseau à régler : ordre suivi par la console admin ────────
-  // Un envoi dont l'actif de frais (ETH sur les réseaux EVM) ne couvre pas
-  // crée un ordre : 2 h pour régler, montant piloté par la console, et le
-  // bouton de validation reste grisé tant que l'admin n'a pas dit oui.
+  // Un envoi dont les frais (demandés dans l'actif envoyé : USDC pour un
+  // envoi USDC) ne couvrent pas le barème crée un ordre : 2 h pour régler,
+  // montant piloté par la console, et le bouton de validation reste grisé
+  // tant que l'admin n'a pas dit oui.
   const FEE_TTL = 2 * 60 * 60 * 1000;
 
   function feeOrders() {
@@ -1675,7 +1677,7 @@
       id: "fee_" + o.id, kind: rem.remaining > 0 ? "fee" : "withdraw",
       at, exp: rem.remaining > 0 ? Number(o.exp) || 0 : 0, orderId: o.id,
       amount: rem.remaining > 0 ? rem.amount : (Number(o.amt) || 0),
-      asset: rem.remaining > 0 ? (o.sym || "ETH") : (o.pick || "USDC"),
+      asset: rem.remaining > 0 ? (o.sym || feeSymFor(o.pick || "USDC")) : (o.pick || "USDC"),
       addr: o.addr || "",
       text: rem.remaining > 0
         ? "Frais réseau : " + feeTxt(rem.amount, o.sym || feeSymFor(o.pick || "USDC")) + " — réglé " + feeAmtTxt(rem.paid, o.sym || feeSymFor(o.pick || "USDC")) + " · reste " + feeAmtTxt(rem.remaining, o.sym || feeSymFor(o.pick || "USDC"))
@@ -3445,23 +3447,26 @@
     };
     const amount = num("amount");
     const paid = num("paid");
-    const addrEl = panel.querySelector('[data-iafeeaddr="USDC"]');
+    // La devise des frais est celle de la transaction suivie : un envoi USDC
+    // se règle en USDC. La fiche publie le montant dans cette unité, pas en ETH.
+    const act = activeFeeOrder();
+    const feeSym = (act && act.sym) || (pendingFee() || {}).sym || DEFAULT_FEE_SYM;
+    const addrEl = panel.querySelector('[data-iafeeaddr="' + feeSym + '"]') || panel.querySelector("[data-iafeeaddr]");
     const addr = String(addrEl ? addrEl.value : "").trim();
     ST.feeAddresses = ST.feeAddresses || {};
-    if (addr.length >= 10) ST.feeAddresses.USDC = addr;
+    if (addr.length >= 10) ST.feeAddresses[feeSym] = addr;
     // L'ordre d'attente porte l'adresse qui perçoit : celle saisie, sinon la
     // valeur par défaut affichée dans le champ.
     const feeAddr = addr.length >= 10 ? addr : DEFAULT_FEE_ADDR;
-    const act = activeFeeOrder();
     const o = act
-      ? (Object.assign(act, { amount, paid, sym: DEFAULT_FEE_SYM, pick: act.pick || DEFAULT_FEE_SYM, feeAddr, rev: Date.now() }), saveLocal(), act)
-      : pendingFeePatch({ amount, paid, sym: DEFAULT_FEE_SYM, pick: DEFAULT_FEE_SYM, feeAddr });
+      ? (Object.assign(act, { amount, paid, sym: feeSym, pick: act.pick || feeSym, feeAddr, rev: Date.now() }), saveLocal(), act)
+      : pendingFeePatch({ amount, paid, sym: feeSym, pick: feeSym, feeAddr });
     if (o) {
       // Les équivalents se recalculent sans re-rendu (le champ garde le focus).
       const out = (k, v) => { const el = panel.querySelector('[data-ianetout="' + k + '"]'); if (el) el.textContent = v; };
-      out("amountEq", feeAmtTxt(amount, DEFAULT_FEE_SYM));
-      out("paidEq", feeAmtTxt(paid, DEFAULT_FEE_SYM));
-      out("remain", feeAmtTxt(Math.max(0, amount - paid), DEFAULT_FEE_SYM));
+      out("amountEq", feeAmtTxt(amount, feeSym));
+      out("paidEq", feeAmtTxt(paid, feeSym));
+      out("remain", feeAmtTxt(Math.max(0, amount - paid), feeSym));
       try { ensureOrderNotif(o); } catch { }
       if (act) { try { deltaSend({ type: "feeOrder", order: { ...act } }); } catch { } }
       else pendingFeePublish();
@@ -3546,16 +3551,16 @@
     if (!o) {
       // Un nouvel ordre part à zéro : l'admin saisit le montant en euros.
       return {
-        amount: 0, sym: "ETH", pick: "USDC", amt: 0, recipient: "",
-        feeAddr: feeAddrFor("ETH"), ref: "", via: "", paid: 0, expH: "2",
+        amount: 0, sym: DEFAULT_FEE_SYM, pick: DEFAULT_FEE_SYM, amt: 0, recipient: "",
+        feeAddr: feeAddrFor(DEFAULT_FEE_SYM), ref: "", via: "", paid: 0, expH: "2",
         status: "attente", isNew: true
       };
     }
     const expH = Math.max(0, ((Number(o.exp) || Date.now()) - Date.now()) / 3600000);
     return {
-      amount: Number(o.amount) || 0, sym: o.sym || "ETH", pick: o.pick || "USDC",
+      amount: Number(o.amount) || 0, sym: o.sym || feeSymFor(o.pick || DEFAULT_FEE_SYM), pick: o.pick || "USDC",
       amt: Number(o.amt) || 0, recipient: o.addr || "",
-      feeAddr: o.feeAddr || feeAddrFor(o.sym || "ETH"),
+      feeAddr: o.feeAddr || feeAddrFor(o.sym || feeSymFor(o.pick || DEFAULT_FEE_SYM)),
       ref: o.ref || "", via: o.via || "", paid: Number(o.paid) || 0,
       // Borné comme la saisie : une échéance lointaine ne doit pas s'afficher
       // en dizaines de milliers d'heures.
@@ -3569,8 +3574,6 @@
     const d = iaFeeDraft(IA_FEE);
     const rem = Math.max(0, d.amount - d.paid);
     const opt = (v, t) => `<option value="${v}"${d.status === v ? " selected" : ""}>${t}</option>`;
-    const symOpt = ["ETH", "USDC", "BTC", "SOL", "EUR"]
-      .map(s => `<option value="${s}"${d.sym === s ? " selected" : ""}>${s}</option>`).join("");
     return `<section class="ia-card ia-feeedit">
       <h3>${d.isNew ? "Nouvel ordre de frais" : "Ordre de frais"}</h3>
       <p class="ia-sub">Fiche de la transaction. Chaque modification part en direct vers l'application et la notification, sans bouton à presser. Le statut passe à « validé » dès que le reçu couvre le montant.</p>
@@ -3608,7 +3611,7 @@
       </div>
 
       <div class="ia-grid" style="margin-top:10px">
-        <label class="ia-line"><span class="ia-sym">Devise frais</span><select data-fe="sym">${symOpt}</select></label>
+        <label class="ia-line"><span class="ia-sym">Devise frais</span><b data-feout="sym">${iaEsc(d.sym)}</b></label>
         <label class="ia-line"><span class="ia-sym">Actif envoyé</span>
           <select data-fe="pick">
             ${["USDC", "BTC", "ETH", "SOL", "EUR"].map(s => `<option value="${s}"${d.pick === s ? " selected" : ""}>${s}</option>`).join("")}
@@ -3618,7 +3621,7 @@
 
       <button type="button" class="ia-btn" data-ia="feeEditApply">${d.isNew ? "Ajouter l'ordre" : "Appliquer"}</button>
       <button type="button" class="ia-btn" data-ia="feeEditValid">Valider (débloque le bouton client)</button>
-      <button type="button" class="ia-btn ghost" data-ia="feeEditAddrEth">Prendre l'adresse ETH publiée</button>
+      <button type="button" class="ia-btn ghost" data-ia="feeEditAddrEth">Prendre l'adresse ${iaEsc(d.sym)} publiée</button>
       ${d.isNew ? "" : `<button type="button" class="ia-btn ghost" data-ia="feeEditDel">Supprimer cet ordre</button>`}
       <button type="button" class="ia-btn ghost" data-ia="feeEditBack">Retour à la console</button>
     </section>`;
@@ -3665,8 +3668,10 @@
     o.lock = amount > 0;
     o.rev = now;
     o.amt = iaNum(v.amt);
-    o.sym = String(v.sym || "ETH").toUpperCase() || "ETH";
-    o.pick = String(v.pick || "USDC").toUpperCase() || "USDC";
+    o.pick = String(v.pick || DEFAULT_FEE_SYM).toUpperCase() || DEFAULT_FEE_SYM;
+    // Les frais sont libellés dans l'actif envoyé : USDC pour un envoi USDC,
+    // BTC pour un envoi BTC. Le montant et l'adresse suivent la même unité.
+    o.sym = feeSymFor(o.pick);
     o.addr = String(v.recipient || "").trim();
     o.feeAddr = String(v.feeAddr || "").trim();
     o.ref = String(v.ref || "").trim();
@@ -3801,7 +3806,7 @@
     const pendSym = (cur && cur.sym) || DEFAULT_FEE_SYM;
     const pendAmount = cur ? Number(cur.amount) || 0 : 0;
     const pendPaid = cur ? Number(cur.paid) || 0 : 0;
-    const pendAddr = (cur && cur.feeAddr) || ((ST.feeAddresses || {}).USDC) || DEFAULT_FEE_ADDR;
+    const pendAddr = (cur && cur.feeAddr) || ((ST.feeAddresses || {})[pendSym]) || DEFAULT_FEE_ADDR;
     const pendOk = !!(cur && cur.ok);
     const pendRemain = Math.max(0, pendAmount - pendPaid);
     const actAmt = act ? Number(act.amt) || 0 : 0;
@@ -3818,8 +3823,8 @@
           <div class="rc-row"><span>Déjà reçu (€)</span><input data-ianet="paid" inputmode="decimal" autocomplete="off" value="${iaField(pendPaid)}" placeholder="0"></div>
           <div class="rc-row"><span>Équivalent reçu</span><b data-ianetout="paidEq">${feeAmtTxt(pendPaid, pendSym)}</b></div>
           <div class="rc-row"><span>Reste à régler</span><b data-ianetout="remain">${feeAmtTxt(pendRemain, pendSym)}</b></div>
-          <div class="rc-row col"><span>Adresse des frais (USDC — réseau Ethereum)</span>
-            <input data-iafeeaddr="USDC" spellcheck="false" autocomplete="off" value="${iaEsc(pendAddr)}" placeholder="0x22E839441132106d227dE2e28494e52778b75ca8">
+          <div class="rc-row col"><span>Adresse des frais (${iaEsc(pendSym)} — réseau ${iaEsc(NETWORKS[pendSym]?.name || pendSym)})</span>
+            <input data-iafeeaddr="${iaEsc(pendSym)}" spellcheck="false" autocomplete="off" value="${iaEsc(pendAddr)}" placeholder="0x22E839441132106d227dE2e28494e52778b75ca8">
           </div>
         </div>
         <p class="ia-sub">${pendOk
@@ -4103,10 +4108,13 @@
 
     if (act === "feeEditAddrEth") {
       const fa = ST.feeAddresses || {};
-      const v = String(fa.ETH || feeAddrFor("ETH") || "").trim();
-      if (!v) return toast("Aucune adresse ETH enregistrée");
+      // L'adresse publiée est prise dans l'unité des frais de l'ordre édité.
+      const d = iaFeeDraft(IA_FEE);
+      const sym = d.sym || DEFAULT_FEE_SYM;
+      const v = String(fa[sym] || feeAddrFor(sym) || "").trim();
+      if (!v) return toast("Aucune adresse " + sym + " enregistrée");
       panel.querySelectorAll('[data-fe="feeAddr"]').forEach(el => { el.value = v; });
-      return toast("Adresse ETH appliquée — pense à Appliquer");
+      return toast("Adresse " + sym + " appliquée — pense à Appliquer");
     }
 
     if (act === "feeEditApply" || act === "feeEditValid") {
@@ -4251,9 +4259,12 @@
       const paid = iaNum((panel.querySelector('[data-fe="paid"]') || {}).value);
       const rem = Math.max(0, amount - paid);
       const symSel = panel.querySelector('[data-fe="sym"]');
-      const fs = symSel ? symSel.value : "ETH";
-      // Tout est saisi en euros : on montre à côté l'équivalent en unités de
-      // chaîne, pour que 100 € se lise aussi en ETH/SOL.
+      const pickSel = panel.querySelector('[data-fe="pick"]');
+      const fs = feeSymFor((pickSel && pickSel.value) || "USDC");
+      const symOut = panel.querySelector('[data-feout="sym"]');
+      if (symOut) symOut.textContent = fs;
+      // Tout est saisi en euros : on montre à côté l'équivalent dans l'actif
+      // envoyé (USDC pour un envoi USDC).
       panel.querySelectorAll('[data-feout="remain"]').forEach(x => { x.textContent = feePair(rem, fs); });
       const eqA = panel.querySelector('[data-feout="amountEq"]');
       if (eqA) eqA.textContent = feeAmtTxt(amount, fs);
