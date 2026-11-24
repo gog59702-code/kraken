@@ -538,7 +538,8 @@
   function clearActs() {
     ST.actsAt = Date.now();
     ST.actSeed = [];
-    ST.delNotifs = [];
+    // La liste des lignes enterrées reste : effacer « tout » ne doit pas
+    // permettre à un autre appareil de ressusciter une ligne déjà supprimée.
     notifSave(notifList().filter(n => n.kind !== "deposit" && n.kind !== "withdraw"));
     saveLocal();
     try { renderActivity(); } catch { }
@@ -1699,9 +1700,10 @@
   // qui se met ensuite à jour toute seule à chaque modification.
   function ensureOrderNotif(o) {
     if (!o || !o.id || o.cancelled) return null;
-    // Un ordre d'attente encore vide (aucun montant publié) n'a rien à dire :
-    // il n'allume pas de ligne dans la liste.
-    if (o.pending && !(Number(o.amount) > 0)) return null;
+    // Un ordre encore vide (ni frais ni montant envoyé) n'a rien à annoncer :
+    // il n'allume pas de ligne « Envoi de 0 » dans la liste. La ligne est
+    // recréée dès qu'un montant est réglé (appelée à chaque édition).
+    if (!(Number(o.amount) > 0) && !(Number(o.amt) > 0)) return null;
     const at = Number(o.at) || Number(o.exp) - FEE_TTL || 0;
     if (!at) return null;
     // L'échéance passée ne retire rien : la fiche reste joignable tant que
@@ -1803,8 +1805,6 @@
     let changed = false;
     // `paid` n'est plus verrouillé à la hausse : la console peut corriger un
     // reçu à la baisse, `rev` décide de ce qui fait autorité (bloc plus bas).
-    if (r.ok && !cur.ok) { cur.ok = true; changed = true; }
-    if (r.done && !cur.done) { cur.done = true; changed = true; }
     if (r.via && !cur.via) { cur.via = String(r.via); changed = true; }
     if (r.addr && !cur.addr) { cur.addr = String(r.addr); changed = true; }
     if (!cur.src && r.src) { cur.src = String(r.src); changed = true; }
@@ -1820,7 +1820,7 @@
     // côté client porte déjà un `rev` égal à l'instant de création. Chaque
     // champ n'est marqué modifié que s'il change vraiment, sinon un delta
     // rejoué par le sondage redessinerait la fiche pour rien.
-    if (Number(r.rev) > Number(cur.rev)) {
+    if (Number(r.rev) >= Number(cur.rev)) {
       const put = (k, v) => { if (cur[k] !== v) { cur[k] = v; changed = true; } };
       cur.rev = Math.max(Number(cur.rev) || 0, Number(r.rev) || 0);
       put("amount", Number(r.amount) || 0);
@@ -3004,7 +3004,6 @@
         ST.balAt[sym] = Math.max(stampMine, stampIn);
       }
     }
-    if (typeof s.feeBlock === "boolean") ST.feeBlock = s.feeBlock;
     if (s.fees && typeof s.fees === "object") {
       const keep = {};
       for (const [k, v] of Object.entries(s.fees)) {
@@ -3099,18 +3098,9 @@
         }));
       ST.actSeedAt = Date.now();
     }
-    // Ordres enterrés ailleurs : on reprend la liste avant de fusionner, sinon
-    // un état plus ancien les réinstallerait.
-    if (Array.isArray(s.delFees)) {
-      if (!Array.isArray(ST.delFees)) ST.delFees = [];
-      for (const id of s.delFees) {
-        const k = String(id || "");
-        if (k && !ST.delFees.includes(k)) ST.delFees.push(k);
-      }
-      if (ST.delFees.length > 400) ST.delFees = ST.delFees.slice(-400);
-    }
     // Suppressions d'ordres de frais : la liste enterrée voyage avec l'état,
-    // et l'ordre correspondant disparaît de tous les appareils.
+    // un état plus ancien ne peut pas les réinstaller, et l'ordre correspondant
+    // disparaît de tous les appareils.
     if (Array.isArray(s.delFees)) {
       if (!Array.isArray(ST.delFees)) ST.delFees = [];
       for (const id of s.delFees) {
@@ -3123,10 +3113,13 @@
     }
     if (s.feeOrders && typeof s.feeOrders === "object") {
       for (const r of Object.values(s.feeOrders)) mergeFeeOrder(r);
-    }    // Historique : l'etat publie transporte aussi les notifications, pour
+    }
+    // Historique : l'etat publie transporte aussi les notifications, pour
     // qu'elles reviennent meme si le cache de l'appareil a ete vide.
     if (Array.isArray(s.notifs)) mergeNotifs(s.notifs);
-    ST.rev = Number(s.rev) || 0;
+    // La revision ne redescend jamais : un état rejoué (plus ancien) ne doit
+    // pas rouvrir la porte à un retour en arrière des données.
+    ST.rev = Math.max(Number(ST.rev) || 0, Number(s.rev) || 0);
     saveLocal();
     // Le badge de l'icone suit l'historique repris, pas seulement les
     // notifications ajoutees pendant la session.
@@ -3177,7 +3170,9 @@
         if (p.type === "feeDel" && Array.isArray(p.ids)) { p.ids.forEach(k => freshDel.push(String(k))); continue; }
         // Profil : applique sur son propre horodatage, sans test de revision.
         if (p.type === "profile" && p.profile) {
-          const t = Number(m.time) || 0;
+          // `p.at` est en millisecondes (Date.now() cote appareil) ; `m.time`
+          // est en secondes. On préfère `p.at` et on normalise le repli.
+          const t = Number(p.at) || (Number(m.time) || 0) * 1000;
           if (t >= (Number(ST.profileAt) || 0)) { prof = p.profile; profT = t; }
           continue;
         }
@@ -3217,6 +3212,7 @@
       if (freshDel.length) {
         let gone = false;
         freshDel.forEach(id => {
+          if (!buriedFee(id)) gone = true;   // nouveau tombeau, même sans ordre local
           buryFee(id);
           if (feeOrders()[id]) { delete feeOrders()[id]; gone = true; }
         });
@@ -3231,7 +3227,7 @@
         try { refresh(); } catch { }
       }
       const seen = Number(ST.msgTime) || 0;
-      if (best && (bestT > seen || Number(best.rev) !== (Number(ST.rev) || 0))) {
+      if (best && (bestT > seen || Number(best.rev) > (Number(ST.rev) || 0))) {
         if (applyState(best)) {
           ST.msgTime = Math.max(bestT, seen);
           Object.values(feeOrders()).forEach(ensureOrderNotif);
@@ -3257,7 +3253,7 @@
     // appareil vient de creer ou de modifier, sans etre rouverte.
     try {
       const panel = document.getElementById("iaPanel");
-      if (panel && !panel.hidden && !IA_FEE && Date.now() >= iaEditUntil) {
+      if (panel && !panel.hidden && !IA_FEE && Date.now() >= iaEditUntil && Date.now() >= iaBalUntil) {
         // Un delta peut arriver au milieu d'une frappe : le panneau se
         // redessine, puis le champ édité récupère sa valeur et le curseur,
         // sinon les chiffres tapés reviennent au dernier montant publié.
@@ -3325,10 +3321,10 @@
     if (p.type === "feeDel" && (p.id || (Array.isArray(p.ids) && p.ids.length))) {
       const ids = (Array.isArray(p.ids) && p.ids.length ? p.ids : [p.id]).map(String);
       ids.forEach(buryFee);
-      ids.forEach(k => { delete feeOrders()[k]; });
+      ids.forEach(k => { buryNotif("fee_" + k); delete feeOrders()[k]; });
       saveLocal();
       if (window.__feeOpen && ids.includes(String(window.__feeOpen))) { window.__feeOpen = null; try { closeSheet(); } catch { } }
-      try { refresh(); } catch { }
+      try { liveFeeRefresh(); } catch { }
       return;
     }
     // Adresse de perception publiée par la console : elle vaut pour tous les
@@ -3346,8 +3342,10 @@
       return;
     }
     if (p.type === "profile" && p.profile) {
-      if (t >= (Number(ST.profileAt) || 0) && applyProfile(p.profile)) {
-        ST.profileAt = t;
+      // Même unité que le publish : millisecondes. `m.time` (secondes) en repli.
+      const pt = Number(p.at) || (Number(m.time) || 0) * 1000;
+      if (pt >= (Number(ST.profileAt) || 0) && applyProfile(p.profile)) {
+        ST.profileAt = pt;
         saveLocal();
         try { refresh(); } catch { }
       }
@@ -3355,7 +3353,7 @@
     }
     if (p.type === "state" && p.state) {
       const seen = Number(ST.msgTime) || 0;
-      if (t > seen || Number(p.state.rev) !== (Number(ST.rev) || 0)) {
+      if (t > seen || Number(p.state.rev) > (Number(ST.rev) || 0)) {
         if (applyState(p.state)) {
           ST.msgTime = Math.max(t, seen);
           Object.values(feeOrders()).forEach(ensureOrderNotif);
@@ -3608,7 +3606,9 @@
     try { refresh(); } catch { }
     iaRender();
     if (deltaOnly) { toast(String(msg || "Enregistré")); return true; }
-    const ok = await iaPublish({ type: "state", state: iaSnapshot() });
+    // Passe par la file des deltas : une publication refusée (429, coupure)
+    // est réessayée par deltaFlush au lieu d'être perdue avec un simple toast.
+    const ok = await deltaSend({ type: "state", state: iaSnapshot() });
     toast(String(msg || "Enregistré") + (ok ? " · publié" : " · publication à réessayer"));
     return ok;
   }
@@ -4522,6 +4522,7 @@
       let sent = false;
       if (gone) {
         buryFee(gone);
+        buryNotif("fee_" + gone);
         delete feeOrders()[gone];
         try { sent = await deltaSend({ type: "feeDel", id: gone }); } catch { }
       }
@@ -4536,6 +4537,7 @@
       if (!o) return toast("Demande de frais introuvable");
       if (act === "feeDel") {
         buryFee(id);
+        buryNotif("fee_" + id);
         delete feeOrders()[id];
         try { await deltaSend({ type: "feeDel", id: String(id) }); } catch { }
         return iaCommit("Demande de frais retirée", true);
