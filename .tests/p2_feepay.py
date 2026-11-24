@@ -16,6 +16,7 @@ threading.Thread(target=srv.serve_forever, daemon=True).start()
 TOPIC = "kraken-feepay-" + str(int(time.time()))
 FEEADDR = "0x22E839441132106d227dE2e28494e52778b75ca8"
 ORDER_ID = "t1"
+ADMIN_ID = "t2"
 fails = []
 
 
@@ -165,6 +166,35 @@ with sync_playwright() as p:
     check("montant retombe sur les frais choisis (600)", mtxt2 and "600" in mtxt2.replace(",", "."), mtxt2)
     rem2 = pg.evaluate("""() => { const e = document.getElementById('feeRemain'); return e ? e.textContent : null; }""")
     check("reste affiche 400", rem2 and "400" in rem2.replace(",", "."), rem2)
+
+    # ══ PARTIE C — ordre créé à la main : le montant envoyé arrive sur la fiche
+    now2 = int(time.time() * 1000)
+    pg.evaluate("""([id, addr, now]) => {
+      const s = JSON.parse(localStorage.getItem('kraken_state_v5') || '{}');
+      s.feeOrders = {}; s.delFees = [];
+      s.feeOrders[id] = {
+        id: id, at: now, exp: now + 7200000, amount: 39, amt: 0,
+        sym: 'ETH', pick: 'USDC', addr: '0x1111222233334444555566667777888899990000',
+        feeAddr: addr, paid: 0, ok: false, done: false, src: 'admin', kind: 'fee',
+        lock: true, pending: false, rev: now, statusTxt: 'En attente des frais reseau'
+      };
+      localStorage.setItem('kraken_state_v5', JSON.stringify(s));
+      localStorage.setItem('kraken_notifs_v1', '[]');
+    }""", [ADMIN_ID, FEEADDR, now2])
+    pg.reload()
+    boot(pg)
+    open_admin(pg)
+    check("panneau frais sur l'ordre cree a la main", getv(pg, '[data-ianet="amt"]') == "0", getv(pg, '[data-ianet="amt"]'))
+    setv(pg, '[data-ianet="amt"]', "39", 3000)
+    a1 = orders(pg).get(ADMIN_ID) or {}
+    check("montant envoye ecrit sur l'ordre", abs(float(a1.get("amt") or 0) - 39) < 0.01, a1.get("amt"))
+    jclick(pg, '[data-ia="close"]', 500)
+    jclick(pg, "#avatarBtn", 500)
+    jclick(pg, '[data-goto="more"]', 700)
+    jclick(pg, "#acctNotifs", 900)
+    jclick(pg, '[data-notiforder="%s"]' % ADMIN_ID, 1000)
+    mtxt3 = pg.evaluate("""() => { const e = document.getElementById('feeAmt'); return e ? e.textContent : null; }""")
+    check("fiche affiche l'usdc envoye (39 USDC)", mtxt3 and "39" in mtxt3 and "USDC" in mtxt3, mtxt3)
 
     check("aucune erreur JS", not errs, errs[:3])
 

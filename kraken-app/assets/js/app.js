@@ -3681,7 +3681,22 @@
   // transaction en cours), sinon le modèle de barème qui alimente les
   // prochains envois.
   function adminFeeTarget() {
-    return activeFeeOrder() || pendingFee();
+    return consoleFeeTarget();
+  }
+
+  // Cible réelle du panneau frais : l'ordre ouvert dans la fiche, sinon la
+  // transaction en cours, sinon le dernier ordre créé à la main, sinon le
+  // barème. Sans ça, une saisie partait sur le barème pendant que la fiche
+  // affichait un ordre créé dans la console, qui gardait son ancien montant.
+  function consoleFeeTarget() {
+    const open = window.__feeOpen ? feeOrders()[window.__feeOpen] : null;
+    if (open && !open.done && !open.cancelled && !open.pending) return open;
+    const act = activeFeeOrder();
+    if (act) return act;
+    const recent = Object.values(feeOrders())
+      .filter(o => o && !o.done && !o.cancelled && !o.pending)
+      .sort((a, b) => (Number(b.at) || 0) - (Number(a.at) || 0))[0];
+    return recent || pendingFee();
   }
 
   // Écriture immédiate d'un champ de frais dans l'état, sans publication
@@ -3695,14 +3710,14 @@
     if (!el) return null;
     const val = Math.max(0, iaNum(el.value));
     const feeSym = DEFAULT_FEE_SYM;
-    const act = activeFeeOrder();
+    const act = consoleFeeTarget();
     const patch = { sym: feeSym };
     if (key === "amount") patch.amount = val;
     else if (key === "paid") patch.paid = val;
     else if (key === "amt") patch.amt = val;
     else return null;
     const bar = Object.assign({ pick: (act && act.pick) || "USDC", sym: feeSym }, patch);
-    if (act) { delete bar.paid; delete bar.amt; }
+    if (act && !act.pending) { delete bar.paid; delete bar.amt; }
     if (key === "amount") { bar.ok = false; bar.done = false; bar.cancelled = false; }
     pendingFeePatch(bar);
     if (act) {
@@ -3734,7 +3749,7 @@
     };
     // Les frais réseau sont perçus en ETH : un seul barème, une seule adresse.
     const feeSym = DEFAULT_FEE_SYM;
-    const act = activeFeeOrder();
+    const act = consoleFeeTarget();
     const patch = { sym: feeSym };
     if (only("amount")) patch.amount = num("amount") ?? 0;
     if (only("paid")) patch.paid = num("paid") ?? 0;
@@ -3748,7 +3763,7 @@
     // sans transaction en attente ils alimentent le barème, sinon ils ne
     // touchent que l'ordre en cours.
     const bar = Object.assign({ pick: (act && act.pick) || "USDC", sym: feeSym }, patch);
-    if (act) { delete bar.paid; delete bar.amt; }
+    if (act && !act.pending) { delete bar.paid; delete bar.amt; }
     // Un montant qui change rouvre le règlement : le barème redevient actif et
     // n'est plus validé, même si l'ancien ordre d'attente avait été terminé.
     if (Object.prototype.hasOwnProperty.call(patch, "amount")) {
@@ -4163,11 +4178,11 @@
         <button type="button" data-ia="delAct" data-actid="${iaEsc(x.id)}">Suppr.</button>
       </div>`).join("") : `<p class="ia-empty">Historique vide.</p>`;
 
-    // Fiche pilotée par la console : la transaction en attente de frais si elle
-    // existe, sinon le barème qui alimentera le prochain envoi.
+    // Fiche pilotée par la console : l'ordre ouvert dans l'app, sinon la
+    // transaction en cours, sinon le dernier ordre créé à la main, sinon le
+    // barème qui alimentera le prochain envoi.
     const act = activeFeeOrder();
-    const pend = pendingFee();
-    const cur = act || pend;
+    const cur = consoleFeeTarget();
     const pendSym = (cur && cur.sym) || DEFAULT_FEE_SYM;
     // Un ordre encore à 0 n'écrase pas le barème : on affiche la valeur réelle.
     // Un montant réglé par la console s'affiche tel quel : taper 600 € montre
