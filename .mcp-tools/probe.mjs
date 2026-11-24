@@ -55,6 +55,7 @@ async function httpProbe(url, headerPairs) {
     if (!res.ok) {
       throw new Error(`HTTP ${res.status} ${res.statusText}: ${text.slice(0, 300)}`);
     }
+    if (!text.trim()) return null; // notifications get 202/204 with no body
     const ct = res.headers.get("content-type") ?? "";
     if (ct.includes("text/event-stream")) {
       const events = text
