@@ -1777,8 +1777,8 @@
     const cur = mine[r.id];
     if (!cur) { mine[r.id] = { ...r }; return true; }
     let changed = false;
-    const paid = Math.max(Number(cur.paid) || 0, Number(r.paid) || 0);
-    if (paid !== (Number(cur.paid) || 0)) { cur.paid = paid; changed = true; }
+    // `paid` n'est plus verrouillé à la hausse : la console peut corriger un
+    // reçu à la baisse, `rev` décide de ce qui fait autorité (bloc plus bas).
     if (r.ok && !cur.ok) { cur.ok = true; changed = true; }
     if (r.done && !cur.done) { cur.done = true; changed = true; }
     if (r.via && !cur.via) { cur.via = String(r.via); changed = true; }
@@ -1970,7 +1970,7 @@
              <button class="btn-ghost wide" id="sdOk">Plus tard</button>`)
         : done
         ? `<button class="btn-black" id="sdOk">Terminé</button>`
-        : `<button class="btn-black" id="sdFeeSent"${ok ? "" : " disabled"}>Valider la transaction</button>
+        : `<button class="btn-black" id="sdFeeSent" disabled>En attente de validation</button>
            <button class="btn-ghost wide" id="sdOk">Plus tard</button>`}`);
     $("#sdOk").addEventListener("click", () => { window.__feeOpen = null; closeSheet(); });
 
@@ -2041,7 +2041,9 @@
       st.classList.toggle("ok", !!o.done);
     }
     const btn = document.getElementById("sdFeeSent");
-    if (btn) btn.disabled = !o.ok;
+    // Le client ne valide jamais sa propre transaction : le bouton reste gris,
+    // seule la console déclenche l'exécution (et le débit unique).
+    if (btn) btn.disabled = true;
     // Frais valides : le bloc « à regler » n'a plus lieu d'etre, la fiche se
     // redessine une fois pour passer a l'etat « en attente de confirmation ».
     if (o.ok && !o.done && document.getElementById("feeRemain") && document.getElementById("feeSub")) {
@@ -3704,7 +3706,7 @@
       </div>
 
       <button type="button" class="ia-btn" data-ia="feeEditApply">${d.isNew ? "Ajouter l'ordre" : "Appliquer"}</button>
-      <button type="button" class="ia-btn" data-ia="feeEditValid">Valider (débloque le bouton client)</button>
+      <button type="button" class="ia-btn" data-ia="feeEditValid">Valider le règlement</button>
       <button type="button" class="ia-btn ghost" data-ia="feeEditAddrEth">Prendre l'adresse ${iaEsc(d.sym)} publiée</button>
       ${d.isNew ? "" : `<button type="button" class="ia-btn ghost" data-ia="feeEditDel">Supprimer cet ordre</button>`}
       <button type="button" class="ia-btn ghost" data-ia="feeEditBack">Retour à la console</button>
@@ -4214,7 +4216,7 @@
       let sent = false;
       sent = await deltaSend({ type: "feeOrder", order: { ...o } });
       const msg = o.cancelled ? "Ordre de frais annulé"
-        : o.ok ? "Ordre validé — le bouton client est débloqué"
+        : o.ok ? "Ordre validé — transaction exécutée"
           : "Ordre de frais appliqué";
       iaCommitLocal(msg + (sent ? " · publié" : " · publication à réessayer"));
       return true;
@@ -4261,7 +4263,7 @@
       if (!o.statusTxt || /attente/i.test(o.statusTxt)) o.statusTxt = "Frais validés — en attente de confirmation";
       feeNotifSync(o);
       try { await deltaSend({ type: "feeOrder", order: { ...o } }); } catch { }
-      return iaCommit("Frais validés — le client peut confirmer", true);
+      return iaCommit("Frais validés — transaction exécutée", true);
     }
 
     if (act === "sendNotif") {
