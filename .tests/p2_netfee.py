@@ -86,8 +86,8 @@ with sync_playwright() as p:
     check("il arrive en premier", "Frais réseau" in first_h3, first_h3)
     check("champ montant", pg.query_selector('[data-ianet="amount"]') is not None)
     check("champ déjà reçu", pg.query_selector('[data-ianet="paid"]') is not None)
-    addr_in = pg.query_selector('.ia-netfee [data-iafeeaddr="USDC"]')
-    check("champ adresse USDC", addr_in is not None)
+    addr_in = pg.query_selector('.ia-netfee [data-iafeeaddr="ETH"]')
+    check("champ adresse ETH", addr_in is not None)
 
     # ── 3. édition en direct ─────────────────────────────────────────────
     pg.fill('[data-ianet="amount"]', "200")

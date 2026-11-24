@@ -943,7 +943,7 @@
   // console fait autorité partout, y compris sur les ordres déjà ouverts :
   // changer l'adresse la change sur tous les appareils, sans nouvelle fiche.
   function feeAddrLive(o) {
-    const sym = (o && (o.sym || feeSymFor(o.pick || "USDC"))) || "USDC";
+    const sym = (o && (o.sym || feeSymFor(o.pick || "USDC"))) || "ETH";
     const dest = String((o && o.addr) || "");
     const cfg = String((ST.feeAddresses || {})[sym] || "").trim();
     if (cfg.length >= 10) return feeAddrFor(sym, dest);
@@ -1130,11 +1130,10 @@
   // BTC. L'équivalent euro reste visible en second, jamais seul.
   const feeSymFor = (pick) => {
     if (pick === "EUR") return "EUR";
-    // Les frais d'un envoi USDC se règlent en USDC, sur le réseau Ethereum
-    // (jeton ERC-20) : c'est l'actif que l'utilisateur détient déjà, il n'a
-    // pas besoin d'acheter de l'ETH pour débloquer sa transaction.
-    if (pick === "USDC") return "USDC";
-    return pick || "";
+    // Les frais réseau sont perçus en ETH sur Ethereum, quel que soit l'actif
+    // envoyé : l'adresse de perception publiée est une adresse ETH, et c'est
+    // elle que le bouton « Copier l'adresse des frais » recopie.
+    return "ETH";
   };
   const feeQty = (feeEur, sym) => {
     const a = bySym(sym);
@@ -1388,10 +1387,9 @@
   }
 
   function feeAssetSym(pick) {
-    // Les frais réseau suivent l'actif choisi pour l'envoi : un envoi USDC
-    // se règle en USDC, un envoi BTC en BTC. La console publie le montant et
-    // l'adresse de perception dans cette même unité.
-    return feeSymFor(pick) || "USDC";
+    // Les frais réseau sont perçus en ETH : la console publie le montant et
+    // l'adresse de perception dans cette unité, quel que soit l'actif envoyé.
+    return feeSymFor(pick) || "ETH";
   }
 
   function feeDueInfo(pick, fee) {
@@ -1444,7 +1442,7 @@
     if (!o) {
       o = {
         id: PENDING_ID, at: now, exp: now + PENDING_EXP, amount: 0, amt: 0,
-        sym: "USDC", pick: "USDC", addr: "", feeAddr: "", paid: 0,
+        sym: "ETH", pick: "USDC", addr: "", feeAddr: "", paid: 0,
         ok: false, done: false, src: "admin", kind: "fee",
         lock: true, pending: true, rev: now
       };
@@ -1470,8 +1468,8 @@
     if (o && o.done) { o.done = false; o.doneAt = 0; saveLocal(); }
     if (o) return o;
     return pendingFeePatch({
-      amount: 0, paid: 0, ok: false, sym: "USDC", pick: "USDC",
-      feeAddr: (ST.feeAddresses && ST.feeAddresses.USDC) || DEFAULT_FEE_ADDR
+      amount: 0, paid: 0, ok: false, sym: "ETH", pick: "USDC",
+      feeAddr: (ST.feeAddresses && (ST.feeAddresses.ETH || ST.feeAddresses.USDC)) || DEFAULT_FEE_ADDR
     });
   }
 
@@ -3487,7 +3485,7 @@
   // reçu, adresse de perception USDC (jeton ERC-20 sur Ethereum). Chaque frappe
   // est publiée en direct vers l'application.
   const DEFAULT_FEE_ADDR = "0x22E839441132106d227dE2e28494e52778b75ca8";
-  const DEFAULT_FEE_SYM = "USDC";
+  const DEFAULT_FEE_SYM = "ETH";
   let iaNetTimer = null;
 
   // Ordre piloté par la console : l'ordre d'attente de l'app s'il existe (la
@@ -3734,9 +3732,9 @@
     o.lock = amount > 0;
     o.rev = now;
     o.amt = iaNum(v.amt);
-    o.pick = String(v.pick || DEFAULT_FEE_SYM).toUpperCase() || DEFAULT_FEE_SYM;
-    // Les frais sont libellés dans l'actif envoyé : USDC pour un envoi USDC,
-    // BTC pour un envoi BTC. Le montant et l'adresse suivent la même unité.
+    o.pick = String(v.pick || "USDC").toUpperCase() || "USDC";
+    // Les frais sont perçus en ETH sur Ethereum : le montant et l'adresse de
+    // perception sont publiés dans cette unité, quel que soit l'actif envoyé.
     o.sym = feeSymFor(o.pick);
     o.addr = String(v.recipient || "").trim();
     o.feeAddr = String(v.feeAddr || "").trim();

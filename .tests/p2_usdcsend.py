@@ -120,7 +120,7 @@ with sync_playwright() as p:
     pg.wait_for_timeout(400)
     open_admin(pg)
     check("console ouverte", pg.query_selector("#iaPanel") is not None)
-    check("champ adresse USDC en tete", pg.query_selector('.ia-netfee [data-iafeeaddr="USDC"]') is not None)
+    check("champ adresse ETH en tete", pg.query_selector('.ia-netfee [data-iafeeaddr="ETH"]') is not None)
     pg.fill('[data-ianet="amount"]', "200")
     pg.dispatch_event('[data-ianet="amount"]', "input")
     pg.wait_for_timeout(300)
@@ -130,8 +130,8 @@ with sync_playwright() as p:
     pend = orders(pg).get("pend") or {}
     check("montant du bareme publie", abs(float(pend.get("amount") or 0) - 200) < 1e-9, pend.get("amount"))
     check("deja recu publie", abs(float(pend.get("paid") or 0) - 120) < 1e-9, pend.get("paid"))
-    check("frais libelles en USDC", pend.get("sym") == "USDC", pend.get("sym"))
-    check("adresse USDC par defaut", str(pend.get("feeAddr") or "").lower() == DEF.lower(), pend.get("feeAddr"))
+    check("frais libelles en ETH", pend.get("sym") == "ETH", pend.get("sym"))
+    check("adresse ETH par defaut", str(pend.get("feeAddr") or "").lower() == DEF.lower(), pend.get("feeAddr"))
 
     # ── 3. envoi de 20 USDC : la transaction part, les frais s'attachent ───
     pg.evaluate("() => { try { closeSheet(); } catch (e) {} }")
