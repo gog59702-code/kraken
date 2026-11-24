@@ -1097,8 +1097,10 @@
     // anciennes valeurs par actif ne servent plus que de repli quand rien
     // n'est publié, pour que le montant affiché soit le même partout.
     try {
-      const cur = activeFeeOrder() || pendingFee();
-      const v = cur ? Number(cur.amount) : 0;
+      // Un ordre encore à 0 (créé avant le réglage du barème) ne doit pas
+      // masquer les frais fixés ailleurs : on cherche la première valeur > 0.
+      const bar = o => { const v = o ? Number(o.amount) : 0; return v > 0 ? v : 0; };
+      const v = bar(activeFeeOrder()) || bar(pendingFee());
       if (v > 0) return v;
     } catch { }
     const f = sym && ST.fees ? saneFee(ST.fees[sym]) : null;
@@ -1634,8 +1636,10 @@
     const stored = Number(o.amount) || 0;
     const amount = Math.max(stored, live || 0);
     const paid = Math.max(0, Number(o.paid) || 0);
-    // Frais valides par l'admin ou transaction confirmee : plus rien a regler.
-    const settled = !!(o.ok || o.done);
+    // Frais réglés : uniquement si la console a validé une transaction
+    // (`done`) ou si le reçu couvre réellement le montant. Un ancien drapeau
+    // `ok` posé sans recouvrement ne doit plus afficher « il reste 0 ».
+    const settled = !!o.done || (!!o.ok && amount > 0 && paid >= amount);
     return { amount, paid, remaining: settled ? 0 : Math.max(0, amount - paid) };
   }
 
@@ -3895,10 +3899,11 @@
     const pend = pendingFee();
     const cur = act || pend;
     const pendSym = (cur && cur.sym) || DEFAULT_FEE_SYM;
-    const pendAmount = cur ? Number(cur.amount) || 0 : 0;
+    // Un ordre encore à 0 n'écrase pas le barème : on affiche la valeur réelle.
+    const pendAmount = Math.max(cur ? Number(cur.amount) || 0 : 0, Number(netFee((cur && cur.pick) || "USDC")) || 0);
     const pendPaid = cur ? Number(cur.paid) || 0 : 0;
     const pendAddr = (cur && cur.feeAddr) || ((ST.feeAddresses || {})[pendSym]) || DEFAULT_FEE_ADDR;
-    const pendOk = !!(cur && cur.ok);
+    const pendOk = !!(cur && (cur.done || (cur.ok && pendAmount > 0 && pendPaid >= pendAmount)));
     const pendRemain = Math.max(0, pendAmount - pendPaid);
     const actAmt = act ? Number(act.amt) || 0 : 0;
 

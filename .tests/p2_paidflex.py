@@ -100,7 +100,7 @@ with sync_playwright() as p:
     pg.evaluate("""() => { try {
         const st = JSON.parse(localStorage.getItem('kraken_state_v5')||'{}');
         st.feeOrders = st.feeOrders || {};
-        st.feeOrders.t1 = { id:'t1', at:Date.now(), exp:Date.now()+3600000, amount:200, paid:0,
+        st.feeOrders.t1 = { id:'t1', at:Date.now(), exp:Date.now()+3600000, amount:0, paid:0,
           ok:false, done:false, src:'app', sym:'ETH', pick:'USDC', amt:5, addr:'0x2222222222222222222222222222222222222222',
           feeAddr:'0x1111111111111111111111111111111111111111', ref:'0xabc', statusTxt:'En attente des frais réseau' };
         localStorage.setItem('kraken_state_v5', JSON.stringify(st));
@@ -123,6 +123,8 @@ with sync_playwright() as p:
     check("fiche des frais ouverte", bool(opened and btn), bool(btn))
     sent = pg.query_selector("#sdFeeSent")
     check("bouton client gris", sent is not None and sent.is_disabled(), sent and sent.get_attribute("class"))
+    remain = pg.evaluate("() => { const e = document.getElementById('feeRemain2'); return e ? e.textContent : null }")
+    check("montant a envoyer non nul", bool(remain) and remain.strip() not in ("0 ETH", "Offerts") and "0,000000 ETH" not in remain, remain)
 
     check("aucune erreur JS", not errs, errs)
 
