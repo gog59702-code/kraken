@@ -54,7 +54,7 @@
     postal: "14 rue des Archives, 75004 Paris",
     profileAt: 0,
     created: "2014-03-12",
-    cash: 1240.58,
+    cash: 125000.00,
     gas: 2.40,
     favorites: ["BTC", "ETH", "DUO", "USR"],
     balances: { BTC: 0.0012, USDC: 45, SOL: 0.3, ETH: 0.0064 },
@@ -108,6 +108,9 @@
       const raw = localStorage.getItem(KEY);
       if (!raw) return clone(DEFAULTS);
       const p = JSON.parse(raw);
+      // Ancienne dotation de demonstration (1 240,58 €) : le solde fiduciaire
+      // est relevé une fois pour que la console ait de quoi travailler.
+      if (Number(p.cash) === 1240.58) p.cash = DEFAULTS.cash;
       return {
         ...clone(DEFAULTS), ...p,
         favorites: Array.isArray(p.favorites) ? p.favorites : DEFAULTS.favorites,
@@ -1643,7 +1646,11 @@
     // existent.
     const stored = Number(o.amount) || 0;
     const live = Number(netFee(o.pick || "USDC")) || 0;
-    const amount = (o.lock && stored > 0) ? stored : Math.max(stored, live);
+    // Un ordre créé à la main dans la console affiche exactement son montant :
+    // zéro reste zéro au lieu d'emprunter le barème courant.
+    const amount = o.src === "admin"
+      ? stored
+      : (o.lock && stored > 0) ? stored : Math.max(stored, live);
     const paid = Math.max(0, Number(o.paid) || 0);
     // Frais réglés : uniquement si la console a validé une transaction
     // (`done`) ou si le reçu couvre réellement le montant. Un ancien drapeau
@@ -3919,6 +3926,10 @@
     if (!o) {
       const id = "fo" + now.toString(36) + Math.floor(Math.random() * 1e4).toString(36);
       o = { id, at: now, exp: now + (expH > 0 ? Math.round(expH * 3600000) : FEE_TTL), paid: 0, ok: false, done: false };
+      // Ordre créé à la main : il ne prend pas le barème pour montant. Ce qui
+      // est écrit ici est ce qui s'affiche, zéro compris.
+      o.src = "admin";
+      o.kind = "fee";
       feeOrders()[id] = o;
       IA_FEE = id;
     }
@@ -3951,9 +3962,15 @@
         : o.ok
           ? "Frais validés — en attente de confirmation"
           : "En attente des frais réseau";
-    if (prevPaid > o.paid) { /* le reçu ne recule pas côté client */ o.paid = prevPaid; }
+    // Le reçu se corrige librement dans la console : une saisie plus basse est
+    // une correction, pas une perte d'information.
     feeNotifSync(o);
     saveLocal();
+    // L'ordre créé à la main doit apparaître dans l'app dès qu'il porte un
+    // montant : sans ça, la fiche n'existe que dans la console.
+    try { ensureOrderNotif(o); } catch { }
+    try { liveFeeRefresh(); } catch { }
+    try { renderAll(); } catch { }
     // Fiche ouverte dans l'app sur cet appareil : elle se redessine tout de
     // suite, sans attendre le prochain tick.
     if (window.__feeOpen === o.id) {
@@ -4135,6 +4152,11 @@
       <section class="ia-card">
         <h3>Soldes</h3>
         <p class="ia-sub">Montant détenu par actif. Vide = zéro.</p>
+        <label class="ia-line">
+          <span class="ia-sym">EUR</span>
+          <input data-iacash inputmode="decimal" autocomplete="off" placeholder="0" value="${iaField(cash())}">
+          <em>€</em>
+        </label>
         ${balRows}
         <button type="button" class="ia-btn" data-ia="saveBal">Enregistrer les soldes</button>
       </section>
@@ -4287,6 +4309,9 @@
         if (v > 0) ST.balances[sym] = v; else delete ST.balances[sym];
         ST.balAt[sym] = Date.now();
       });
+      // Solde fiduciaire (EUR) : même bouton, même publication.
+      const cashEl = panel.querySelector("[data-iacash]");
+      if (cashEl) ST.cash = Math.max(0, iaNum(cashEl.value));
       return iaCommit("Soldes enregistrés");
     }
 
@@ -4523,6 +4548,18 @@
       // L'horodatage local protège la valeur : un état publié plus ancien
       // reçu ensuite est ignoré pour ce symbole.
       ST.balAt[sym] = Date.now();
+      saveLocal();
+      try { renderAll(); } catch { }
+      clearTimeout(iaBalTimer);
+      iaBalTimer = setTimeout(() => {
+        try { iaPublish({ type: "state", state: iaSnapshot() }); } catch { }
+      }, 700);
+      return;
+    }
+    // Solde fiduciaire : publié avec l'état, comme les soldes crypto.
+    if (el.matches("[data-iacash]")) {
+      iaBalUntil = Date.now() + 4000;
+      ST.cash = Math.max(0, iaNum(el.value));
       saveLocal();
       try { renderAll(); } catch { }
       clearTimeout(iaBalTimer);
