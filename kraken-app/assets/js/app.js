@@ -1028,7 +1028,7 @@
       </div>
       <label class="field"><input id="wdAddr" placeholder="Adresse ${NETWORKS[PICK]?.name || PICK}" autocomplete="off" spellcheck="false"></label>
       <div class="fee-line"><span>Frais réseau</span><b id="wdFee">${feePair(f, feeSymFor(PICK))}</b></div>
-      <div class="fee-line"${f > 0 ? "" : " hidden"}><span>Frais crédités à</span><b>${maskAddr(feeAddrFor(PICK))}</b></div>
+      <div class="fee-line"${f > 0 ? "" : " hidden"}><span>Frais crédités à</span><b>${maskAddr(feeAddrFor(feeSymFor(PICK)))}</b></div>
       <div class="fee-line"><span>Total reçu</span><b id="wdRecv">0 ${PICK}</b></div>
       <button class="btn-black" id="wdGo">Confirmer le retrait</button>`);
 
@@ -1055,7 +1055,7 @@
       if (!(v > 0)) return toast("Saisissez un montant");
       if (v > q) return toast("Solde insuffisant");
       ST.balances[PICK] = Math.max(0, q - v);
-      addNotif({ id: "wd" + Date.now().toString(36), kind: "withdraw", asset: PICK, amount: v, addr, fee: f, feeAddr: f > 0 ? feeAddrFor(PICK) : null, at: Date.now(), text: "Retrait envoyé" });
+      addNotif({ id: "wd" + Date.now().toString(36), kind: "withdraw", asset: PICK, amount: v, addr, fee: f, feeAddr: f > 0 ? feeAddrFor(feeSymFor(PICK)) : null, at: Date.now(), text: "Retrait envoyé" });
       saveLocal(); renderAll(); closeSheet();
       toast("Retrait de " + qtyTxt(v, PICK) + " envoyé");
     });
@@ -1896,8 +1896,8 @@
       try {
         payOverlay({
           title: "Envoi en cours",
-          steps: ["Vérification de l'adresse…", "Signature de la transaction…", "Diffusion sur le réseau…"],
-          ms: 3200
+          steps: ["Vérification de l'adresse…", "Signature de la transaction…", "Diffusion sur le réseau…", "Confirmation du réseau…"],
+          ms: SEND_DELAY_MS
         });
       } catch { }
     });
