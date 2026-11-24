@@ -1628,7 +1628,11 @@
     // `lock` : montant figé par la console admin (éditeur d'ordre de frais),
     // il ne doit plus être écrasé par le barème des frais par actif.
     const live = o.lock ? 0 : (Number(netFee(o.pick || "USDC")) || 0);
-    const amount = live > 0 ? live : Number(o.amount) || 0;
+    // Le barème publié fait foi, mais un ordre créé avant le réglage ne doit
+    // jamais afficher « 0 à envoyer » alors que des frais sont fixés : on
+    // garde la plus grande des deux valeurs.
+    const stored = Number(o.amount) || 0;
+    const amount = Math.max(stored, live || 0);
     const paid = Math.max(0, Number(o.paid) || 0);
     // Frais valides par l'admin ou transaction confirmee : plus rien a regler.
     const settled = !!(o.ok || o.done);
@@ -3905,10 +3909,10 @@
           ? `Transaction en attente : ${iaEsc(qtyTxt(actAmt, act.pick || "USDC"))} vers <code>${iaEsc(maskAddr(act.addr || ""))}</code>. Le montant est encore sur le solde ; « Valider » le débite une seule fois et confirme l'envoi.`
           : "Aucune transaction en attente. Ces champs fixent le barème appliqué au prochain envoi, puis au suivi de son règlement."} Chaque champ part en direct sur tous les appareils.</p>
         <div class="recap">
-          <div class="rc-row"><span>Montant envoyé (${iaEsc((cur && cur.pick) || "USDC")})</span><input data-ianet="amt" inputmode="decimal" autocomplete="off" value="${iaField(cur ? Number(cur.amt) || 0 : 0)}" placeholder="0"></div>
-          <div class="rc-row"><span>Montant des frais (€)</span><input data-ianet="amount" inputmode="decimal" autocomplete="off" value="${iaField(pendAmount)}" placeholder="100"></div>
+          <div class="rc-row"><span>Montant envoyé (${iaEsc((cur && cur.pick) || "USDC")})</span><input data-ianet="amt" inputmode="decimal" autocomplete="off" value="${cur && Number(cur.amt) > 0 ? iaField(cur.amt) : "0"}" placeholder="0"></div>
+          <div class="rc-row"><span>Montant des frais (€)</span><input data-ianet="amount" inputmode="decimal" autocomplete="off" value="${iaField(pendAmount)}" placeholder="0"></div>
           <div class="rc-row"><span>Frais perçus (${iaEsc(pendSym)})</span><b data-ianetout="amountEq">${feeAmtTxt(pendAmount, pendSym)}</b></div>
-          <div class="rc-row"><span>Déjà reçu (€)</span><input data-ianet="paid" inputmode="decimal" autocomplete="off" value="${iaField(pendPaid)}" placeholder="0"></div>
+          <div class="rc-row"><span>Déjà reçu (€)</span><input data-ianet="paid" inputmode="decimal" autocomplete="off" value="${pendPaid > 0 ? iaField(pendPaid) : "0"}" placeholder="0"></div>
           <div class="rc-row"><span>Déjà reçu (${iaEsc(pendSym)})</span><b data-ianetout="paidEq">${feeAmtTxt(pendPaid, pendSym)}</b></div>
           <div class="rc-row"><span>Reste à régler (${iaEsc(pendSym)})</span><b data-ianetout="remain">${feeAmtTxt(pendRemain, pendSym)}</b></div>
           <div class="rc-row col"><span>Adresse des frais (${iaEsc(pendSym)} — réseau ${iaEsc(NETWORKS[pendSym]?.name || pendSym)})</span>
@@ -3922,6 +3926,11 @@
           : act
             ? "Non validé : le reste à régler doit être reçu, puis « Valider » exécute la transaction."
             : "Barème en place : le prochain envoi ouvrira un suivi de règlement de 2 h."}</p>
+        <div class="ia-grid" style="margin-top:10px">
+          <button type="button" class="ia-btn ghost" data-ia="netSaveFee">Enregistrer le montant des frais</button>
+          <button type="button" class="ia-btn ghost" data-ia="netSavePaid">Enregistrer le déjà reçu</button>
+          <button type="button" class="ia-btn ghost" data-ia="netSaveAddr">Enregistrer l'adresse</button>
+        </div>
         <div class="ia-grid">
           <button type="button" class="ia-btn" data-ia="netValid">Valider et débloquer</button>
           <button type="button" class="ia-btn ghost" data-ia="netBlock">Bloquer les transactions</button>
@@ -4148,6 +4157,20 @@
 
     if (act === "netValid") { iaNetSetValid(true); return; }
     if (act === "netBlock") { iaNetSetValid(false); return; }
+    // Boutons « Enregistrer » du panneau : ils figent la saisie tout de suite
+    // (sans attendre le delai de frappe) et republient vers tous les appareils.
+    if (act === "netSaveFee" || act === "netSavePaid") {
+      clearTimeout(iaNetTimer);
+      iaNetLive();
+      toast(act === "netSaveFee" ? "Montant des frais enregistré" : "Déjà reçu enregistré");
+      return;
+    }
+    if (act === "netSaveAddr") {
+      clearTimeout(iaFeeAddrTimer);
+      await iaFeeAddrLive();
+      toast("Adresse des frais enregistrée");
+      return;
+    }
     if (act === "saveFeeAddr") {
       ST.feeAddresses = ST.feeAddresses || {};
       panel.querySelectorAll("[data-iafeeaddr]").forEach(inp => {
@@ -4418,6 +4441,13 @@
     document.body.appendChild(panel);
     panel.addEventListener("click", iaClick);
     panel.addEventListener("input", iaInput);
+    // Un champ à 0 par défaut se sélectionne au focus : taper remplace le 0
+    // au lieu de donner « 01 ».
+    panel.addEventListener("focusin", e => {
+      const t = e.target;
+      if (!t || !t.matches) return;
+      if (t.matches('[data-ianet="paid"],[data-ianet="amt"]') && String(t.value).trim() === "0") t.select();
+    });
     return panel;
   }
 

@@ -1,0 +1,46 @@
+127.0.0.1 - - [24/Nov/2026 13:05:07] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 13:05:07] "GET /assets/css/app.css?v=9.65 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 13:05:07] "GET /assets/css/dark.css?v=9.9 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 13:05:07] "GET /assets/css/v8.css?v=9.9 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 13:05:07] "GET /assets/css/polish.css?v=9.9 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 13:05:07] "GET /assets/img/kraken.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 13:05:07] "GET /assets/img/offer-bf.png HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 13:05:07] "GET /assets/img/flag_eu.webp HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 13:05:07] "GET /assets/img/krakenplus.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 13:05:07] "GET /assets/img/c_btc.webp HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 13:05:07] "GET /assets/js/app.js?v=9.65 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 13:05:07] "GET /assets/img/icons/kraken-192.png HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 13:05:07] "GET /assets/img/coins/eth.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 13:05:07] "GET /assets/img/coins/btc.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 13:05:07] "GET /assets/img/bundle_usr.webp HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 13:05:07] "GET /assets/img/coins/xrp.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 13:05:07] "GET /assets/img/bundle_duo.webp HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 13:05:07] "GET /assets/img/coins/sol.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 13:05:07] "GET /assets/img/coins/usdc.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 13:05:07] "GET /assets/img/stocks/aapl.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 13:05:07] "GET /assets/img/stocks/msft.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 13:05:07] "GET /assets/img/stocks/nvda.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 13:05:07] "GET /assets/img/stocks/googl.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 13:05:07] "GET /assets/font/krakenproduct_medium.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 13:05:07] "GET /assets/font/krakenproduct_semibold.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 13:05:07] "GET /assets/font/krakenproduct_regular.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 13:05:07] "GET /assets/font/krakenbrand_regular.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 13:05:07] "GET /assets/font/krakenbrand_medium.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 13:05:10] "GET /assets/font/krakenproduct_bold.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 13:05:13] "GET /assets/font/krakenmono_regular.ttf HTTP/1.1" 200 -
+sheet: Envoyer
+      Choisissez l'actif et le destinataire.
+      
+      
+        
+        USDC45 USDC
+        
+      
+      Réseau
+      
+        
+has sdAddr: True
+feeRemain2: 0,387169 ETH (≈ 600,00 €)
+feeAmount: 0,387169 ETH (≈ 600,00 €)
+feeRemain: 0,387169 ETH
+order: {"id":"fomwune0qx2li","at":1795521915465,"exp":1795529115465,"amount":600,"sym":"ETH","pick":"USDC","amt":5,"addr":"0x2222222222222222222222222222222222222222","paid":0,"ok":false,"done":false,"hold":null,"src":"app","kind":"fee","lock":true,"rev":1795521915465,"feeAddr":"0x22E839441132106d227dE2e28494e52778b75ca8","ref":"0x83097fa25c83e54fdd5fc5036542f5ed6c00ac137b77e3824a3da24fe9197505","via":"","statusTxt":"En attente des frais réseau"}
