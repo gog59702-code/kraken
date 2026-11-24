@@ -1092,7 +1092,15 @@
     return Number.isFinite(n) && n >= 0 && n <= MAX_FEE ? n : null;
   };
   const netFee = (sym) => {
-    if (sym === "USDC") return cfgUsdcFee(USDC_NET);
+    // Un seul barème pour toute l'application : la valeur réglée dans la
+    // console (transaction en cours, sinon barème du prochain envoi). Les
+    // anciennes valeurs par actif ne servent plus que de repli quand rien
+    // n'est publié, pour que le montant affiché soit le même partout.
+    try {
+      const cur = activeFeeOrder() || pendingFee();
+      const v = cur ? Number(cur.amount) : 0;
+      if (v > 0) return v;
+    } catch { }
     const f = sym && ST.fees ? saneFee(ST.fees[sym]) : null;
     if (f !== null && f > 0) return f;
     const d = sym ? FEE_DEFAULT[sym] : NaN;
