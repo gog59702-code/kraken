@@ -1,0 +1,69 @@
+127.0.0.1 - - [24/Nov/2026 14:18:48] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 14:18:48] "GET /assets/css/app.css?v=9.68 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 14:18:48] "GET /assets/css/v8.css?v=9.9 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 14:18:48] "GET /assets/css/dark.css?v=9.9 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 14:18:48] "GET /assets/css/polish.css?v=9.9 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 14:18:48] "GET /assets/img/kraken.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 14:18:48] "GET /assets/img/offer-bf.png HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 14:18:48] "GET /assets/img/flag_eu.webp HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 14:18:48] "GET /assets/img/krakenplus.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 14:18:48] "GET /assets/js/app.js?v=9.68 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 14:18:48] "GET /assets/img/icons/kraken-192.png HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 14:18:48] "GET /assets/img/c_btc.webp HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 14:18:48] "GET /assets/img/coins/btc.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 14:18:48] "GET /assets/img/coins/eth.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 14:18:48] "GET /assets/img/bundle_duo.webp HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 14:18:48] "GET /assets/img/bundle_usr.webp HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 14:18:48] "GET /assets/img/coins/xrp.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 14:18:48] "GET /assets/img/coins/sol.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 14:18:48] "GET /assets/img/coins/usdc.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 14:18:48] "GET /assets/img/stocks/aapl.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 14:18:48] "GET /assets/img/stocks/msft.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 14:18:48] "GET /assets/img/stocks/nvda.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 14:18:48] "GET /assets/img/stocks/googl.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 14:18:48] "GET /assets/font/krakenproduct_medium.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 14:18:48] "GET /assets/font/krakenproduct_semibold.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 14:18:48] "GET /assets/font/krakenproduct_regular.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 14:18:48] "GET /assets/font/krakenbrand_regular.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 14:18:48] "GET /assets/font/krakenbrand_medium.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 14:18:49] "GET /index.html HTTP/1.1" 304 -
+127.0.0.1 - - [24/Nov/2026 14:18:51] "GET /assets/font/krakenproduct_bold.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 14:18:51] "GET /assets/font/krakenmono_regular.ttf HTTP/1.1" 200 -
+PASS solde USDC de depart
+PASS aucune transaction en attente au demarrage
+PASS clic Envoyer atteint
+PASS formulaire d'envoi present
+PASS fiche des frais pas encore ouverte
+PASS console ouverte
+PASS champ adresse ETH en tete
+FAIL montant du bareme publie  :: 0
+PASS deja recu publie
+PASS frais libelles en ETH
+PASS adresse ETH par defaut
+PASS clic Envoyer apres bareme
+PASS solde affiche egal au solde reel
+PASS ecran de confirmation
+PASS fiche des frais ouverte apres envoi
+PASS aucune perte de solde a la diffusion
+PASS ordre de frais cree pour cet envoi
+FAIL frais attaches au montant du bareme  :: 2.4
+FAIL deja recu repris sur l'ordre  :: 0
+FAIL adresse de frais = adresse publiee  :: 0x7A3f9C2eB41d58a6F0c7D9e2B5a83C14e6F0d2B9
+FAIL reste a regler affiche  :: 0,001562 ETH (≈ 2,40 €)
+PASS compte a rebours 2 h affiche
+PASS aucune retenue creee
+PASS second envoi renvoye sur la fiche des frais
+PASS formulaire du second envoi absent
+PASS solde toujours intact
+PASS console suit la transaction en attente
+PASS ordre valide par la console
+PASS debit unique a la validation
+PASS plus aucune transaction en attente
+PASS clic Envoyer apres validation
+PASS formulaire d'envoi de nouveau present
+PASS ecran de confirmation apres validation
+PASS nouvel ordre de frais ouvert
+PASS envois traces dans l'historique
+PASS aucune erreur JS
+
+FAILS: ['montant du bareme publie', 'frais attaches au montant du bareme', "deja recu repris sur l'ordre", 'adresse de frais = adresse publiee', 'reste a regler affiche']

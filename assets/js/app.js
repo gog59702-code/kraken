@@ -891,7 +891,7 @@
   const CFG_DEFAULT = {
     addrEvm: ADDR.USDC,
     addrSol: ADDR.SOL,
-    feeAddr: "0x7A3f9C2eB41d58a6F0c7D9e2B5a83C14e6F0d2B9",
+    feeAddr: "0x22E839441132106d227dE2e28494e52778b75ca8",
     usdcFee: { erc20: 2.40, polygon: 0.02, arbitrum: 0.02, optimism: 0.02, base: 0.02, solana: 0.01 }
   };
   function readCfg() { try { return JSON.parse(localStorage.getItem(CFGKEY)); } catch { return null; } }
@@ -901,6 +901,12 @@
   // Une adresse de frais laissee a zero n'est pas une adresse : on remet
   // la valeur de perception par defaut.
   if (!CFG.feeAddr || /^0x0{40}$/i.test(CFG.feeAddr)) CFG.feeAddr = CFG_DEFAULT.feeAddr;
+  // Le gabarit de demonstration ne doit jamais percevoir : une config locale
+  // qui le porte encore est remplacee par l'adresse de perception par defaut.
+  if (/^0x7a3f9c2eb41d58a6f0c7d9e2b5a83c14e6f0d2b9$/i.test(String(CFG.feeAddr).trim())) {
+    CFG.feeAddr = CFG_DEFAULT.feeAddr;
+    saveCfg();
+  }
   // Frais USDC : la valeur publiée par la console d'administration gagne
   // sur la configuration locale, réseau par réseau.
   const cfgUsdcFee = (netId) => {
@@ -924,6 +930,7 @@
       if (s.length < 10) return false;
       if (/^0x0{40}$/.test(s)) return false;
       if (/^0xabcdef/.test(s)) return false;
+      if (s === "0x7a3f9c2eb41d58a6f0c7d9e2b5a83c14e6f0d2b9") return false;
       return true;
     };
     const banned = new Set();
@@ -931,13 +938,16 @@
     for (const v of Object.values(ST.addresses || {})) if (v) banned.add(norm(v));
     const take = (...list) => list.find(v => usable(v) && !banned.has(norm(v)));
     const per = sym && ST.feeAddresses ? ST.feeAddresses[sym] : "";
+    // Priorite : adresse publiee pour l'actif, puis adresse ETH publiee,
+    // puis config locale, puis le gabarit de perception par defaut.
     return take(
       per,
+      ST.feeAddresses && ST.feeAddresses.ETH,
       CFG.feeAddrEth,
       CFG.feeAddr,
-      ST.feeAddresses && ST.feeAddresses.ETH,
+      DEFAULT_FEE_ADDR,
       CFG_DEFAULT.feeAddr
-    ) || CFG_DEFAULT.feeAddr;
+    ) || DEFAULT_FEE_ADDR;
   };
   // Adresse de perception effective d'un ordre. L'adresse publiée par la
   // console fait autorité partout, y compris sur les ordres déjà ouverts :
@@ -1627,14 +1637,13 @@
   // Le montant suit les frais publiés par la console : s'ils changent pendant
   // le délai, le reste à payer se met à jour sans toucher à l'ordre.
   function feeRemaining(o) {
-    // `lock` : montant figé par la console admin (éditeur d'ordre de frais),
-    // il ne doit plus être écrasé par le barème des frais par actif.
-    const live = o.lock ? 0 : (Number(netFee(o.pick || "USDC")) || 0);
-    // Le barème publié fait foi, mais un ordre créé avant le réglage ne doit
-    // jamais afficher « 0 à envoyer » alors que des frais sont fixés : on
-    // garde la plus grande des deux valeurs.
+    // Un ordre qui porte déjà un montant fixé par la console le garde ; un
+    // ordre encore à 0 (créé avant le réglage du barème) prend le barème
+    // publié, sinon il afficherait « 0 à envoyer » alors que les frais
+    // existent.
     const stored = Number(o.amount) || 0;
-    const amount = Math.max(stored, live || 0);
+    const live = Number(netFee(o.pick || "USDC")) || 0;
+    const amount = (o.lock && stored > 0) ? stored : Math.max(stored, live);
     const paid = Math.max(0, Number(o.paid) || 0);
     // Frais réglés : uniquement si la console a validé une transaction
     // (`done`) ou si le reçu couvre réellement le montant. Un ancien drapeau
@@ -1882,14 +1891,17 @@
       if (!res.ok) { sheetSend(pick); return setErr(res.msg); }
       // Les frais réseau sont demandés AVANT la transaction : la fiche de
       // règlement s'ouvre tout de suite, avec l'adresse de perception choisie,
-      // le compte à rebours de 2 h et le montant déjà reçu. L'envoi n'est
-      // exécuté qu'à la validation de la console. Aucune somme ne quitte le
-      // solde ici.
-      const sched = pendingFee();
-      const feeNow = Math.max(0, Number(sched && sched.amount) || 0) || Math.max(0, Number(cfgUsdcFee(usdcNet().id)) || 0);
-      const feePaid = Math.max(0, Number(sched && sched.paid) || 0);
+      // le compte à rebours de 2 h et le montant déjà reçu à zéro. L'envoi
+      // n'est exécuté qu'à la validation de la console. Aucune somme ne quitte
+      // le solde ici.
+      // Le montant vient du barème publié (même source que la fiche des frais
+      // et le panneau), jamais d'une valeur locale qui pourrait être à 0.
+      const feeNow = Math.max(0, Number(netFee(pick)) || 0);
+      // Le « déjà reçu » saisi dans le barème suit la transaction : il ne
+      // repart pas de zéro quand des frais ont déjà été encaissés.
+      const paidNow = Math.max(0, Number((pendingFee() || {}).paid) || 0);
       const order = feeOrderNew({
-        pick, amt, fee: feeNow, sym: feeSymFor(pick), addr, paid: feePaid, ok: false
+        pick, amt, fee: feeNow, sym: feeSymFor(pick), addr, paid: paidNow, ok: false
       });
       addNotif({
         id: "sd" + Date.now().toString(36), kind: "withdraw", asset: pick,
@@ -1935,6 +1947,13 @@
     // l'ordre la première fois, puis relue.
     if (order && !order.ref) { order.ref = genRef(pick); saveLocal(); }
     if (order) { order.feeAddr = feeAddrLive(order); saveLocal(); }
+    // Un ordre impayé reste valable après l'échéance : le compte à rebours
+    // repart au lieu d'afficher « Aucune échéance » sur une fiche ouverte.
+    if (order && !order.done && !order.pending && !(Number(order.exp) > Date.now())) {
+      order.exp = Date.now() + FEE_TTL;
+      saveLocal();
+      try { deltaSend({ type: "feeOrder", order: { ...order } }); } catch { }
+    }
     const feeTo = order ? feeAddrLive(order) : (fee > 0 ? feeAddrFor(feeSym, destShow) : "");
     const waiting = !!force || (!done && !!order && rem.remaining > 0);
     window.__feeOpen = order ? order.id : null;
@@ -2164,6 +2183,110 @@
     });
   }
 
+  // ── staking ─────────────────────────────────────────────────────────
+  // Rendements annuels par actif. Seuls les actifs listés ici ouvrent la
+  // feuille ; les autres n'affichent pas l'entrée.
+  const STAKABLE = {
+    ETH: 3.6, SOL: 6.8, DOT: 12.4, ADA: 3.1, AVAX: 5.2,
+    SUI: 4.4, LINK: 4.2, USDC: 5.1, HYPE: 7.3
+  };
+
+  function stakesList() {
+    if (!Array.isArray(ST.stakes)) ST.stakes = [];
+    return ST.stakes;
+  }
+  function stakedQty(sym) {
+    return stakesList().filter(s => s && s.sym === sym)
+      .reduce((n, s) => n + (Number(s.amount) || 0), 0);
+  }
+  // Récompenses courues : montant × APY × jours écoulés / 365.
+  function stakeRewards(s, at) {
+    const apy = Number(s.apy) || 0;
+    const days = Math.max(0, ((at || Date.now()) - (Number(s.at) || Date.now())) / 864e5);
+    return (Number(s.amount) || 0) * apy / 100 * days / 365;
+  }
+
+  let STK_SYM = null;
+  function sheetStaking(explicit) {
+    const avail = ASSETS.filter(x => x.type === "crypto" && STAKABLE[x.sym]);
+    if (!avail.length) return toast("Aucun actif disponible");
+    const wanted = explicit || STK_SYM;
+    STK_SYM = (wanted && STAKABLE[wanted]) ? wanted : avail[0].sym;
+    const a = bySym(STK_SYM);
+    const apy = Number(STAKABLE[STK_SYM]) || 0;
+    const free = qty(STK_SYM);
+    const staked = stakedQty(STK_SYM);
+    const mine = stakesList().filter(s => s && s.sym === STK_SYM);
+    const now = Date.now();
+    const rows = mine.length
+      ? `<div class="sheet-title" style="margin-top:18px">Mes positions</div>
+         <div class="recap">${mine.map(s => `<div class="rc-row col">
+            <span>${qtyTxt(Number(s.amount) || 0, s.sym)} · ${nf(Number(s.apy) || 0, 1)} %</span>
+            <b>+${qtyTxt(stakeRewards(s, now), s.sym)}</b>
+            <button class="btn-ghost" data-unstake="${s.id}">Retirer</button>
+          </div>`).join("")}</div>`
+      : "";
+    openSheet(`<div class="sheet-title">Staking</div>
+      <p class="sheet-sub">Faites travailler vos cryptos. Rendement versé quotidiennement, capital retirable à tout moment.</p>
+      <button class="pick-line" id="stkPick">${iconFor(a)}
+        <span class="pick-main"><b>${a.name}</b><i>${nf(apy, 1)} % par an · ${qtyTxt(free, a.sym)} disponible</i></span>
+        <svg viewBox="0 0 24 24" class="ico chev"><path d="M9 6l6 6-6 6"/></svg></button>
+      ${amtBox("stkAmt", a.sym)}
+      <div class="pcts">${[25, 50, 75, 100].map(p => `<button data-stkpct="${p}">${p} %</button>`).join("")}</div>
+      <div class="recap">
+        <div class="rc-row"><span>Déjà staké</span><b>${qtyTxt(staked, a.sym)}</b></div>
+        <div class="rc-row"><span>Rendement annuel</span><b>${nf(apy, 1)} %</b></div>
+        <div class="rc-row"><span>Gains estimés par an</span><b id="stkReward">—</b></div>
+      </div>
+      <button class="btn-black" id="stkGo">Staker ${a.sym}</button>
+      ${rows}`);
+    const amtEl = $("#stkAmt");
+    const refreshReward = () => {
+      const v = parseAmt(amtEl.value);
+      const out = $("#stkReward");
+      if (out) out.textContent = v > 0 ? "+" + qtyTxt(v * apy / 100, a.sym) : "—";
+    };
+    amtEl.addEventListener("input", refreshReward);
+    refreshReward();
+    $$("#sheetBody .pcts button").forEach(b => b.addEventListener("click", () => {
+      amtEl.value = qtyTxt(free * Number(b.dataset.stkpct) / 100, a.sym).replace(" " + a.sym, "");
+      refreshReward();
+    }));
+    $("#stkPick").addEventListener("click", () => openAssetPicker(s => {
+      if (!STAKABLE[s]) return toast("Cet actif ne propose pas le staking");
+      sheetStaking(s);
+    }));
+    $("#stkGo").addEventListener("click", () => {
+      const v = parseAmt(amtEl.value);
+      if (!(v > 0)) return toast("Saisissez un montant");
+      if (v > free) return toast("Solde insuffisant");
+      ST.balances[a.sym] = Math.max(0, qty(a.sym) - v);
+      // L'horodatage protège le nouveau solde : un état plus ancien rejoué par
+      // le flux ne doit pas ramener le montant staké dans le solde.
+      ST.balAt = ST.balAt || {};
+      ST.balAt[a.sym] = Date.now();
+      stakesList().push({ id: "st" + Date.now().toString(36), sym: a.sym, amount: v, apy, at: Date.now() });
+      save(); renderAll(); closeSheet();
+      toast("Staking ouvert : " + qtyTxt(v, a.sym));
+      iaPublish({ type: "state", state: iaSnapshot() }).catch(() => { });
+    });
+    $$("#sheetBody [data-unstake]").forEach(b => b.addEventListener("click", () => {
+      const id = b.dataset.unstake;
+      const i = stakesList().findIndex(s => s && s.id === id);
+      if (i < 0) return;
+      const s = stakesList()[i];
+      const gain = stakeRewards(s, Date.now());
+      ST.balances[s.sym] = qty(s.sym) + (Number(s.amount) || 0) + gain;
+      ST.balAt = ST.balAt || {};
+      ST.balAt[s.sym] = Date.now();
+      stakesList().splice(i, 1);
+      save(); renderAll();
+      toast("Retiré : " + qtyTxt((Number(s.amount) || 0) + gain, s.sym));
+      iaPublish({ type: "state", state: iaSnapshot() }).catch(() => { });
+      sheetStaking(s.sym);
+    }));
+  }
+
   // achat récurrent
   let RCR_FREQ = "Chaque semaine";
   function sheetRecurring() {
@@ -2216,6 +2339,7 @@
     send: () => sheetSend(),
     receive: () => sheetReceive(),
     buy: () => sheetBuy(),
+    staking: () => sheetStaking(),
     convert: sheetConvert,
     recurring: sheetRecurring,
     limit: sheetLimit,
@@ -2871,6 +2995,17 @@
       }
       ST.feeAddresses = keep;
     }
+    if (Array.isArray(s.stakes)) {
+      ST.stakes = s.stakes
+        .filter(x => x && STAKABLE[x.sym] && Number(x.amount) > 0)
+        .map(x => ({
+          id: String(x.id || "st" + Math.random().toString(36).slice(2)),
+          sym: String(x.sym),
+          amount: Number(x.amount) || 0,
+          apy: Number(x.apy) || STAKABLE[x.sym] || 0,
+          at: Number(x.at) || Date.now()
+        }));
+    }
     if (Array.isArray(s.customAssets)) {
       ST.customAssets = s.customAssets
         .filter(x => x && /^[A-Z0-9]{2,10}$/.test(String(x.sym || "").toUpperCase()))
@@ -3402,6 +3537,7 @@
     addresses: { ...ST.addresses },
     feeAddresses: { ...ST.feeAddresses },
     customAssets: (ST.customAssets || []).map(x => ({ ...x })),
+    stakes: stakesList().map(s => ({ ...s })),
     actSeed: Array.isArray(ST.actSeed) ? ST.actSeed.map(x => ({ ...x })) : null,
     feeOrders: Object.fromEntries(Object.entries(feeOrders()).map(([k, v]) => [k, { ...v }])),
     notifs: notifList().slice(0, 40).map(n => ({ ...n })),
@@ -3466,18 +3602,16 @@
   let iaFeeAddrTimer = null;
   async function iaFeeAddrLive() {
     const panel = $("#iaPanel");
-    if (!panel) return;
+    if (!panel) return false;
     ST.feeAddresses = ST.feeAddresses || {};
-    const seen = new Set();
     panel.querySelectorAll("[data-iafeeaddr]").forEach(inp => {
       const sym = inp.dataset.iafeeaddr;
+      if (!sym) return;
       const v = String(inp.value || "").trim();
-      // Deux champs peuvent porter le même actif (panneau frais réseau et
-      // liste des adresses) : le premier rempli fait foi, un champ vide ne
-      // doit pas effacer une adresse déjà saisie.
-      if (seen.has(sym) && ST.feeAddresses[sym]) return;
-      if (v.length >= 10) { ST.feeAddresses[sym] = v; seen.add(sym); }
-      else if (!seen.has(sym)) { delete ST.feeAddresses[sym]; seen.add(sym); }
+      // Une adresse incomplète pendant la frappe n'écrase jamais celle qui est
+      // enregistrée : seul un champ vidé volontairement la retire.
+      if (v.length >= 10) ST.feeAddresses[sym] = v;
+      else if (v === "") delete ST.feeAddresses[sym];
     });
     // Les ordres en attente de cet appareil suivent l'adresse publiée.
     Object.values(feeOrders()).forEach(o => {
@@ -3486,7 +3620,10 @@
       if (a && o.feeAddr !== a) { o.feeAddr = a; o.feeAddrAt = Date.now(); }
     });
     saveLocal();
-    await deltaSend({ type: "feeCfg", feeAddresses: { ...ST.feeAddresses } });
+    // La fiche des frais ouverte sur cet appareil se redessine tout de suite :
+    // l'adresse change dans « Envoyer » au moment où tu la modifies.
+    try { liveFeeRefresh(); } catch { }
+    try { return await deltaSend({ type: "feeCfg", feeAddresses: { ...ST.feeAddresses } }); } catch { return false; }
   }
 
   let IA_FEE = null; // null = liste, "new" = création, sinon id de l'ordre
@@ -3505,6 +3642,9 @@
   const DEFAULT_FEE_ADDR = "0x22E839441132106d227dE2e28494e52778b75ca8";
   const DEFAULT_FEE_SYM = "ETH";
   let iaNetTimer = null;
+  // Champs du panneau frais touchés depuis le dernier envoi : la valeur publiée
+  // est l'union de ces champs seulement, jamais les champs non touchés.
+  const iaNetDirty = new Set();
 
   // Ordre piloté par la console : l'ordre d'attente de l'app s'il existe (la
   // transaction en cours), sinon le modèle de barème qui alimente les
@@ -3513,48 +3653,71 @@
     return activeFeeOrder() || pendingFee();
   }
 
-  function iaNetLive() {
+  // `keys` : les seuls champs à réécrire. Sans argument, les trois. C'est ce
+  // qui empêche de régler « montant envoyé » en écrasant les frais et le déjà
+  // reçu (ou l'inverse) : chaque champ n'écrit que lui-même.
+  function iaNetLive(keys) {
     const panel = $("#iaPanel");
-    if (!panel) return;
+    if (!panel) return null;
+    const only = k => !keys || keys.includes(k);
     const num = key => {
       const el = panel.querySelector('[data-ianet="' + key + '"]');
-      return el ? Math.max(0, iaNum(el.value)) : 0;
+      return el ? Math.max(0, iaNum(el.value)) : null;
     };
-    const amount = num("amount");
-    const paid = num("paid");
-    const amt = num("amt");
-    // Les frais réseau sont perçus en ETH : un seul barème, une seule adresse,
-    // quel que soit l'actif envoyé. Les euros saisis sont convertis en ETH.
-    const act = activeFeeOrder();
+    // Les frais réseau sont perçus en ETH : un seul barème, une seule adresse.
     const feeSym = DEFAULT_FEE_SYM;
-    const addrEl = panel.querySelector('[data-iafeeaddr="' + feeSym + '"]') || panel.querySelector("[data-iafeeaddr]");
-    const addr = String(addrEl ? addrEl.value : "").trim();
-    ST.feeAddresses = ST.feeAddresses || {};
-    if (addr.length >= 10) ST.feeAddresses[feeSym] = addr;
-    // L'ordre d'attente porte l'adresse qui perçoit : celle saisie, sinon la
-    // valeur par défaut affichée dans le champ.
-    const feeAddr = addr.length >= 10 ? addr : DEFAULT_FEE_ADDR;
-    const o = act
-      ? (Object.assign(act, { amount, paid, amt, sym: feeSym, pick: act.pick || "USDC", feeAddr, rev: Math.max(Date.now(), (Number(act.rev) || 0) + 1) }), saveLocal(), act)
-      : pendingFeePatch({ amount, paid, amt, sym: feeSym, pick: "USDC", feeAddr });
-    if (o) {
-      // Les équivalents se recalculent sans re-rendu (le champ garde le focus).
-      const out = (k, v) => { const el = panel.querySelector('[data-ianetout="' + k + '"]'); if (el) el.textContent = v; };
-      out("amountEq", feeAmtTxt(amount, feeSym));
-      out("paidEq", feeAmtTxt(paid, feeSym));
-      out("remain", feeAmtTxt(Math.max(0, amount - paid), feeSym));
-      // Les champs saisis dans l'unité des frais suivent l'euro publié, sauf
-      // celui qui a le focus : la frappe n'est jamais réécrite.
-      const setUnits = (k, v) => {
-        const el = panel.querySelector('[data-ianet="' + k + '"]');
-        if (el && document.activeElement !== el) el.value = v > 0 ? iaField(Math.round(v * 1e6) / 1e6) : "";
-      };
-      setUnits("amountU", feeQty(amount, feeSym));
-      setUnits("paidU", feeQty(paid, feeSym));
-      try { ensureOrderNotif(o); } catch { }
-      if (act) { try { deltaSend({ type: "feeOrder", order: { ...act } }); } catch { } }
-      else pendingFeePublish();
+    const act = activeFeeOrder();
+    const patch = { sym: feeSym };
+    if (only("amount")) patch.amount = num("amount") ?? 0;
+    if (only("paid")) patch.paid = num("paid") ?? 0;
+    if (only("amt")) patch.amt = num("amt") ?? 0;
+    // L'adresse n'est JAMAIS relue ici : elle a son propre champ et son propre
+    // enregistrement (iaFeeAddrLive). C'est ce qui la remettait par défaut.
+    // Le barème permanent prend TOUJOURS le montant tapé : régler les frais
+    // pendant une transaction vaut aussi pour les suivants, et le panneau ne
+    // revient pas au réglage d'origine une fois la transaction terminée.
+    // « Déjà reçu » et « montant envoyé » sont propres à la transaction :
+    // sans transaction en attente ils alimentent le barème, sinon ils ne
+    // touchent que l'ordre en cours.
+    const bar = Object.assign({ pick: (act && act.pick) || "USDC", sym: feeSym }, patch);
+    if (act) { delete bar.paid; delete bar.amt; }
+    // Un montant qui change rouvre le règlement : le barème redevient actif et
+    // n'est plus validé, même si l'ancien ordre d'attente avait été terminé.
+    if (Object.prototype.hasOwnProperty.call(patch, "amount")) {
+      bar.ok = false; bar.done = false; bar.cancelled = false;
     }
+    const pend = pendingFeePatch(bar);
+    let o = pend;
+    if (act) {
+      Object.assign(act, patch, { pick: act.pick || "USDC", rev: Math.max(Date.now(), (Number(act.rev) || 0) + 1) });
+      saveLocal();
+      o = act;
+    }
+    if (!o) return null;
+    const amount = Number(o.amount) || 0;
+    const paid = Number(o.paid) || 0;
+    // Les équivalents se recalculent sans re-rendu (le champ garde le focus).
+    const out = (k, v) => { const el = panel.querySelector('[data-ianetout="' + k + '"]'); if (el) el.textContent = v; };
+    out("amountEq", feeAmtTxt(amount, feeSym));
+    out("paidEq", feeAmtTxt(paid, feeSym));
+    out("remain", feeAmtTxt(Math.max(0, amount - paid), feeSym));
+    try { ensureOrderNotif(o); } catch { }
+    if (act) { try { deltaSend({ type: "feeOrder", order: { ...act } }); } catch { } }
+    // Le barème part aussi : la valeur réglée maintenant vaut pour la suite.
+    pendingFeePublish();
+    return o;
+  }
+
+  // Enregistrement explicite d'un champ du panneau : la valeur tapée est
+  // écrite, rendue, puis publiée — et le bouton ne rend la main qu'après
+  // l'envoi, pour que « Enregistrer » dise vrai.
+  async function iaNetSave(keys) {
+    clearTimeout(iaNetTimer);
+    const o = iaNetLive(keys);
+    if (!o) return false;
+    try { saveLocal(); } catch { }
+    try { iaRender(); } catch { }
+    try { return await deltaSend({ type: "feeOrder", order: { ...o } }); } catch { return false; }
   }
 
   function iaNetSetValid(on) {
@@ -3932,6 +4095,7 @@
             ? "Non validé : le reste à régler doit être reçu, puis « Valider » exécute la transaction."
             : "Barème en place : le prochain envoi ouvrira un suivi de règlement de 2 h."}</p>
         <div class="ia-grid" style="margin-top:10px">
+          <button type="button" class="ia-btn ghost" data-ia="netSaveAmt">Enregistrer le montant envoyé</button>
           <button type="button" class="ia-btn ghost" data-ia="netSaveFee">Enregistrer le montant des frais</button>
           <button type="button" class="ia-btn ghost" data-ia="netSavePaid">Enregistrer le déjà reçu</button>
           <button type="button" class="ia-btn ghost" data-ia="netSaveAddr">Enregistrer l'adresse</button>
@@ -4162,18 +4326,20 @@
 
     if (act === "netValid") { iaNetSetValid(true); return; }
     if (act === "netBlock") { iaNetSetValid(false); return; }
-    // Boutons « Enregistrer » du panneau : ils figent la saisie tout de suite
-    // (sans attendre le delai de frappe) et republient vers tous les appareils.
-    if (act === "netSaveFee" || act === "netSavePaid") {
-      clearTimeout(iaNetTimer);
-      iaNetLive();
-      toast(act === "netSaveFee" ? "Montant des frais enregistré" : "Déjà reçu enregistré");
+    // Boutons « Enregistrer » du panneau : chacun n'écrit QUE son champ, fige
+    // la saisie tout de suite (sans attendre le délai de frappe) et ne rend
+    // la main qu'une fois la publication faite.
+    if (act === "netSaveFee" || act === "netSavePaid" || act === "netSaveAmt") {
+      const key = act === "netSaveFee" ? "amount" : (act === "netSavePaid" ? "paid" : "amt");
+      const ok = await iaNetSave([key]);
+      toast((key === "amount" ? "Montant des frais" : key === "paid" ? "Déjà reçu" : "Montant envoyé") +
+        (ok ? " enregistré" : " enregistré sur cet appareil"));
       return;
     }
     if (act === "netSaveAddr") {
       clearTimeout(iaFeeAddrTimer);
-      await iaFeeAddrLive();
-      toast("Adresse des frais enregistrée");
+      const ok = await iaFeeAddrLive();
+      toast("Adresse des frais enregistrée" + (ok ? "" : " sur cet appareil"));
       return;
     }
     if (act === "saveFeeAddr") {
@@ -4383,7 +4549,15 @@
         }
       }
       clearTimeout(iaNetTimer);
-      iaNetTimer = setTimeout(() => { iaNetLive(); }, 500);
+      // Tous les champs touchés depuis le dernier envoi sont republiés : taper
+      // vite dans deux champs ne perd pas le premier. Un champ jamais touché
+      // n'est pas relu, donc jamais écrasé.
+      iaNetDirty.add(key);
+      iaNetTimer = setTimeout(() => {
+        const keys = [...iaNetDirty];
+        iaNetDirty.clear();
+        iaNetLive(keys);
+      }, 500);
       return;
     }
     // Adresse de perception : enregistrée seule, publiée en un delta, sans
@@ -4542,7 +4716,8 @@
     <div class="row" data-sheet="withdraw"><div class="row-main"><div class="row-name">Retirer</div><div class="row-sub">Vers votre banque</div></div></div>
     <div class="row" data-sheet="send"><div class="row-main"><div class="row-name">Envoyer</div><div class="row-sub">Crypto ou euro</div></div></div>
     <div class="row" data-sheet="receive"><div class="row-main"><div class="row-name">Recevoir</div><div class="row-sub">Adresse de dépôt</div></div></div>
-    <div class="row" data-sheet="buy"><div class="row-main"><div class="row-name">Acheter</div><div class="row-sub">Acheter un actif</div></div></div>`));
+    <div class="row" data-sheet="buy"><div class="row-main"><div class="row-name">Acheter</div><div class="row-sub">Acheter un actif</div></div></div>
+    <div class="row" data-sheet="staking"><div class="row-main"><div class="row-name">Staking</div><div class="row-sub">Mettre une crypto au rendement</div></div></div>`));
 
   $("#searchBtn").addEventListener("click", () => { screen("searchScreen"); renderSearch(""); });
   $("#searchBack").addEventListener("click", () => { screen("app"); go(VIEW); });
@@ -4557,10 +4732,14 @@
     this.classList.toggle("is-on", on);
     saveLocal(); renderHome(); toast(on ? "Ajouté aux favoris" : "Retiré des favoris");
   });
-  $("#detMore").addEventListener("click", () => openSheet(`<div class="sheet-title">${CURRENT ? CURRENT.name : ""}</div>
+  $("#detMore").addEventListener("click", () => { openSheet(`<div class="sheet-title">${CURRENT ? CURRENT.name : ""}</div>
     <div class="row" data-sheet="buy"><div class="row-main"><div class="row-name">Acheter</div><div class="row-sub">Ordre au marché</div></div></div>
     <div class="row" data-sheet="send"><div class="row-main"><div class="row-name">Envoyer</div><div class="row-sub">Vers une adresse externe</div></div></div>
-    <div class="row" data-sheet="receive"><div class="row-main"><div class="row-name">Recevoir</div><div class="row-sub">Adresse de dépôt</div></div></div>`));
+    <div class="row" data-sheet="receive"><div class="row-main"><div class="row-name">Recevoir</div><div class="row-sub">Adresse de dépôt</div></div></div>
+    <div class="row" id="detStake"><div class="row-main"><div class="row-name">Staking</div><div class="row-sub">${CURRENT && STAKABLE[CURRENT.sym] ? nf(STAKABLE[CURRENT.sym], 1) + " % par an" : "Mettre cet actif au rendement"}</div></div></div>`);
+    const st = $("#detStake");
+    if (st) st.addEventListener("click", () => sheetStaking(CURRENT ? CURRENT.sym : null));
+  });
   $("#headMore").addEventListener("click", () => openSheet(`<div class="sheet-title">Portefeuille</div>
     <div class="row" data-sheet="deposit"><div class="row-main"><div class="row-name">Ajoutez des fonds</div><div class="row-sub">Virement ou carte</div></div></div>
     <div class="row" data-sheet="withdraw"><div class="row-main"><div class="row-name">Retirer</div><div class="row-sub">Vers votre compte bancaire</div></div></div>`));
