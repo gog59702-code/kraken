@@ -1953,7 +1953,9 @@
     // fiche des frais et bloque tout le reste tant qu'il n'est pas validé.
     const pend = !!(order && order.pending);
     const refShow = (order && order.ref) || genRef(pick);
-    const amtShow = (order && Number(order.amt) > 0) ? Number(order.amt) : amt;
+    const amtShow = (order && Number(order.amt) > 0)
+      ? Number(order.amt)
+      : (Number((pendingFee() || {}).amt) > 0 ? Number(pendingFee().amt) : amt);
     const destShow = (order && order.addr) ? order.addr : addr;
     const feeNow = rem ? rem.amount : fee;
     const statusTxt = (order && order.statusTxt)
@@ -1991,7 +1993,7 @@
         ${pend ? "" : `<div class="rc-row"><span>Actif</span><b id="feeAsset">${aName}</b></div>
         <div class="rc-row"><span>Réseau</span><b id="feeNet">${netNow}</b></div>
         <div class="rc-row col"><span>Destinataire</span><code id="feeDest">${maskAddr(destShow)}</code></div>
-        <div class="rc-row"><span>Montant</span><b id="feeAmt">${amtShow > 0 ? (pick === "EUR" ? eur(amtShow, 2) : qtyTxt(amtShow, pick)) : eur(feeNow, 2)}</b></div>
+        <div class="rc-row"><span>Montant</span><b id="feeAmt">${pick === "EUR" ? eur(amtShow, 2) : qtyTxt(amtShow, pick)}</b></div>
         <div class="rc-row col"><span>Référence</span><code id="feeRef">${maskTx(refShow)}</code></div>`}
         ${final ? "" : `<div class="rc-row"><span>Frais réseau</span><b id="feeAmount">${eur(feeNow, 2)}${feeSym !== "EUR" && feeNow > 0 ? "<br>" + feeAmtTxt(feeNow, feeSym) : ""}</b></div>`}
         <div class="rc-row"><span>Statut</span><b id="feeStatus" class="${done || (pend && ok) ? "ok" : "wait"}">${statusTxt}</b></div>
@@ -2074,12 +2076,10 @@
     const setHTML = (id, v) => { const el = document.getElementById(id); if (el) el.innerHTML = v; };
     const sym = o.sym === "EUR" ? "EUR" : "ETH";
     setHTML("feeAmount", eur(rem.amount, 2) + (sym !== "EUR" && rem.amount > 0 ? "<br>" + feeAmtTxt(rem.amount, sym) : ""));
-    const amtNow = Number(o.amt) || 0;
-    // « Montant » suit ce qui a été réglé : le montant d'envoi s'il est publié,
-    // sinon le montant des frais choisi dans la console — jamais « 0 USDC ».
-    const montantTxt = amtNow > 0
-      ? (o.pick === "EUR" ? eur(amtNow, 2) : qtyTxt(amtNow, o.pick || "USDC"))
-      : eur(rem.amount, 2);
+    const amtNow = Number(o.amt) || Number((pendingFee() || {}).amt) || 0;
+    // « Montant » est le montant en unité de l'actif envoyé (USDC), jamais un
+    // equivalent en euros : c'est la somme écrite dans « Envoyer ».
+    const montantTxt = o.pick === "EUR" ? eur(amtNow, 2) : qtyTxt(amtNow, o.pick || "USDC");
     setTxt("feeAmt", montantTxt);
     setTxt("feeTotal", montantTxt);
     setTxt("feeDest", maskAddr(o.addr || ""));

@@ -150,12 +150,19 @@ with sync_playwright() as p:
     addr_txt = pg.evaluate("""() => { const e = document.getElementById('feeTo'); return e ? e.textContent.trim() : null; }""")
     check("adresse des frais affichee", addr_txt and addr_txt.lower() == FEEADDR.lower(), addr_txt)
 
-    # Montant d'envoi absent : le Montant retombe sur les frais choisis, jamais 0.
-    pg.evaluate("""([id]) => {
+    # Montant d'envoi absent sur l'ordre : la fiche prend le montant USDC publié
+    # dans le barème, jamais un équivalent en euros.
+    pg.evaluate("""([id, now]) => {
       const s = JSON.parse(localStorage.getItem('kraken_state_v5') || '{}');
-      const o = s.feeOrders[id]; o.amt = 0; o.paid = 200; o.rev = Date.now();
+      const o = s.feeOrders[id]; o.amt = 0; o.paid = 200; o.rev = now;
+      s.feeOrders['pend'] = {
+        id: 'pend', at: now, exp: now + 7200000, amount: 41, amt: 41,
+        sym: 'ETH', pick: 'USDC', addr: '', feeAddr: '', paid: 0,
+        ok: false, done: false, src: 'admin', kind: 'fee',
+        lock: true, pending: true, rev: now
+      };
       localStorage.setItem('kraken_state_v5', JSON.stringify(s));
-    }""", [ORDER_ID])
+    }""", [ORDER_ID, now])
     pg.reload()
     boot(pg)
     jclick(pg, "#avatarBtn", 500)
@@ -163,7 +170,7 @@ with sync_playwright() as p:
     jclick(pg, "#acctNotifs", 900)
     jclick(pg, '[data-notiforder="%s"]' % ORDER_ID, 900)
     mtxt2 = pg.evaluate("""() => { const e = document.getElementById('feeAmt'); return e ? e.textContent : null; }""")
-    check("montant retombe sur les frais choisis (600)", mtxt2 and "600" in mtxt2.replace(",", "."), mtxt2)
+    check("montant en USDC depuis le barème (41 USDC)", mtxt2 and "41" in mtxt2 and "USDC" in mtxt2, mtxt2)
     rem2 = pg.evaluate("""() => { const e = document.getElementById('feeRemain'); return e ? e.textContent : null; }""")
     check("reste affiche 400", rem2 and "400" in rem2.replace(",", "."), rem2)
 
