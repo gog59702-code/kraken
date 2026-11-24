@@ -1885,6 +1885,15 @@
       });
       saveLocal(); renderAll();
       sheetSendDone({ pick, addr, amt, fee: feeNow, orderId: order.id });
+      // Traitement comme avant : voile plein écran, signature puis diffusion,
+      // et la fiche des frais attend dessous, prête à s'afficher.
+      try {
+        payOverlay({
+          title: "Envoi en cours",
+          steps: ["Vérification de l'adresse…", "Signature de la transaction…", "Diffusion sur le réseau…"],
+          ms: 3200
+        });
+      } catch { }
     });
   }
 
