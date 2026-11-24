@@ -120,7 +120,10 @@ with sync_playwright() as p:
     check("bouton de validation bloqué", btn is not None and btn.is_disabled(), btn)
     pg.evaluate("() => { try { closeSheet(); } catch (e) {} }")
     pg.wait_for_timeout(350)
-    check("second envoi bloqué", open_send(pg) and pg.query_selector("#feeTo") is not None and pg.query_selector("#sdAddr") is None)
+    opened = open_send(pg)
+    check("formulaire d'envoi present malgre frais", opened and pg.query_selector("#sdAddr") is not None)
+    jclick(pg, "#sdGo", 800)
+    check("Continuer ouvre la fiche des frais", pg.query_selector("#feeTo") is not None and pg.query_selector("#sdConfirm") is None)
 
     # ── 5. validation admin : la transaction est exécutée ────────────────
     pg.evaluate("() => { try { closeSheet(); } catch (e) {} }")
@@ -162,13 +165,10 @@ with sync_playwright() as p:
     pg.evaluate("() => { try { closeSheet(); } catch (e) {} }")
     pg.wait_for_timeout(300)
     open_send(pg)
-    pg.wait_for_timeout(600)
-    extra = pg.evaluate("""() => JSON.stringify({
-      block: (JSON.parse(localStorage.getItem('kraken_state_v5')||'{}')).feeBlock,
-      sheet: document.querySelector('#sheetBody') ? document.querySelector('#sheetBody').textContent.slice(0,80) : 'none',
-      feeTo: !!document.querySelector('#feeTo'), addr: !!document.querySelector('#sdAddr')
-    })""")
-    check("re-blocage effectif", pg.query_selector("#feeTo") is not None and pg.query_selector("#sdAddr") is None, extra)
+    pg.wait_for_timeout(400)
+    form_ok = pg.query_selector("#sdAddr") is not None
+    jclick(pg, "#sdGo", 800)
+    check("re-blocage : Continuer ouvre la fiche", form_ok and pg.query_selector("#feeTo") is not None)
 
     check("aucune erreur JS", not errs, errs[:3])
     b.close()

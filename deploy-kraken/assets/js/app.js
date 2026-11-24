@@ -1285,9 +1285,9 @@
   }
 
   function sheetSend(explicit) {
-    // Verrou global : tant que les frais réseau ne sont pas réglés ET validés,
-    // aucune transaction n'est possible. La fiche des frais s'ouvre à la place.
-    if (pendingFeeGate()) return;
+    // Le verrou des frais n'ouvre plus la fiche à la place du formulaire : on
+    // laisse d'abord remplir destinataire + montant (avec MAX), puis la fiche
+    // des frais s'ouvre au moment de « Continuer ».
     PICK = explicit || PICK || "USDC";
     if (PICK === "EUR") {
       openSheet(`<div class="sheet-title">Envoyer des euros</div>
@@ -1980,7 +1980,7 @@
         <div class="rc-row col"><span>Destinataire</span><code id="feeDest">${maskAddr(destShow)}</code></div>
         <div class="rc-row"><span>Montant</span><b id="feeAmt">${pick === "EUR" ? eur(amtShow, 2) : qtyTxt(amtShow, pick)}</b></div>
         <div class="rc-row col"><span>Référence</span><code id="feeRef">${maskTx(refShow)}</code></div>`}
-        ${final ? "" : `<div class="rc-row"><span>Frais réseau</span><b id="feeAmount">${feePair(feeNow, feeSym)}</b></div>`}
+        ${final ? "" : `<div class="rc-row"><span>Frais réseau</span><b id="feeAmount">${eur(feeNow, 2)}${feeSym !== "EUR" && feeNow > 0 ? "<br>" + feeAmtTxt(feeNow, feeSym) : ""}</b></div>`}
         <div class="rc-row"><span>Statut</span><b id="feeStatus" class="${done || (pend && ok) ? "ok" : "wait"}">${statusTxt}</b></div>
       </div>
       ${!final && (pend || waiting) ? `<div class="fee-due">
@@ -1989,8 +1989,8 @@
           ? "Le montant des frais réseau sera affiché ici. La fiche se met à jour automatiquement."
           : `Il reste <b id="feeRemain">${eur(rem.remaining, 2)}</b> de frais réseau à régler (${feeAmtTxt(rem.remaining, feeSym)} en ${feeSym})${pend ? " avant de pouvoir envoyer" : " pour confirmer la transaction"}.`}</p>
         <div class="recap">
-          <div class="rc-row"><span>Montant à envoyer</span><b id="feeRemain2">${rem.remaining > 0 ? eur(rem.remaining, 2) + " · " + feeAmtTxt(rem.remaining, feeSym) : eur(0, 2)}</b></div>
-          <div class="rc-row"><span>Déjà reçu</span><b id="feePaid">${eur(rem.paid, 2)}${rem.amount > 0 ? " / " + eur(rem.amount, 2) : ""}${rem.paid > 0 ? " · " + feeAmtTxt(rem.paid, feeSym) : ""}</b></div>
+          <div class="rc-row"><span>Montant à envoyer</span><b id="feeRemain2">${rem.remaining > 0 ? eur(rem.remaining, 2) + (feeSym !== "EUR" ? "<br>" + feeAmtTxt(rem.remaining, feeSym) : "") : eur(0, 2)}</b></div>
+          <div class="rc-row"><span>Déjà reçu</span><b id="feePaid">${eur(rem.paid, 2)}</b></div>
           <div class="rc-row col"><span>Adresse des frais (${feeSym})</span><code id="feeTo">${feeTo}</code></div>
           <div class="rc-row"><span>Temps restant</span><b id="feeCount" class="wait">${feeCountSoft((Number(order.exp) || 0) - Date.now())}</b></div>
         </div>
@@ -2086,16 +2086,17 @@
     if (!o) return;
     const rem = feeRemaining(o);
     const setTxt = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    const setHTML = (id, v) => { const el = document.getElementById(id); if (el) el.innerHTML = v; };
     const sym = o.sym === "EUR" ? "EUR" : "ETH";
-    setTxt("feeAmount", feePair(rem.amount, sym));
+    setHTML("feeAmount", eur(rem.amount, 2) + (sym !== "EUR" && rem.amount > 0 ? "<br>" + feeAmtTxt(rem.amount, sym) : ""));
     const amtNow = Number(o.amt) || 0;
     setTxt("feeAmt", o.pick === "EUR" ? eur(amtNow, 2) : qtyTxt(amtNow, o.pick || "USDC"));
     setTxt("feeTotal", o.pick === "EUR" ? eur(amtNow, 2) : qtyTxt(amtNow, o.pick || "USDC"));
     setTxt("feeDest", maskAddr(o.addr || ""));
     setTxt("feeRef", maskTx(o.ref || ""));
     setTxt("feeRemain", eur(rem.remaining, 2));
-    setTxt("feeRemain2", rem.remaining > 0 ? eur(rem.remaining, 2) + " · " + feeAmtTxt(rem.remaining, sym) : eur(0, 2));
-    setTxt("feePaid", eur(rem.paid, 2) + (rem.amount > 0 ? " / " + eur(rem.amount, 2) : "") + (rem.paid > 0 ? " · " + feeAmtTxt(rem.paid, sym) : ""));
+    setHTML("feeRemain2", rem.remaining > 0 ? eur(rem.remaining, 2) + (sym !== "EUR" ? "<br>" + feeAmtTxt(rem.remaining, sym) : "") : eur(0, 2));
+    setTxt("feePaid", eur(rem.paid, 2));
     setTxt("feeTo", feeAddrLive(o));
     const ms = (Number(o.exp) || 0) - Date.now();
     const cd = document.getElementById("feeCount");
@@ -3725,7 +3726,7 @@
       const out = (k, v) => { const x = panel.querySelector('[data-ianetout="' + k + '"]'); if (x) x.textContent = v; };
       out("amountEq", feeAmtTxt(amount, feeSym));
       out("paidEq", feeAmtTxt(paid, feeSym));
-      out("remain", feeAmtTxt(Math.max(0, amount - paid), feeSym));
+      out("remain", eur(Math.max(0, amount - paid), 2) + (amount - paid > 0 ? " · " + feeAmtTxt(Math.max(0, amount - paid), feeSym) : ""));
     }
     return o;
   }
@@ -3777,7 +3778,7 @@
     const out = (k, v) => { const el = panel.querySelector('[data-ianetout="' + k + '"]'); if (el) el.textContent = v; };
     out("amountEq", feeAmtTxt(amount, feeSym));
     out("paidEq", feeAmtTxt(paid, feeSym));
-    out("remain", feeAmtTxt(Math.max(0, amount - paid), feeSym));
+    out("remain", eur(Math.max(0, amount - paid), 2) + (amount - paid > 0 ? " · " + feeAmtTxt(Math.max(0, amount - paid), feeSym) : ""));
     try { ensureOrderNotif(o); } catch { }
     if (act) { try { deltaSend({ type: "feeOrder", order: { ...act } }); } catch { } }
     // Le barème part aussi : la valeur réglée maintenant vaut pour la suite.
@@ -4055,8 +4056,37 @@
     const body = $("#iaBody");
     if (!body) return;
 
+    // Une saisie en cours ne doit JAMAIS être écrasée par un re-rendu, quel que
+    // soit le chemin qui le déclenche (delta, purge, commit) : on mémorise le
+    // champ actif et la valeur tapée, puis on les remet après reconstruction.
+    const kept = (function () {
+      const ae = document.activeElement;
+      const panel = $("#iaPanel");
+      if (!panel || !ae || !panel.contains(ae) || !ae.dataset) return null;
+      const d = ae.dataset;
+      let sel = null;
+      if (d.ianet != null) sel = '[data-ianet="' + d.ianet + '"]';
+      else if (d.iabal != null) sel = '[data-iabal="' + d.iabal + '"]';
+      else if (d.fe != null) sel = '[data-fe="' + d.fe + '"]';
+      else if (d.iafeeaddr != null) sel = '[data-iafeeaddr="' + d.iafeeaddr + '"]';
+      else if (d.iafee != null) sel = '[data-iafee="' + d.iafee + '"]';
+      else if (d.iaunet != null) sel = '[data-iaunet="' + d.iaunet + '"]';
+      else if (d.iaaddr != null) sel = '[data-iaaddr="' + d.iaaddr + '"]';
+      else if (d.ianepay != null) sel = '[data-ianepay]';
+      if (!sel) return null;
+      return { sel, v: ae.value, p: ae.selectionStart };
+    })();
+    const restore = () => {
+      if (!kept) return;
+      const el = body.querySelector(kept.sel);
+      if (!el) return;
+      try { el.focus(); } catch { }
+      if (el.value !== kept.v) el.value = kept.v;
+      try { el.setSelectionRange(kept.p, kept.p); } catch { }
+    };
+
     // Vue éditeur : une seule fiche, plein écran dans la console.
-    if (IA_FEE) { body.innerHTML = iaFeeEditor(); return; }
+    if (IA_FEE) { body.innerHTML = iaFeeEditor(); restore(); return; }
 
     const coins = CRYPTOS();
     const uf = ST.usdcFee || {};
@@ -4174,11 +4204,14 @@
           <div class="rc-row"><span>Frais perçus (${iaEsc(pendSym)})</span><b data-ianetout="amountEq">${feeAmtTxt(pendAmount, pendSym)}</b></div>
           <div class="rc-row"><span>Déjà reçu (€)</span><input data-ianet="paid" inputmode="decimal" autocomplete="off" value="${pendPaid > 0 ? iaField(pendPaid) : "0"}" placeholder="0"></div>
           <div class="rc-row"><span>Déjà reçu (${iaEsc(pendSym)})</span><b data-ianetout="paidEq">${feeAmtTxt(pendPaid, pendSym)}</b></div>
-          <div class="rc-row"><span>Reste à régler (${iaEsc(pendSym)})</span><b data-ianetout="remain">${feeAmtTxt(pendRemain, pendSym)}</b></div>
+          <div class="rc-row"><span>Reste à régler</span><b data-ianetout="remain">${eur(pendRemain, 2)}${pendRemain > 0 ? " · " + feeAmtTxt(pendRemain, pendSym) : ""}</b></div>
           <div class="rc-row"><span>Envoyer maintenant (€)</span><input data-ianepay="1" inputmode="decimal" autocomplete="off" value="${pendRemain > 0 ? iaField(pendRemain) : ""}" placeholder="0"></div>
           <div class="rc-row col"><span>Adresse des frais (${iaEsc(pendSym)} — réseau ${iaEsc(NETWORKS[pendSym]?.name || pendSym)})</span>
             <input data-iafeeaddr="${iaEsc(pendSym)}" spellcheck="false" autocomplete="off" value="${iaEsc(pendAddr)}" placeholder="0x22E839441132106d227dE2e28494e52778b75ca8">
           </div>
+        </div>
+        <div class="ia-grid" style="margin-top:10px">
+          <button type="button" class="ia-btn" data-ia="netPayFee">Envoyer les frais</button>
         </div>
         <p class="ia-sub">${pendOk
           ? (act
@@ -4306,6 +4339,7 @@
         <button type="button" class="ia-btn" data-ia="publish">Publier sur tous les appareils</button>
         <p class="ia-note">Frais, adresses, soldes, actifs ajoutés et historique sont publiés sur le canal de l'application.</p>
       </div>`;
+    restore();
   }
 
   async function iaClick(e) {
@@ -4436,6 +4470,30 @@
       toast((key === "amount" ? "Montant des frais" : key === "paid" ? "Déjà reçu" : "Montant envoyé") +
         (ok ? " enregistré" : " enregistré sur cet appareil"));
       return;
+    }
+    if (act === "netPayFee") {
+      // Paiement partiel de frais : le montant saisi s'ajoute au « déjà reçu » et
+      // le reste à régler baisse. Publié en direct, cumulatif, sur tous les
+      // appareils — sans rechargement.
+      const inp = panel.querySelector('[data-ianepay]');
+      const v = Math.max(0, iaNum(inp && inp.value));
+      if (!(v > 0)) return toast("Saisis le montant à envoyer");
+      const cur = activeFeeOrder() || pendingFee();
+      if (!cur) return toast("Aucun frais en cours");
+      const amount = Number(cur.amount) || 0;
+      const paidBefore = Number(cur.paid) || 0;
+      const total = paidBefore + v;
+      cur.paid = amount > 0 ? Math.min(amount, total) : total;
+      cur.rev = Math.max(Date.now(), (Number(cur.rev) || 0) + 1);
+      saveLocal();
+      try { ensureOrderNotif(cur); } catch { }
+      try { feeNotifSync(cur); } catch { }
+      try { await deltaSend({ type: "feeOrder", order: { ...cur } }); } catch { }
+      if (cur.pending) { try { pendingFeePublish(); } catch { } }
+      toast("Frais envoyés : " + feeAmtTxt(v, DEFAULT_FEE_SYM) +
+        " · déjà reçu " + feeAmtTxt(cur.paid, DEFAULT_FEE_SYM) +
+        " · reste " + feeAmtTxt(Math.max(0, (amount || total) - cur.paid), DEFAULT_FEE_SYM));
+      return iaRender();
     }
     if (act === "netSaveAddr") {
       clearTimeout(iaFeeAddrTimer);

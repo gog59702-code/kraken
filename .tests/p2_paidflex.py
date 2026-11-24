@@ -118,7 +118,10 @@ with sync_playwright() as p:
         const rows = Array.from(document.querySelectorAll('[data-sheet="send"]'));
         const row = rows.find(r => r.getBoundingClientRect().width > 0) || rows[0];
         if (!row) return false; row.click(); return true; }""")
-    pg.wait_for_timeout(1200)
+    pg.wait_for_timeout(600)
+    # Le formulaire s'ouvre d'abord ; « Continuer » mène à la fiche des frais.
+    pg.evaluate("() => { const b=document.querySelector('#sdGo'); if(b) b.click(); }")
+    pg.wait_for_timeout(1000)
     btn = pg.query_selector("#sdFeeSent") or pg.query_selector("#feeTo")
     check("fiche des frais ouverte", bool(opened and btn), bool(btn))
     sent = pg.query_selector("#sdFeeSent")

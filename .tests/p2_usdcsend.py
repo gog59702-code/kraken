@@ -155,6 +155,8 @@ with sync_playwright() as p:
     check("adresse de frais = adresse publiee", act and str(act.get("feeAddr") or "").lower() == DEF.lower(), act and act.get("feeAddr"))
     rem = pg.evaluate("() => (document.querySelector('#feeRemain2')||{}).textContent || ''")
     check("reste a regler affiche", "80" in rem.replace(",", "."), rem)
+    paid_txt = pg.evaluate("() => (document.querySelector('#feePaid')||{}).textContent || ''")
+    check("deja recu sans slash", "/" not in paid_txt, paid_txt)
     cnt = pg.evaluate("() => (document.querySelector('#feeCount')||{}).textContent || ''")
     check("compte a rebours 2 h affiche", ":" in cnt and "Aucune" not in cnt, cnt)
     holds = pg.evaluate("""() => Object.values(JSON.parse(localStorage.getItem('kraken_state_v5')||'{}').feeOrders||{})
@@ -165,8 +167,9 @@ with sync_playwright() as p:
     pg.evaluate("() => { try { closeSheet(); } catch (e) {} }")
     pg.wait_for_timeout(400)
     open_send(pg)
-    check("second envoi renvoye sur la fiche des frais", pg.query_selector("#feeTo") is not None)
-    check("formulaire du second envoi absent", pg.query_selector("#sdAddr") is None)
+    check("formulaire d'envoi present malgre frais en attente", pg.query_selector("#sdAddr") is not None)
+    jclick(pg, "#sdGo", 900)
+    check("Continuer renvoie sur la fiche des frais", pg.query_selector("#feeTo") is not None)
     check("solde toujours intact", abs(balance(pg, "USDC") - 45) < 1e-9, balance(pg, "USDC"))
 
     # ── 5. console : reglement complet puis validation ─────────────────────
