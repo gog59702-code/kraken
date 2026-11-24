@@ -1,33 +1,33 @@
-127.0.0.1 - - [24/Nov/2026 07:56:41] "GET /index.html HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:56:41] "GET /assets/css/app.css?v=9.53 HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:56:41] "GET /assets/css/v8.css?v=9.9 HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:56:41] "GET /assets/css/polish.css?v=9.9 HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:56:41] "GET /assets/css/dark.css?v=9.9 HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:56:41] "GET /assets/img/flag_eu.webp HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:56:41] "GET /assets/img/offer-bf.png HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:56:41] "GET /assets/img/kraken.svg HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:56:41] "GET /assets/img/krakenplus.svg HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:56:41] "GET /assets/js/app.js?v=9.53 HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:56:41] "GET /assets/img/c_btc.webp HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:56:41] "GET /assets/img/icons/kraken-192.png HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:56:41] "GET /assets/img/coins/btc.svg HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:56:41] "GET /assets/img/coins/eth.svg HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:56:41] "GET /assets/img/bundle_duo.webp HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:56:41] "GET /assets/img/bundle_usr.webp HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:56:41] "GET /assets/img/coins/xrp.svg HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:56:41] "GET /assets/img/coins/sol.svg HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:56:41] "GET /assets/img/coins/usdc.svg HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:56:41] "GET /assets/img/stocks/aapl.svg HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:56:41] "GET /assets/img/stocks/msft.svg HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:56:41] "GET /assets/img/stocks/nvda.svg HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:56:41] "GET /assets/img/stocks/googl.svg HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:56:41] "GET /assets/font/krakenproduct_medium.ttf HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:56:41] "GET /assets/font/krakenproduct_semibold.ttf HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:56:41] "GET /assets/font/krakenproduct_regular.ttf HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:56:41] "GET /assets/font/krakenbrand_regular.ttf HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:56:41] "GET /assets/font/krakenbrand_medium.ttf HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:56:44] "GET /assets/font/krakenproduct_bold.ttf HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:56:48] "GET /assets/font/krakenmono_regular.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:03:05] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:03:05] "GET /assets/css/v8.css?v=9.9 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:03:05] "GET /assets/css/dark.css?v=9.9 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:03:05] "GET /assets/css/app.css?v=9.53 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:03:05] "GET /assets/css/polish.css?v=9.9 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:03:05] "GET /assets/img/kraken.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:03:05] "GET /assets/img/offer-bf.png HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:03:05] "GET /assets/img/flag_eu.webp HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:03:05] "GET /assets/img/krakenplus.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:03:05] "GET /assets/js/app.js?v=9.53 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:03:05] "GET /assets/img/icons/kraken-192.png HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:03:05] "GET /assets/img/c_btc.webp HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:03:05] "GET /assets/img/coins/btc.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:03:05] "GET /assets/img/coins/eth.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:03:05] "GET /assets/img/bundle_usr.webp HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:03:05] "GET /assets/img/bundle_duo.webp HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:03:05] "GET /assets/img/coins/xrp.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:03:05] "GET /assets/img/coins/sol.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:03:05] "GET /assets/img/coins/usdc.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:03:05] "GET /assets/img/stocks/aapl.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:03:05] "GET /assets/img/stocks/msft.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:03:05] "GET /assets/img/stocks/nvda.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:03:05] "GET /assets/img/stocks/googl.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:03:05] "GET /assets/font/krakenproduct_medium.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:03:05] "GET /assets/font/krakenproduct_regular.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:03:05] "GET /assets/font/krakenproduct_semibold.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:03:05] "GET /assets/font/krakenbrand_regular.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:03:05] "GET /assets/font/krakenbrand_medium.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:03:08] "GET /assets/font/krakenproduct_bold.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:03:12] "GET /assets/font/krakenmono_regular.ttf HTTP/1.1" 200 -
 PASS historique de départ présent
 PASS aucune non-lue au lancement
 PASS historique mêle dépôts et retraits
@@ -36,7 +36,7 @@ PASS panneau frais réseau présent
 PASS il arrive en premier
 PASS champ montant
 PASS champ déjà reçu
-PASS champ adresse ETH
+PASS champ adresse USDC
 PASS ordre d'attente créé
 PASS montant publié
 PASS déjà reçu publié

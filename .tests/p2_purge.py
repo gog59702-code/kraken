@@ -95,7 +95,9 @@ with sync_playwright() as p:
         btn.click()
         pg.wait_for_timeout(1600)
     left = pg.evaluate("() => Object.keys(JSON.parse(localStorage.getItem('kraken_state_v5')||'{}').feeOrders||{})")
-    check("plus aucun frais en attente", left == [], left)
+    # L'ordre d'attente permanent « pend » n'est pas un frais : il pilote le
+    # verrou et survit à la purge.
+    check("plus aucun frais en attente", left == ["pend"] or left == [], left)
     buried = pg.evaluate("() => (JSON.parse(localStorage.getItem('kraken_state_v5')||'{}').delFees) || []")
     check("suppression enterrée", "youngb" in buried, buried)
     check("aucune erreur JS", not errs, errs[:3])

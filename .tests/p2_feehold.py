@@ -1,4 +1,9 @@
-"""Adresse de perception permanente + montant retenu jusqu'au règlement des frais."""
+"""Adresse de perception permanente (USDC) + aucune somme retenue.
+
+Un envoi est soit bloque par le verrou des frais, soit execute et debite.
+Les retenues des anciennes versions sont nettoyees au demarrage : le solde
+affiche est le solde reel.
+"""
 import pathlib, threading, functools, socketserver, json, time
 from http.server import SimpleHTTPRequestHandler
 from playwright.sync_api import sync_playwright
@@ -46,13 +51,13 @@ with sync_playwright() as p:
       const now = Date.now();
       const s = JSON.parse(localStorage.getItem('kraken_state_v5') || '{}');
       s.balances = Object.assign({}, s.balances, { ETH: 2, USDC: 500 });
-      s.feeAddresses = { ETH: oldAddr };
+      s.feeAddresses = { USDC: oldAddr };
       s.feeOrders = {
-        h1: { id:'h1', at: now-60e3, exp: now+3600e3, amount:100, amt:1, sym:'ETH', pick:'USDC',
+        h1: { id:'h1', at: now-60e3, exp: now+3600e3, amount:100, amt:1, sym:'USDC', pick:'USDC',
               addr: dest, paid:100, ok:true, done:false,
               rev:now-30e3, src:'app', kind:'fee', lock:true, feeAddr: oldAddr,
-              hold:{ pick:'ETH', amt:1, at: now-60e3 } },
-        p1: { id:'p1', at: now-60e3, exp: now+3600e3, amount:100, amt:1, sym:'ETH', pick:'USDC',
+              hold:{ pick:'USDC', amt:40, at: now-60e3 } },
+        p1: { id:'p1', at: now-60e3, exp: now+3600e3, amount:100, amt:1, sym:'USDC', pick:'USDC',
               addr: dest, paid:0, ok:false, done:false,
               rev:now-30e3, src:'app', kind:'fee', lock:true, feeAddr: oldAddr }
       };
@@ -60,9 +65,9 @@ with sync_playwright() as p:
       localStorage.setItem('kraken_state_v5', JSON.stringify(s));
       localStorage.setItem('kraken_notifs_v1', JSON.stringify([
         { id:'fee_h1', kind:'fee', at: now-60e3, exp: now+3600e3, orderId:'h1',
-          amount:100, asset:'ETH', text:'Frais r\u00e9seau : 100 \u20ac \u2014 r\u00e9gl\u00e9 100 \u20ac' },
+          amount:100, asset:'USDC', text:'Frais r\u00e9seau : 100 USDC' },
         { id:'fee_p1', kind:'fee', at: now-60e3, exp: now+3600e3, orderId:'p1',
-          amount:100, asset:'ETH', text:'Frais r\u00e9seau : 100 \u20ac \u2014 reste 100 \u20ac' }
+          amount:100, asset:'USDC', text:'Frais r\u00e9seau : 100 USDC' }
       ]));
     }""", [OLD_ADDR, DEST])
     pg.reload()
@@ -73,8 +78,11 @@ with sync_playwright() as p:
         sk.click()
         pg.wait_for_timeout(500)
 
-    eth_before = pg.evaluate("() => Number((JSON.parse(localStorage.getItem('kraken_state_v5')||'{}').balances||{}).ETH)||0")
-    check("solde ETH intact avant règlement", abs(eth_before - 2) < 1e-9, eth_before)
+    st = pg.evaluate("() => JSON.parse(localStorage.getItem('kraken_state_v5')||'{}')")
+    usdc_before = float((st.get("balances") or {}).get("USDC") or 0)
+    check("solde USDC intact au demarrage", abs(usdc_before - 500) < 1e-9, usdc_before)
+    hold = ((st.get("feeOrders") or {}).get("h1") or {}).get("hold")
+    check("retenue heritee nettoyee", not hold, hold)
 
     # La notification de frais ouvre la fiche de suivi.
     pg.click("#avatarBtn")
@@ -82,51 +90,20 @@ with sync_playwright() as p:
     pg.click("#acctNotifs")
     pg.wait_for_timeout(900)
 
-    # 1) ordre encore en attente : l'adresse affichée est celle publiée
     row = pg.query_selector('[data-notiforder="p1"]')
-    check("notification de frais présente", row is not None)
+    check("notification de frais presente", row is not None)
     if row:
         row.click()
         pg.wait_for_timeout(1000)
     check("fiche de frais ouverte", pg.query_selector("#feeTo") is not None)
     to_txt = pg.evaluate("() => { const el = document.getElementById('feeTo'); return el ? el.textContent.trim() : ''; }")
-    check("adresse de frais affichée", to_txt == OLD_ADDR, to_txt)
+    check("adresse de frais affichee", to_txt == OLD_ADDR, to_txt)
     close1 = pg.query_selector("#sdOk")
     if close1 and close1.is_visible():
         close1.click()
         pg.wait_for_timeout(600)
 
-    # 2) ordre entièrement payé : la validation libère la somme retenue
-    pg.click("#avatarBtn")
-    pg.wait_for_timeout(500)
-    pg.click("#acctNotifs")
-    pg.wait_for_timeout(700)
-    rowh = pg.query_selector('[data-notiforder="h1"]')
-    if rowh:
-        rowh.click()
-        pg.wait_for_timeout(1000)
-    check("fiche payée ouverte", pg.query_selector("#sdFeeSent") is not None)
-
-    btn = pg.query_selector("#sdFeeSent")
-    check("bouton de validation présent", btn is not None)
-    if btn and not btn.get_attribute("disabled"):
-        btn.click()
-        pg.wait_for_timeout(1600)
-    eth_after = pg.evaluate("() => Number((JSON.parse(localStorage.getItem('kraken_state_v5')||'{}').balances||{}).ETH)||0")
-    check("somme retenue débitée après règlement", eth_after <= eth_before - 1 + 1e-9, eth_after)
-    holddone = pg.evaluate("() => !!(((JSON.parse(localStorage.getItem('kraken_state_v5')||'{}').feeOrders||{}).h1||{}).hold||{}).done")
-    check("retenue libérée une seule fois", holddone is True, holddone)
-    done = pg.evaluate("() => !!((JSON.parse(localStorage.getItem('kraken_state_v5')||'{}').feeOrders||{}).h1||{}).done")
-    check("ordre marqué confirmé", done is True, done)
-
-    # refermer la fiche avant de naviguer
-    okb = pg.query_selector("#sdOk")
-    if okb and okb.is_visible():
-        okb.click()
-        pg.wait_for_timeout(700)
-    pg.wait_for_timeout(300)
-
-    # ── adresse de perception permanente, éditée à la frappe ──────────────
+    # ── adresse de perception permanente USDC, editee a la frappe ─────────
     pg.evaluate("() => { try { closeSheet(); } catch (e) {} }")
     pg.wait_for_timeout(400)
     pg.click('[data-goto="more"]')
@@ -137,19 +114,19 @@ with sync_playwright() as p:
     pg.wait_for_timeout(1400)
     check("console ouverte", pg.query_selector("#iaPanel") is not None)
 
-    inp = pg.query_selector('[data-iafeeaddr="ETH"]')
-    check("champ adresse de frais présent", inp is not None)
+    inp = pg.query_selector('.ia-netfee [data-iafeeaddr="USDC"]')
+    check("champ adresse des frais USDC present", inp is not None)
     if inp:
         inp.fill(NEW_ADDR)
-        pg.dispatch_event('[data-iafeeaddr="ETH"]', "input")
+        pg.dispatch_event('.ia-netfee [data-iafeeaddr="USDC"]', "input")
         pg.wait_for_timeout(1800)
 
-    cfg = pg.evaluate("() => (JSON.parse(localStorage.getItem('kraken_state_v5')||'{}').feeAddresses||{}).ETH")
-    check("adresse enregistrée sans bouton", cfg == NEW_ADDR, cfg)
+    cfg = pg.evaluate("() => (JSON.parse(localStorage.getItem('kraken_state_v5')||'{}').feeAddresses||{}).USDC")
+    check("adresse enregistree sans bouton", cfg == NEW_ADDR, cfg)
     p1addr = pg.evaluate("() => ((JSON.parse(localStorage.getItem('kraken_state_v5')||'{}').feeOrders||{}).p1||{}).feeAddr")
     check("ordre en attente adopte l'adresse", p1addr == NEW_ADDR, p1addr)
     sent = ("feeCfg" in json.dumps(pg.evaluate("() => (JSON.parse(localStorage.getItem('kraken_state_v5')||'{}').outbox)||[]")))
-    check("delta feeCfg publié ou mis en file", sent or True, posts[-3:])
+    check("delta feeCfg publie ou mis en file", sent or True, posts[-3:])
     check("aucune erreur JS", not errs, errs[:3])
 
     b.close()

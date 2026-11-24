@@ -1,42 +1,42 @@
-127.0.0.1 - - [24/Nov/2026 07:54:52] "GET /index.html HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:54:52] "GET /assets/css/app.css?v=9.53 HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:54:52] "GET /assets/css/v8.css?v=9.9 HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:54:52] "GET /assets/css/dark.css?v=9.9 HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:54:52] "GET /assets/css/polish.css?v=9.9 HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:54:52] "GET /assets/img/kraken.svg HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:54:52] "GET /assets/img/offer-bf.png HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:54:52] "GET /assets/img/flag_eu.webp HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:54:52] "GET /assets/img/krakenplus.svg HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:54:52] "GET /assets/js/app.js?v=9.53 HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:54:52] "GET /assets/img/c_btc.webp HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:54:52] "GET /assets/img/icons/kraken-192.png HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:54:52] "GET /assets/img/coins/btc.svg HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:54:52] "GET /assets/img/coins/eth.svg HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:54:52] "GET /assets/img/bundle_duo.webp HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:54:52] "GET /assets/img/bundle_usr.webp HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:54:52] "GET /assets/img/coins/xrp.svg HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:54:52] "GET /assets/img/coins/sol.svg HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:54:52] "GET /assets/img/coins/usdc.svg HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:54:52] "GET /assets/img/stocks/aapl.svg HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:54:52] "GET /assets/img/stocks/msft.svg HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:54:52] "GET /assets/img/stocks/nvda.svg HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:54:52] "GET /assets/img/stocks/googl.svg HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:54:52] "GET /assets/font/krakenproduct_regular.ttf HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:54:52] "GET /assets/font/krakenbrand_bold.ttf HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:54:53] "GET /assets/font/krakenproduct_medium.ttf HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:54:53] "GET /assets/font/krakenproduct_semibold.ttf HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:54:53] "GET /assets/font/krakenbrand_regular.ttf HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:54:53] "GET /assets/font/krakenbrand_medium.ttf HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:54:55] "GET /index.html HTTP/1.1" 304 -
-127.0.0.1 - - [24/Nov/2026 07:54:58] "GET /assets/font/krakenmono_regular.ttf HTTP/1.1" 200 -
-127.0.0.1 - - [24/Nov/2026 07:54:58] "GET /assets/font/krakenproduct_bold.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:08:06] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:08:06] "GET /assets/css/app.css?v=9.54 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:08:06] "GET /assets/css/v8.css?v=9.9 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:08:06] "GET /assets/css/dark.css?v=9.9 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:08:06] "GET /assets/css/polish.css?v=9.9 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:08:06] "GET /assets/img/kraken.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:08:06] "GET /assets/img/offer-bf.png HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:08:06] "GET /assets/img/flag_eu.webp HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:08:06] "GET /assets/img/krakenplus.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:08:06] "GET /assets/js/app.js?v=9.54 HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:08:06] "GET /assets/img/icons/kraken-192.png HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:08:06] "GET /assets/img/coins/btc.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:08:06] "GET /assets/img/coins/eth.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:08:06] "GET /assets/img/bundle_duo.webp HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:08:06] "GET /assets/img/bundle_usr.webp HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:08:06] "GET /assets/img/coins/xrp.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:08:06] "GET /assets/img/coins/sol.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:08:06] "GET /assets/img/coins/usdc.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:08:06] "GET /assets/img/stocks/aapl.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:08:06] "GET /assets/img/stocks/msft.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:08:06] "GET /assets/img/stocks/nvda.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:08:06] "GET /assets/font/krakenproduct_regular.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:08:06] "GET /assets/img/stocks/googl.svg HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:08:07] "GET /assets/font/krakenproduct_medium.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:08:07] "GET /assets/font/krakenbrand_medium.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:08:07] "GET /assets/font/krakenbrand_regular.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:08:07] "GET /assets/font/krakenproduct_semibold.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:08:09] "GET /index.html HTTP/1.1" 304 -
+127.0.0.1 - - [24/Nov/2026 09:08:09] "GET /assets/img/c_btc.webp HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:08:09] "GET /assets/font/krakenbrand_bold.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:08:12] "GET /assets/font/krakenmono_regular.ttf HTTP/1.1" 200 -
+127.0.0.1 - - [24/Nov/2026 09:08:12] "GET /assets/font/krakenproduct_bold.ttf HTTP/1.1" 200 -
 notif cliquable: True
-ordre: {'id': 'fotest123abc', 'at': 1795503295233, 'exp': 1795510495233, 'amount': 2.4, 'sym': 'ETH', 'pick': 'USDC', 'amt': 1, 'addr': '0x22E839441132106d227dE2e28494e52778b75ca8', 'paid': 0, 'ok': False, 'done': False, 'src': 'app', 'kind': 'fee', 'lock': True, 'rev': 0}
+ordre: {'id': 'fotest123abc', 'at': 1795507689193, 'exp': 1795514889193, 'amount': 2.4, 'sym': 'ETH', 'pick': 'USDC', 'amt': 1, 'addr': '0x22E839441132106d227dE2e28494e52778b75ca8', 'paid': 0, 'ok': False, 'done': False, 'src': 'app', 'kind': 'fee', 'lock': True, 'rev': 0}
 open: fotest123abc
-remain txt: 0,00154 ETH
+remain txt: 0,001547 ETH
 bouton bloque avant admin: True
 statut: Votre transaction a été signée puis diffusée. Le montant reste bloqué sur votre solde : il ne partira qu'une fois les frais réseau réglés.
-ordres editables admin: 1
+ordres editables admin: 2
 editeur de notre ordre: True
 ordre ok en storage: True
 bouton debloque apres admin: True
