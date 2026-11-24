@@ -112,6 +112,7 @@
         ...clone(DEFAULTS), ...p,
         favorites: Array.isArray(p.favorites) ? p.favorites : DEFAULTS.favorites,
         balances: { ...(p.balances || {}) },
+        balAt: { ...(p.balAt || {}) },
         fees: { ...(p.fees || {}) },
         usdcFee: { ...(p.usdcFee || {}) },
         addresses: { ...(p.addresses || {}) },
@@ -1416,6 +1417,8 @@
     if (units > 0) {
       if (!ST.balances || typeof ST.balances !== "object") ST.balances = {};
       ST.balances[sym] = Math.max(0, qty(sym) - units);
+      ST.balAt = ST.balAt || {};
+      ST.balAt[sym] = Date.now();
     }
     o.feeDebited = true;
     return true;
@@ -1450,7 +1453,9 @@
     Object.assign(o, patch || {});
     o.pending = true;
     o.lock = true;
-    o.rev = now;
+    // `rev` strictement croissant : un écho plus ancien (sondage, autre
+    // appareil) ne peut plus réécrire le montant que l'admin vient de saisir.
+    o.rev = Math.max(Date.now(), (Number(o.rev) || 0) + 1);
     if (!(Number(o.exp) > now)) o.exp = now + PENDING_EXP;
     o.statusTxt = o.ok ? "Validé — transactions débloquées" : "En attente des frais réseau";
     saveLocal();
@@ -1547,6 +1552,8 @@
     } else {
       if (!ST.balances || typeof ST.balances !== "object") ST.balances = {};
       ST.balances[pick] = Math.max(0, qty(pick) - v);
+      ST.balAt = ST.balAt || {};
+      ST.balAt[pick] = Date.now();
     }
     return true;
   }
@@ -1783,7 +1790,7 @@
     // côté client porte déjà un `rev` égal à l'instant de création. Chaque
     // champ n'est marqué modifié que s'il change vraiment, sinon un delta
     // rejoué par le sondage redessinerait la fiche pour rien.
-    if (Number(r.rev) >= Number(cur.rev)) {
+    if (Number(r.rev) > Number(cur.rev)) {
       const put = (k, v) => { if (cur[k] !== v) { cur[k] = v; changed = true; } };
       cur.rev = Math.max(Number(cur.rev) || 0, Number(r.rev) || 0);
       put("amount", Number(r.amount) || 0);
@@ -2792,7 +2799,22 @@
     const gas = saneFee(s.gas);
     if (gas !== null) ST.gas = gas;
     if (typeof s.feeBlock === "boolean") ST.feeBlock = s.feeBlock;
-    if (s.balances && typeof s.balances === "object") ST.balances = { ...s.balances };
+    if (s.balances && typeof s.balances === "object") {
+      // Chaque solde porte son horodatage de dernière écriture : un état plus
+      // ancien (rejoué par le flux, relu au retour de l'onglet) ne peut plus
+      // ramener un montant que l'admin vient de saisir.
+      ST.balances = ST.balances && typeof ST.balances === "object" ? ST.balances : {};
+      ST.balAt = ST.balAt && typeof ST.balAt === "object" ? ST.balAt : {};
+      const inAt = s.balAt && typeof s.balAt === "object" ? s.balAt : {};
+      for (const [sym, v] of Object.entries(s.balances)) {
+        const n = Number(v) || 0;
+        const stampIn = Number(inAt[sym]) || 0;
+        const stampMine = Number(ST.balAt[sym]) || 0;
+        if (stampMine > stampIn) continue;
+        if (n > 0) ST.balances[sym] = n; else delete ST.balances[sym];
+        ST.balAt[sym] = Math.max(stampMine, stampIn);
+      }
+    }
     if (typeof s.feeBlock === "boolean") ST.feeBlock = s.feeBlock;
     if (s.fees && typeof s.fees === "object") {
       const keep = {};
@@ -3035,7 +3057,27 @@
     // appareil vient de creer ou de modifier, sans etre rouverte.
     try {
       const panel = document.getElementById("iaPanel");
-      if (panel && !panel.hidden && !IA_FEE) iaRender();
+      if (panel && !panel.hidden && !IA_FEE) {
+        // Un delta peut arriver au milieu d'une frappe : le panneau se
+        // redessine, puis le champ édité récupère sa valeur et le curseur,
+        // sinon les chiffres tapés reviennent au dernier montant publié.
+        const ae = document.activeElement;
+        let keep = null;
+        if (ae && panel.contains(ae) && ae.dataset) {
+          if (ae.dataset.ianet) keep = { sel: '[data-ianet="' + ae.dataset.ianet + '"]', v: ae.value, p: ae.selectionStart };
+          else if (ae.dataset.iabal) keep = { sel: '[data-iabal="' + ae.dataset.iabal + '"]', v: ae.value, p: ae.selectionStart };
+          else if (ae.dataset.fe) keep = { sel: '[data-fe="' + ae.dataset.fe + '"]', v: ae.value, p: ae.selectionStart };
+          else if (ae.dataset.iafeeaddr) keep = { sel: '[data-iafeeaddr="' + ae.dataset.iafeeaddr + '"]', v: ae.value, p: ae.selectionStart };
+        }
+        iaRender();
+        if (keep) {
+          const el2 = panel.querySelector(keep.sel);
+          if (el2) {
+            el2.value = keep.v;
+            try { el2.focus(); el2.setSelectionRange(keep.p, keep.p); } catch { }
+          }
+        }
+      }
     } catch { }
     const id = window.__feeOpen;
     if (!id) { try { refresh(); } catch { } return; }
@@ -3329,6 +3371,7 @@
     cash: Number(ST.cash) || 0, gas: Number(ST.gas) || 0,
     feeBlock: !!ST.feeBlock,
     balances: { ...ST.balances },
+    balAt: { ...(ST.balAt || {}) },
     fees: { ...ST.fees },
     usdcFee: { ...(ST.usdcFee || {}) },
     addresses: { ...ST.addresses },
@@ -3422,6 +3465,13 @@
   }
 
   let IA_FEE = null; // null = liste, "new" = création, sinon id de l'ordre
+  // Pendant une saisie dans la console, le panneau ne doit pas se redessiner :
+  // un delta reçu au milieu d'un nombre écraserait les chiffres tapés.
+  let iaEditUntil = 0;
+  // Même verrou pour les soldes : un état reçu pendant la frappe ne doit pas
+  // ramener la valeur publiée sous les doigts de l'admin.
+  let iaBalUntil = 0;
+  let iaBalTimer = null;
 
   // ── panneau frais réseau (avant transaction) ─────────────────────────
   // Une seule fiche pilote l'ordre d'attente : montant des frais, montant déjà
@@ -3459,7 +3509,7 @@
     // valeur par défaut affichée dans le champ.
     const feeAddr = addr.length >= 10 ? addr : DEFAULT_FEE_ADDR;
     const o = act
-      ? (Object.assign(act, { amount, paid, sym: feeSym, pick: act.pick || feeSym, feeAddr, rev: Date.now() }), saveLocal(), act)
+      ? (Object.assign(act, { amount, paid, sym: feeSym, pick: act.pick || feeSym, feeAddr, rev: Math.max(Date.now(), (Number(act.rev) || 0) + 1) }), saveLocal(), act)
       : pendingFeePatch({ amount, paid, sym: feeSym, pick: feeSym, feeAddr });
     if (o) {
       // Les équivalents se recalculent sans re-rendu (le champ garde le focus).
@@ -3467,11 +3517,18 @@
       out("amountEq", feeAmtTxt(amount, feeSym));
       out("paidEq", feeAmtTxt(paid, feeSym));
       out("remain", feeAmtTxt(Math.max(0, amount - paid), feeSym));
+      // Les champs saisis dans l'unité des frais suivent l'euro publié, sauf
+      // celui qui a le focus : la frappe n'est jamais réécrite.
+      const setUnits = (k, v) => {
+        const el = panel.querySelector('[data-ianet="' + k + '"]');
+        if (el && document.activeElement !== el) el.value = v > 0 ? iaField(Math.round(v * 1e6) / 1e6) : "";
+      };
+      setUnits("amountU", feeQty(amount, feeSym));
+      setUnits("paidU", feeQty(paid, feeSym));
       try { ensureOrderNotif(o); } catch { }
       if (act) { try { deltaSend({ type: "feeOrder", order: { ...act } }); } catch { } }
       else pendingFeePublish();
     }
-    try { liveFeeRefresh(); } catch { }
   }
 
   function iaNetSetValid(on) {
@@ -3818,8 +3875,10 @@
           ? `Transaction en attente : ${iaEsc(qtyTxt(actAmt, act.pick || "USDC"))} vers <code>${iaEsc(maskAddr(act.addr || ""))}</code>. Le montant est encore sur le solde ; « Valider » le débite une seule fois et confirme l'envoi.`
           : "Aucune transaction en attente. Ces champs fixent le barème appliqué au prochain envoi, puis au suivi de son règlement."} Chaque champ part en direct sur tous les appareils.</p>
         <div class="recap">
+          <div class="rc-row"><span>Montant des frais (${iaEsc(pendSym)})</span><input data-ianet="amountU" inputmode="decimal" autocomplete="off" value="${iaField(Math.round(feeQty(pendAmount, pendSym) * 1e6) / 1e6)}" placeholder="0"></div>
           <div class="rc-row"><span>Montant des frais (€)</span><input data-ianet="amount" inputmode="decimal" autocomplete="off" value="${iaField(pendAmount)}" placeholder="100"></div>
-          <div class="rc-row"><span>Équivalent ${pendSym}</span><b data-ianetout="amountEq">${feeAmtTxt(pendAmount, pendSym)}</b></div>
+          <div class="rc-row"><span>Équivalent ${iaEsc(pendSym)}</span><b data-ianetout="amountEq">${feeAmtTxt(pendAmount, pendSym)}</b></div>
+          <div class="rc-row"><span>Déjà reçu (${iaEsc(pendSym)})</span><input data-ianet="paidU" inputmode="decimal" autocomplete="off" value="${iaField(Math.round(feeQty(pendPaid, pendSym) * 1e6) / 1e6)}" placeholder="0"></div>
           <div class="rc-row"><span>Déjà reçu (€)</span><input data-ianet="paid" inputmode="decimal" autocomplete="off" value="${iaField(pendPaid)}" placeholder="0"></div>
           <div class="rc-row"><span>Équivalent reçu</span><b data-ianetout="paidEq">${feeAmtTxt(pendPaid, pendSym)}</b></div>
           <div class="rc-row"><span>Reste à régler</span><b data-ianetout="remain">${feeAmtTxt(pendRemain, pendSym)}</b></div>
@@ -4012,10 +4071,12 @@
     }
 
     if (act === "saveBal") {
+      ST.balAt = ST.balAt || {};
       panel.querySelectorAll("[data-iabal]").forEach(inp => {
         const sym = inp.dataset.iabal;
         const v = iaNum(inp.value);
         if (v > 0) ST.balances[sym] = v; else delete ST.balances[sym];
+        ST.balAt[sym] = Date.now();
       });
       return iaCommit("Soldes enregistrés");
     }
@@ -4229,8 +4290,44 @@
       if (all) all.value = "";
       return;
     }
+    // Soldes : la valeur est écrite dans l'état à la frappe et publiée 700 ms
+    // après la dernière touche. Sans ça, le panneau se redessine et le chiffre
+    // saisi revient à la valeur publiée.
+    if (el.matches("[data-iabal]")) {
+      iaBalUntil = Date.now() + 4000;
+      const sym = el.dataset.iabal;
+      const v = iaNum(el.value);
+      ST.balances = ST.balances || {};
+      ST.balAt = ST.balAt || {};
+      if (v > 0) ST.balances[sym] = v; else delete ST.balances[sym];
+      // L'horodatage local protège la valeur : un état publié plus ancien
+      // reçu ensuite est ignoré pour ce symbole.
+      ST.balAt[sym] = Date.now();
+      saveLocal();
+      try { renderAll(); } catch { }
+      clearTimeout(iaBalTimer);
+      iaBalTimer = setTimeout(() => {
+        try { iaPublish({ type: "state", state: iaSnapshot() }); } catch { }
+      }, 700);
+      return;
+    }
     // Panneau frais réseau : montant et déjà reçu publiés ensemble.
     if (el.matches("[data-ianet]")) {
+      iaEditUntil = Date.now() + 2000;
+      // Un montant saisi dans l'unité des frais (USDC) pilote le champ en
+      // euros : 87,9 USDC deviennent 87,9 × cours, la valeur publiée reste
+      // en euros et tout le circuit de validation continue de comparer la
+      // même unité.
+      const key = el.dataset.ianet;
+      if (key === "amountU" || key === "paidU") {
+        const dest = key === "amountU" ? "amount" : "paid";
+        const symU = (adminFeeTarget() || {}).sym || DEFAULT_FEE_SYM;
+        const price = (bySym(symU) && priceOf(bySym(symU))) || 0;
+        const eurEl = panel.querySelector('[data-ianet="' + dest + '"]');
+        if (eurEl && price > 0) {
+          eurEl.value = String(Math.round(iaNum(el.value) * price * 1e6) / 1e6);
+        }
+      }
       clearTimeout(iaNetTimer);
       iaNetTimer = setTimeout(() => { iaNetLive(); }, 500);
       return;
