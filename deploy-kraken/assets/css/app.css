@@ -611,4 +611,12 @@ body.ia-lock{overflow:hidden}
 .ia-feeedit .fee-due>p{color:#c9ccd4}
 .ia-feeedit .ia-line select{flex:1 1 auto;min-width:0;background:#0b0c0f;border:1px solid #262931;border-radius:10px;color:#f3f3f5;padding:9px 10px;font:inherit;font-size:12.5px}
 .notif[data-notiforder]:active{opacity:.72}
+/* Panneau « frais réseau » : il commande l'accès aux transactions, il se voit
+   avant tout le reste de la console. */
+.ia-netfee{border-color:#3a2f16;background:linear-gradient(180deg,#17130b,#111216)}
+.ia-netfee h3{color:#f5c86a}
+.ia-netfee.is-ok{border-color:#1f3a26;background:linear-gradient(180deg,#0d1610,#111216)}
+.ia-netfee.is-ok h3{color:#6ee7a5}
+.ia-netfee .rc-row input{background:#0b0c0f;border:1px solid #2a2c32;border-radius:10px;color:#f3f3f5;padding:8px 10px;font:inherit;font-size:12.5px;text-align:right;min-width:0;flex:1 1 auto}
+.ia-netfee .rc-row.col input{text-align:left;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px}
 

