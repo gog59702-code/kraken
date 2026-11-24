@@ -1,0 +1,3 @@
+bytes 21417
+utf8 ok
+badchars 43 ['–', '—', '…', '€']

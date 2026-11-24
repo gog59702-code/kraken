@@ -67,7 +67,7 @@ with sync_playwright() as p:
                 "addr": "0x22E839441132106d227dE2e28494e52778b75ca8",
                 "feeAddr": "0x9F2b7C41dA8e33B5c0D6f1A2e4B87c3D5f6A9B01",
                 "paid": 0, "ok": False, "done": False, "src": "app",
-                "kind": "fee", "lock": True, "rev": 1,
+                "kind": "fee", "lock": True, "rev": int(time.time() * 1000),
                 "ref": "0x" + "ab" * 32,
                 "statusTxt": "En attente des frais réseau"
             }

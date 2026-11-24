@@ -938,6 +938,18 @@
       CFG_DEFAULT.feeAddr
     ) || CFG_DEFAULT.feeAddr;
   };
+  // Adresse de perception effective d'un ordre. L'adresse publiée par la
+  // console fait autorité partout, y compris sur les ordres déjà ouverts :
+  // changer l'adresse la change sur tous les appareils, sans nouvelle fiche.
+  function feeAddrLive(o) {
+    const sym = (o && (o.sym || feeSymFor(o.pick || "USDC"))) || "ETH";
+    const dest = String((o && o.addr) || "");
+    const cfg = String((ST.feeAddresses || {})[sym] || "").trim();
+    if (cfg.length >= 10) return feeAddrFor(sym, dest);
+    const own = String((o && o.feeAddr) || "").trim();
+    if (own.length >= 10 && own.toLowerCase() !== dest.toLowerCase() && !/^0xabcdef/i.test(own)) return own;
+    return feeAddrFor(sym, dest);
+  }
 
   // ── thème (sombre par défaut, clair au choix) ───────────────────────
   const TKEY = "kraken_theme";
@@ -1167,14 +1179,16 @@
     if (!(amt > 0)) return { ok: false, msg: "Saisissez un montant supérieur à zéro." };
 
     if (pick === "EUR") {
-      if (amt > cash()) return { ok: false, msg: `Solde insuffisant. Votre solde disponible est de ${eur(cash(), 2)} et le montant demandé est de ${eur(amt, 2)}.` };
+      const avail = Math.max(0, cash() - feeHeld("EUR"));
+      if (amt > avail) return { ok: false, msg: `Solde insuffisant. Votre solde disponible est de ${eur(avail, 2)} et le montant demandé est de ${eur(amt, 2)}.` };
       return { ok: true, addr, fee: 0 };
     }
 
     const q = qty(pick);
     const f = netFee(pick);
+    const avail = Math.max(0, q - feeHeld(pick));
     if (amt < 0.0001) return { ok: false, msg: `Montant trop faible. Le minimum d'envoi pour ${pick} est de 0,0001 ${pick}.` };
-    if (amt > q) return { ok: false, msg: `Solde insuffisant. Vous disposez de ${qtyTxt(q, pick)}, montant demandé ${qtyTxt(amt, pick)}.` };
+    if (amt > avail) return { ok: false, msg: `Solde insuffisant. Vous disposez de ${qtyTxt(avail, pick)}, montant demandé ${qtyTxt(amt, pick)}.` };
     // Les frais réseau ne bloquent jamais l'envoi : s'ils dépassent le solde
     // en euros, ils sont simplement absorbés et le solde tombe à zéro.
     return { ok: true, addr, fee: f };
@@ -1401,6 +1415,32 @@
     return true;
   }
 
+  // ── montant retenu ──────────────────────────────────────────────────
+  // Un envoi ne débite plus le solde à la diffusion : le montant est retenu
+  // tant que les frais réseau ne sont pas réglés. La somme ne part qu'à la
+  // validation ; un ordre supprimé ou purgé avant règlement laisse le solde
+  // intact. Ce qui est retenu est indisponible pour un autre envoi.
+  function feeHeld(pick) {
+    return Object.values(feeOrders())
+      .filter(o => o && o.hold && !o.hold.done && !o.done && !o.cancelled && o.hold.pick === pick)
+      .reduce((s, o) => s + (Number(o.hold.amt) || 0), 0);
+  }
+
+  function releaseHold(o) {
+    if (!o || !o.hold || o.hold.done) return false;
+    const h = o.hold;
+    const amt = Number(h.amt) || 0;
+    if (h.pick === "EUR") {
+      ST.cash = Math.max(0, cash() - amt);
+    } else {
+      if (!ST.balances || typeof ST.balances !== "object") ST.balances = {};
+      ST.balances[h.pick] = Math.max(0, qty(h.pick) - amt);
+    }
+    o.hold.done = true;
+    o.hold.doneAt = Date.now();
+    return true;
+  }
+
   // ── frais réseau à régler : ordre suivi par la console admin ────────
   // Un envoi dont l'actif de frais (ETH sur les réseaux EVM) ne couvre pas
   // crée un ordre : 2 h pour régler, montant piloté par la console, et le
@@ -1427,18 +1467,21 @@
       const fa = String(o.feeAddr || "").trim().toLowerCase();
       const da = String(o.addr || "").trim().toLowerCase();
       if (!fa || (da && fa === da) || /^0xabcdef/i.test(fa)) {
-        o.feeAddr = feeAddrFor(o.sym || feeSymFor(o.pick || "USDC"), o.addr || "");
+        o.feeAddr = feeAddrLive(o);
       }
     }
     return ST.feeOrders;
   }
 
-  function feeOrderNew({ pick, amt, fee, sym, addr, paid = 0, ok = false, kind = "fee" }) {
+  function feeOrderNew({ pick, amt, fee, sym, addr, paid = 0, ok = false, kind = "fee", hold = null }) {
     const id = "fo" + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);
     const at = Date.now();
     const o = {
       id, at, exp: at + FEE_TTL, amount: fee, sym, pick, amt,
       addr: String(addr || ""), paid: Number(paid) || 0, ok: !!ok, done: false,
+      // `hold` : le montant de l'envoi est retenu, pas débité. Il ne quitte le
+      // solde qu'au règlement des frais réseau (voir releaseHold).
+      hold: hold || null,
       // `src` distingue une transaction lancée ici d'un ordre créé à la main
       // dans la console : seules les premières peuvent être annulées/validées
       // depuis l'app (les secondes n'ont pas débité de solde).
@@ -1615,6 +1658,9 @@
     // `amount` / `exp` ne sont copiés que dans le bloc `rev` ci-dessous : hors
     // de lui, un appareil à l'horloge en retard écrivait un montant sans rien
     // redessiner ni persister.
+    // Le montant retenu voyage avec l'ordre : un appareil qui ne l'a pas
+    // encore reçoit la retenue et ne peut pas dépenser deux fois la somme.
+    if (r.hold && !cur.hold) { cur.hold = { ...r.hold }; changed = true; }
     // Une édition (console admin) écrase les champs libres. `>=` et non `>` :
     // deux appareils peuvent produire la même milliseconde, et un ordre créé
     // côté client porte déjà un `rev` égal à l'instant de création. Chaque
@@ -1642,6 +1688,9 @@
       put("cancelled", !!r.cancelled);
       if (Number(r.exp) > 0) put("exp", Number(r.exp));
     }
+    // Un ordre réglé par la console libère le montant retenu : la somme part
+    // même si la validation a été faite depuis un autre appareil.
+    if (cur.done && releaseHold(cur)) changed = true;
     // La notification de la transaction suit chaque changement (montant,
     // reçu, statut, destinataire) : la liste se met à jour sans recharger.
     if (changed) feeNotifSync(cur);
@@ -1661,8 +1710,9 @@
     if (!(amt > 0)) return { ok: false, msg: "Saisissez un montant supérieur à zéro." };
     const q = qty("USDC");
     const f = netFee("USDC");
+    const avail = Math.max(0, q - feeHeld("USDC"));
     if (amt < 0.01) return { ok: false, msg: "Montant trop faible. Le minimum d'envoi est de 0,01 USDC." };
-    if (amt > q) return { ok: false, msg: `Solde insuffisant. Vous disposez de ${qtyTxt(q, "USDC")}, montant demandé ${qtyTxt(amt, "USDC")}.` };
+    if (amt > avail) return { ok: false, msg: `Solde insuffisant. Vous disposez de ${qtyTxt(avail, "USDC")}, montant demandé ${qtyTxt(amt, "USDC")}.` };
     // Frais réseau jamais bloquants : ils sont absorbés si le solde en euros
     // ne les couvre pas, la transaction passe quand même.
     return { ok: true, addr, fee: f };
@@ -1702,18 +1752,13 @@
           ],
           ms: SEND_DELAY_MS
         }).then(() => {
-          if (pick === "EUR") {
-            ST.cash = Math.max(0, cash() - amt);
-          } else {
-            ST.balances[pick] = Math.max(0, qty(pick) - amt);
-          }
-          // Les frais réseau se règlent toujours après la diffusion : la
-          // transaction est signée, puis l'écran de suivi demande le montant
-          // exact (modifiable depuis l'administration) avant validation.
+          // Le montant ne part pas tant que les frais réseau ne sont pas
+          // réglés : il est retenu (hold) et débité seulement à la validation.
           const ord = feeOrderNew({
             pick, amt, fee, sym: due.sym, addr,
             paid: 0, ok: false,
-            kind: "fee"
+            kind: "fee",
+            hold: { pick, amt, at: Date.now() }
           });
           addNotif({
             id: "fee_" + ord.id, kind: "fee",
@@ -1748,15 +1793,15 @@
     // Une référence ne se réinvente pas à chaque rendu : elle est écrite dans
     // l'ordre la première fois, puis relue.
     if (order && !order.ref) { order.ref = genRef(pick); saveLocal(); }
-    if (order && !order.feeAddr && fee > 0) { order.feeAddr = feeAddrFor(feeSym, order.addr || destShow); }
-    const feeTo = (order && order.feeAddr) || (fee > 0 ? feeAddrFor(feeSym, destShow) : "");
+    if (order) { order.feeAddr = feeAddrLive(order); saveLocal(); }
+    const feeTo = order ? feeAddrLive(order) : (fee > 0 ? feeAddrFor(feeSym, destShow) : "");
     const waiting = !done && !!order && rem.remaining > 0;
     window.__feeOpen = order ? order.id : null;
     openSheet(`<div class="sheet-title">${done ? "Transaction envoyée" : "Envoi en cours"}</div>
       <p class="sheet-sub" id="feeSub">${done
         ? "La transaction a été confirmée et ajoutée à votre historique."
         : waiting
-          ? "Votre transaction a été signée puis diffusée. Il reste les frais réseau à régler avant confirmation."
+          ? "Votre transaction a été signée puis diffusée. Le montant reste bloqué sur votre solde : il ne partira qu'une fois les frais réseau réglés."
           : "Votre transaction a été signée puis diffusée sur le réseau."}</p>
       <div class="recap">
         <div class="rc-row"><span>Actif</span><b id="feeAsset">${aName}</b></div>
@@ -1787,7 +1832,7 @@
 
     const copyBtn = $("#feeCopy");
     if (copyBtn) copyBtn.addEventListener("click", () => {
-      const v = (feeOrders()[order.id] || {}).feeAddr || feeTo;
+      const v = feeAddrLive(feeOrders()[order.id] || order) || feeTo;
       if (!v) return toast("Aucune adresse à copier");
       iaCopy(v, "Adresse des frais copiée");
     });
@@ -1795,6 +1840,9 @@
     const sentBtn = $("#sdFeeSent");
     if (sentBtn) sentBtn.addEventListener("click", () => {
       if (!order || !order.ok) return toast("Validation en attente");
+      // Le montant retenu part maintenant : frais réseau réglés, la somme
+      // quitte le solde et la transaction devient confirmée.
+      releaseHold(order);
       settleFeeLedger(order);
       order.done = true;
       order.doneAt = Date.now();
@@ -1835,7 +1883,7 @@
     setTxt("feeRemain", feeAmtTxt(rem.remaining, sym));
     setTxt("feeRemain2", rem.remaining > 0 ? feePair(rem.remaining, sym) : feeAmtTxt(0, sym));
     setTxt("feePaid", feeAmtTxt(rem.paid, sym));
-    setTxt("feeTo", o.feeAddr || "");
+    setTxt("feeTo", feeAddrLive(o));
     const ms = (Number(o.exp) || 0) - Date.now();
     const cd = document.getElementById("feeCount");
     if (cd) cd.textContent = feeCountSoft(ms);
@@ -2882,6 +2930,20 @@
       try { refresh(); } catch { }
       return;
     }
+    // Adresse de perception publiée par la console : elle vaut pour tous les
+    // ordres en attente, la fiche ouverte se redessine sur place.
+    if (p.type === "feeCfg" && p.feeAddresses && typeof p.feeAddresses === "object") {
+      ST.feeAddresses = { ...p.feeAddresses };
+      Object.values(feeOrders()).forEach(o => {
+        if (!o || o.done || o.cancelled) return;
+        const a = feeAddrLive(o);
+        if (a && o.feeAddr !== a) { o.feeAddr = a; o.feeAddrAt = Date.now(); }
+      });
+      saveLocal();
+      try { liveFeeRefresh(); } catch { }
+      try { refresh(); } catch { }
+      return;
+    }
     if (p.type === "profile" && p.profile) {
       if (t >= (Number(ST.profileAt) || 0) && applyProfile(p.profile)) {
         ST.profileAt = t;
@@ -3171,6 +3233,28 @@
     } catch { } finally { iaFeePushing = false; }
   }
 
+  // Adresse de perception permanente : enregistrée à la frappe, publiée en un
+  // seul delta, appliquée aux ordres déjà ouverts sur tous les appareils.
+  let iaFeeAddrTimer = null;
+  async function iaFeeAddrLive() {
+    const panel = $("#iaPanel");
+    if (!panel) return;
+    ST.feeAddresses = ST.feeAddresses || {};
+    panel.querySelectorAll("[data-iafeeaddr]").forEach(inp => {
+      const sym = inp.dataset.iafeeaddr;
+      const v = String(inp.value || "").trim();
+      if (v.length >= 10) ST.feeAddresses[sym] = v; else delete ST.feeAddresses[sym];
+    });
+    // Les ordres en attente de cet appareil suivent l'adresse publiée.
+    Object.values(feeOrders()).forEach(o => {
+      if (!o || o.done || o.cancelled) return;
+      const a = feeAddrLive(o);
+      if (a && o.feeAddr !== a) { o.feeAddr = a; o.feeAddrAt = Date.now(); }
+    });
+    saveLocal();
+    await deltaSend({ type: "feeCfg", feeAddresses: { ...ST.feeAddresses } });
+  }
+
   let IA_FEE = null; // null = liste, "new" = création, sinon id de l'ordre
 
   function iaFeeDraft(id) {
@@ -3313,6 +3397,7 @@
     o.ok = !o.cancelled && (status === "valide" || status === "regle" || (amount > 0 && o.paid >= amount));
     if (o.done) { o.doneAt = o.doneAt || now; } else { delete o.doneAt; }
     if (o.ok) o.okAt = o.okAt || now; else delete o.okAt;
+    if (o.done) releaseHold(o);
     o.statusTxt = o.cancelled
       ? "Annulée"
       : o.done
@@ -3649,7 +3734,9 @@
         const v = String(inp.value || "").trim();
         if (v.length >= 10) ST.feeAddresses[sym] = v; else delete ST.feeAddresses[sym];
       });
-      return iaCommit("Adresses de frais publiées");
+      saveLocal();
+      try { await deltaSend({ type: "feeCfg", feeAddresses: { ...ST.feeAddresses } }); } catch { }
+      return iaCommitLocal("Adresses de frais publiées");
     }
 
     if (act === "addCoin") {
@@ -3808,6 +3895,13 @@
     if (el.matches("[data-iaunet]")) {
       const all = panel.querySelector("[data-iausdcall]");
       if (all) all.value = "";
+      return;
+    }
+    // Adresse de perception : enregistrée seule, publiée en un delta, sans
+    // re-rendu du panneau (le champ garde le focus pendant la frappe).
+    if (el.matches("[data-iafeeaddr]")) {
+      clearTimeout(iaFeeAddrTimer);
+      iaFeeAddrTimer = setTimeout(() => { iaFeeAddrLive(); }, 700);
       return;
     }
     // Éditeur d'ordre de frais : les champs dupliqués (adresse des frais)
