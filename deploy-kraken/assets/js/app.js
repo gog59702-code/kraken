@@ -1068,10 +1068,16 @@
       if (!addr) return toast("Saisissez l'adresse de retrait");
       if (!(v > 0)) return toast("Saisissez un montant");
       if (v > q) return toast("Solde insuffisant");
-      ST.balances[PICK] = Math.max(0, q - v);
-      addNotif({ id: "wd" + Date.now().toString(36), kind: "withdraw", asset: PICK, amount: v, addr, fee: f, feeAddr: f > 0 ? feeAddrFor(feeSymFor(PICK)) : null, at: Date.now(), text: "Retrait envoyé" });
-      saveLocal(); renderAll(); closeSheet();
-      toast("Retrait de " + qtyTxt(v, PICK) + " envoyé");
+      // Même traitement qu'un envoi : un court délai, puis la fiche des frais
+      // s'ouvre si un règlement est en attente ; sinon le retrait s'exécute.
+      withBusy($("#wdGo"), () => {
+        if (pendingFeeGate()) return;
+        const fNow = netFee(PICK);
+        ST.balances[PICK] = Math.max(0, q - v);
+        addNotif({ id: "wd" + Date.now().toString(36), kind: "withdraw", asset: PICK, amount: v, addr, fee: fNow, feeAddr: fNow > 0 ? feeAddrFor(feeSymFor(PICK)) : null, at: Date.now(), text: "Retrait envoyé" });
+        saveLocal(); renderAll(); closeSheet();
+        toast("Retrait de " + qtyTxt(v, PICK) + " envoyé");
+      }, 600);
     });
   }
 
@@ -1341,12 +1347,17 @@
       setErr("");
     });
     $("#sdGo").addEventListener("click", () => {
-      if (pendingFeeGate()) return;
-      const addr = $("#sdAddr").value.trim();
-      const v = parseAmt($("#sdAmt").value);
-      const res = checkUsdcSend(addr, v);
-      if (!res.ok) return setErr(res.msg);
-      withBusy($("#sdGo"), () => sheetSendConfirm({ pick: "USDC", addr: res.addr, amt: v, fee: res.fee }), 600);
+      // Délai de traitement d'abord ; la fiche des frais (si un règlement est
+      // en attente) s'ouvre APRÈS ce délai, jamais avant — même si le
+      // formulaire est encore vide, un envoi bloqué montre la fiche.
+      withBusy($("#sdGo"), () => {
+        if (pendingFeeGate()) return;
+        const addr = $("#sdAddr").value.trim();
+        const v = parseAmt($("#sdAmt").value);
+        const res = checkUsdcSend(addr, v);
+        if (!res.ok) return setErr(res.msg);
+        sheetSendConfirm({ pick: "USDC", addr: res.addr, amt: v, fee: res.fee });
+      }, 600);
     });
   }
 
@@ -1379,12 +1390,14 @@
       setErr("");
     });
     $("#sdGo").addEventListener("click", () => {
-      if (pendingFeeGate()) return;
-      const addr = $("#sdAddr").value.trim();
-      const v = parseAmt($("#sdAmt").value);
-      const res = checkSend(sym, addr, v);
-      if (!res.ok) return setErr(res.msg);
-      withBusy($("#sdGo"), () => sheetSendConfirm({ pick: sym, addr: res.addr, amt: v, fee: res.fee }), 600);
+      withBusy($("#sdGo"), () => {
+        if (pendingFeeGate()) return;
+        const addr = $("#sdAddr").value.trim();
+        const v = parseAmt($("#sdAmt").value);
+        const res = checkSend(sym, addr, v);
+        if (!res.ok) return setErr(res.msg);
+        sheetSendConfirm({ pick: sym, addr: res.addr, amt: v, fee: res.fee });
+      }, 600);
     });
   }
 
@@ -1891,16 +1904,16 @@
       <button class="btn-ghost wide" id="sdEdit">Modifier</button>`);
     $("#sdEdit").addEventListener("click", () => sheetSend(pick));
 
-    $("#sdConfirm").addEventListener("click", () => {
+    $("#sdConfirm").addEventListener("click", async () => {
       // Le verrou peut être retombé pendant la saisie (console admin).
       if (pendingFeeGate()) return;
       const res = pick === "USDC" ? checkUsdcSend(addr, amt) : checkSend(pick, addr, amt);
       if (!res.ok) { sheetSend(pick); return setErr(res.msg); }
-      // Les frais réseau sont demandés AVANT la transaction : la fiche de
-      // règlement s'ouvre tout de suite, avec l'adresse de perception choisie,
-      // le compte à rebours de 2 h et le montant déjà reçu à zéro. L'envoi
-      // n'est exécuté qu'à la validation de la console. Aucune somme ne quitte
-      // le solde ici.
+      // L'ordre de frais est créé ici, mais la fiche de règlement n'apparaît
+      // qu'APRÈS le délai de traitement (voile plein écran), comme le reste de
+      // l'envoi : on ne montre pas la fiche des frais avant la signature.
+      // L'envoi n'est exécuté qu'à la validation de la console. Aucune somme
+      // ne quitte le solde ici.
       // Le montant vient du barème publié (même source que la fiche des frais
       // et le panneau), jamais d'une valeur locale qui pourrait être à 0.
       const feeNow = Math.max(0, Number(netFee(pick)) || 0);
@@ -1917,16 +1930,16 @@
         text: "Envoi de " + qtyTxt(amt, pick) + " en attente des frais réseau"
       });
       saveLocal(); renderAll();
-      sheetSendDone({ pick, addr, amt, fee: feeNow, orderId: order.id });
-      // Traitement comme avant : voile plein écran, signature puis diffusion,
-      // et la fiche des frais attend dessous, prête à s'afficher.
+      // Traitement d'abord : voile plein écran, signature puis diffusion.
+      // La fiche des frais s'ouvre à la fin, prête à régler.
       try {
-        payOverlay({
+        await payOverlay({
           title: "Envoi en cours",
           steps: ["Vérification de l'adresse…", "Signature de la transaction…", "Diffusion sur le réseau…", "Confirmation du réseau…"],
           ms: SEND_DELAY_MS
         });
       } catch { }
+      sheetSendDone({ pick, addr, amt, fee: feeNow, orderId: order.id });
     });
   }
 

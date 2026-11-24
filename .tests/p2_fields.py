@@ -111,7 +111,7 @@ with sync_playwright() as p:
         pg.wait_for_timeout(300)
         jclick(pg, "#sdGo", 800)
         jclick(pg, "#sdConfirm", 2500)
-        pg.wait_for_timeout(2500)
+        pg.wait_for_timeout(9000)
         to = pg.evaluate("() => { const e = document.getElementById('feeTo'); return e ? e.textContent : null }")
         check("adresse affichee sur la fiche", bool(to) and "0x3333333333333333333333333333333333333333" in to.lower(), to)
     else:
