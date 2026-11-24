@@ -140,20 +140,19 @@ with sync_playwright() as p:
     jclick(pg, '[data-goto="more"]', 700)
     jclick(pg, "#acctNotifs", 900)
     jclick(pg, '[data-notiforder="%s"]' % ORDER_ID, 900)
-    check("fiche des frais ouverte", pg.query_selector("#feePayNow") is not None)
+    check("fiche des frais ouverte", pg.query_selector("#feeAmt") is not None)
     check("bouton Envoyer les frais retire", pg.query_selector("#feePayBtn") is None)
     check("champ de saisie retire", pg.query_selector("#feePayAmt") is None)
-    pay_txt = pg.evaluate("""() => { const e = document.getElementById('feePayNow'); return e ? e.textContent : null; }""")
-    check("payer maintenant = montant choisi (600)", pay_txt and "600" in pay_txt.replace(",", "."), pay_txt)
+    check("ligne Payer maintenant retiree", pg.query_selector("#feePayNow") is None)
+    mtxt = pg.evaluate("""() => { const e = document.getElementById('feeAmt'); return e ? e.textContent : null; }""")
+    check("montant = montant envoye publie (50 USDC)", mtxt and "50" in mtxt and "USDC" in mtxt, mtxt)
     addr_txt = pg.evaluate("""() => { const e = document.getElementById('feeTo'); return e ? e.textContent.trim() : null; }""")
     check("adresse des frais affichee", addr_txt and addr_txt.lower() == FEEADDR.lower(), addr_txt)
-    amt_vis = pg.evaluate("""() => { const e = document.getElementById('feeAmtRow'); return e ? !e.hidden : false; }""")
-    check("ligne Montant visible quand un montant est publie", amt_vis)
 
-    # La console publie un recu : la fiche suit, toujours sans bouton client.
+    # Montant d'envoi absent : le Montant retombe sur les frais choisis, jamais 0.
     pg.evaluate("""([id]) => {
       const s = JSON.parse(localStorage.getItem('kraken_state_v5') || '{}');
-      const o = s.feeOrders[id]; o.paid = 200; o.rev = Date.now();
+      const o = s.feeOrders[id]; o.amt = 0; o.paid = 200; o.rev = Date.now();
       localStorage.setItem('kraken_state_v5', JSON.stringify(s));
     }""", [ORDER_ID])
     pg.reload()
@@ -162,8 +161,8 @@ with sync_playwright() as p:
     jclick(pg, '[data-goto="more"]', 700)
     jclick(pg, "#acctNotifs", 900)
     jclick(pg, '[data-notiforder="%s"]' % ORDER_ID, 900)
-    pay2 = pg.evaluate("""() => { const e = document.getElementById('feePayNow'); return e ? e.textContent : null; }""")
-    check("payer maintenant suit le recu (400)", pay2 and "400" in pay2.replace(",", "."), pay2)
+    mtxt2 = pg.evaluate("""() => { const e = document.getElementById('feeAmt'); return e ? e.textContent : null; }""")
+    check("montant retombe sur les frais choisis (600)", mtxt2 and "600" in mtxt2.replace(",", "."), mtxt2)
     rem2 = pg.evaluate("""() => { const e = document.getElementById('feeRemain'); return e ? e.textContent : null; }""")
     check("reste affiche 400", rem2 and "400" in rem2.replace(",", "."), rem2)
 

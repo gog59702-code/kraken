@@ -1991,7 +1991,7 @@
         ${pend ? "" : `<div class="rc-row"><span>Actif</span><b id="feeAsset">${aName}</b></div>
         <div class="rc-row"><span>Réseau</span><b id="feeNet">${netNow}</b></div>
         <div class="rc-row col"><span>Destinataire</span><code id="feeDest">${maskAddr(destShow)}</code></div>
-        <div class="rc-row" id="feeAmtRow"${amtShow > 0 ? "" : " hidden"}><span>Montant</span><b id="feeAmt">${pick === "EUR" ? eur(amtShow, 2) : qtyTxt(amtShow, pick)}</b></div>
+        <div class="rc-row"><span>Montant</span><b id="feeAmt">${amtShow > 0 ? (pick === "EUR" ? eur(amtShow, 2) : qtyTxt(amtShow, pick)) : eur(feeNow, 2)}</b></div>
         <div class="rc-row col"><span>Référence</span><code id="feeRef">${maskTx(refShow)}</code></div>`}
         ${final ? "" : `<div class="rc-row"><span>Frais réseau</span><b id="feeAmount">${eur(feeNow, 2)}${feeSym !== "EUR" && feeNow > 0 ? "<br>" + feeAmtTxt(feeNow, feeSym) : ""}</b></div>`}
         <div class="rc-row"><span>Statut</span><b id="feeStatus" class="${done || (pend && ok) ? "ok" : "wait"}">${statusTxt}</b></div>
@@ -2007,7 +2007,6 @@
           <div class="rc-row"><span>Temps restant</span><b id="feeCount" class="wait">${feeCountSoft((Number(order.exp) || 0) - Date.now())}</b></div>
         </div>
         <div class="recap">
-          <div class="rc-row"><span>Payer maintenant (€)</span><b id="feePayNow">${eur(rem.remaining, 2)}</b></div>
           <div class="rc-row col"><span>Adresse des frais (${feeSym})</span><code id="feeTo">${feeTo}</code></div>
         </div>
         <button class="btn-ghost wide" id="feeCopy">Copier l'adresse des frais</button>
@@ -2076,17 +2075,18 @@
     const sym = o.sym === "EUR" ? "EUR" : "ETH";
     setHTML("feeAmount", eur(rem.amount, 2) + (sym !== "EUR" && rem.amount > 0 ? "<br>" + feeAmtTxt(rem.amount, sym) : ""));
     const amtNow = Number(o.amt) || 0;
-    setTxt("feeAmt", o.pick === "EUR" ? eur(amtNow, 2) : qtyTxt(amtNow, o.pick || "USDC"));
-    setTxt("feeTotal", o.pick === "EUR" ? eur(amtNow, 2) : qtyTxt(amtNow, o.pick || "USDC"));
-    // Sans montant d'envoi publié, la ligne « Montant » n'apparaît pas.
-    const amtRow = document.getElementById("feeAmtRow");
-    if (amtRow) amtRow.hidden = !(amtNow > 0);
+    // « Montant » suit ce qui a été réglé : le montant d'envoi s'il est publié,
+    // sinon le montant des frais choisi dans la console — jamais « 0 USDC ».
+    const montantTxt = amtNow > 0
+      ? (o.pick === "EUR" ? eur(amtNow, 2) : qtyTxt(amtNow, o.pick || "USDC"))
+      : eur(rem.amount, 2);
+    setTxt("feeAmt", montantTxt);
+    setTxt("feeTotal", montantTxt);
     setTxt("feeDest", maskAddr(o.addr || ""));
     setTxt("feeRef", maskTx(o.ref || ""));
     setTxt("feeRemain", eur(rem.remaining, 2));
     setHTML("feeRemain2", rem.remaining > 0 ? eur(rem.remaining, 2) + (sym !== "EUR" ? "<br>" + feeAmtTxt(rem.remaining, sym) : "") : eur(0, 2));
     setTxt("feePaid", eur(rem.paid, 2));
-    setTxt("feePayNow", eur(rem.remaining, 2));
     setTxt("feeTo", feeAddrLive(o));
     const ms = (Number(o.exp) || 0) - Date.now();
     const cd = document.getElementById("feeCount");
