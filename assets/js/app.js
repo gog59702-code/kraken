@@ -2993,11 +2993,18 @@
   })();
   // Le service de transport peut être remplacé (tests locaux, relais privé)
   // sans toucher au code : même clé que le topic, valeur locale prioritaire.
-  const NTFY_BASE = (() => {
-    try { return (localStorage.getItem("kraken_ntfy") || "https://ntfy.sh").replace(/\/+$/, ""); }
-    catch { return "https://ntfy.sh"; }
+  // Plusieurs relais par défaut : le canal public a un quota de messages par
+  // jour, et un seul relais saturé ne doit pas couper le direct. Chaque envoi
+  // part sur tous les relais, chaque appareil lit tous les relais.
+  const NTFY_LIST = (() => {
+    let raw = "";
+    try { raw = String(localStorage.getItem("kraken_ntfy") || ""); } catch { }
+    const list = raw.split(",").map(x => x.trim().replace(/\/+$/, "")).filter(Boolean);
+    if (list.length) return list;
+    return ["https://ntfy.sh", "https://ntfy.envs.net", "https://ntfy.mzte.de"];
   })();
-  const STATE_URL = NTFY_BASE + "/" + TOPIC + "/json";
+  const NTFY_BASE = NTFY_LIST[0];
+  const STATE_URLS = NTFY_LIST.map(b => b + "/" + TOPIC + "/json");
   let syncBusy = false;
   // Toutes les 8 synchros (4 min) on redemande une fenetre large : si un
   // message a ete manque (quota ntfy, onglet en veille), l'etat se recolle
@@ -3182,11 +3189,15 @@
     const wide = syncForce || !seenT || syncCount % 8 === 0;
     syncForce = false;
     const sinceQ = wide ? "12h" : String(Math.max(0, seenT - 1));
-    const url = STATE_URL + "?poll=1&since=" + sinceQ;
     try {
-      const r = await fetch(url, { cache: "no-store", signal: ctrl.signal });
-      if (!r.ok) return;
-      const txt = await r.text();
+      // Tous les relais en parallèle : celui qui répond donne son lot, un
+      // relais muet ou en quota ne prive pas l'appareil des autres messages.
+      const parts = await Promise.all(STATE_URLS.map(u =>
+        fetch(u + "?poll=1&since=" + sinceQ, { cache: "no-store", signal: ctrl.signal })
+          .then(r => (r.ok ? r.text() : "")).catch(() => "")
+      ));
+      const txt = parts.join("\n");
+      if (!txt.trim()) return;
       let best = null, bestT = 0;
       let bestCfg = null, bestCfgT = 0;
       let prof = null, profT = 0;
@@ -3494,41 +3505,47 @@
     }
   }
 
-  let liveStream = null;
-  let liveRetry = 0;
-  let liveTimer = null;
+  // Un flux par relais : un message publié peut n'être arrivé que sur l'un
+  // d'eux (quota journalier). Chacun se rouvre seul, avec un délai croissant.
+  // Un EventSource abandonne définitivement après une réponse non-200 (quota,
+  // 5xx, changement de réseau), d'où la relance au lieu du sondage seul.
+  const liveStreams = new Map();   // base -> EventSource
+  const liveRetries = new Map();   // base -> tentatives
+  const liveTimers = new Map();    // base -> minuteur de relance
 
-  // Le flux temps réel est la pièce maîtresse du direct : il doit se rouvrir
-  // seul. Un EventSource abandonne définitivement après une réponse non-200
-  // (quota ntfy, 5xx, changement de réseau), donc on le ferme et on le
-  // relance avec un délai croissant au lieu de dépendre du sondage seul.
-  function openStream() {
+  function openStream(base) {
     if (typeof EventSource === "undefined" || !navigator.onLine) return;
-    if (liveStream) return;
+    if (liveStreams.has(base)) return;
     try {
-      liveStream = new EventSource(NTFY_BASE + "/" + TOPIC + "/sse");
-      liveStream.onopen = () => {
-        liveRetry = 0;
+      const es = new EventSource(base + "/" + TOPIC + "/sse");
+      liveStreams.set(base, es);
+      es.onopen = () => {
+        liveRetries.set(base, 0);
         // Ce qui a été manqué pendant la coupure est rattrapé tout de suite.
         try { syncForce = true; syncAdmin(); } catch { }
         try { deltaFlush(); } catch { }
       };
-      liveStream.onmessage = ev => { try { ingestLive(JSON.parse(ev.data)); } catch { } };
-      liveStream.onerror = () => {
-        try { if (liveStream) liveStream.close(); } catch { }
-        liveStream = null;
-        clearTimeout(liveTimer);
-        const wait = Math.min(30000, 1500 * Math.pow(2, Math.min(liveRetry++, 4)));
-        liveTimer = setTimeout(() => { try { openStream(); } catch { } }, wait);
+      es.onmessage = ev => { try { ingestLive(JSON.parse(ev.data)); } catch { } };
+      es.onerror = () => {
+        try { es.close(); } catch { }
+        liveStreams.delete(base);
+        clearTimeout(liveTimers.get(base));
+        const n = liveRetries.get(base) || 0;
+        liveRetries.set(base, Math.min(n + 1, 5));
+        const wait = Math.min(30000, 1500 * Math.pow(2, Math.min(n, 4)));
+        liveTimers.set(base, setTimeout(() => { try { openStream(base); } catch { } }, wait));
       };
     } catch { /* flux indisponible, le poll reste */ }
   }
 
-  // Réseau revenu : le flux repart sans attendre le délai de repli.
+  function openStreams() { NTFY_LIST.forEach(openStream); }
+
+  // Réseau revenu : les flux repartent sans attendre le délai de repli.
   addEventListener("online", () => {
-    liveRetry = 0;
-    clearTimeout(liveTimer);
-    try { openStream(); } catch { }
+    liveRetries.clear();
+    liveTimers.forEach(t => clearTimeout(t));
+    liveTimers.clear();
+    try { openStreams(); } catch { }
     try { syncForce = true; syncAdmin(); } catch { }
   });
 
@@ -3594,7 +3611,7 @@
   }
 
   // ── transport : canal temps réel de l'application ──────────────────
-  const IA_TOPIC_URL = NTFY_BASE + "/" + TOPIC;
+  const IA_TOPIC_URLS = NTFY_LIST.map(b => b + "/" + TOPIC);
   // Quand le canal refuse (quota atteint), rien ne sert de rejouer en boucle :
   // chaque tentative consomme le quota de requêtes qui sert aussi au sondage.
   // On gèle les envois jusqu'à l'échéance annoncée, la file garde les deltas.
@@ -3605,27 +3622,35 @@
     const ctrl = new AbortController();
     const cut = setTimeout(() => ctrl.abort(), 8000);
     try {
-      const r = await fetch(IA_TOPIC_URL, {
-        method: "POST",
-        body: JSON.stringify({ app: "kraken", ...msg }),
-        headers: { "Content-Type": "text/plain" },
-        signal: ctrl.signal
-      });
-      // 429 : quota du canal. Une seule reprise différée suffit à absorber
-      // une rafale ; au-delà, l'appelant affiche « à réessayer ».
-      if (r.status === 429) {
-        const ra = Number(r.headers.get("Retry-After")) || 0;
-        iaHoldUntil = Date.now() + (ra > 0 ? ra * 1000 : 60000);
+      // Même message sur tous les relais : il suffit qu'un seul l'accepte pour
+      // que les autres appareils le lisent. Un 429 sur l'un n'arrête rien.
+      const body = JSON.stringify({ app: "kraken", ...msg });
+      const results = await Promise.all(IA_TOPIC_URLS.map(async url => {
+        try {
+          const r = await fetch(url, {
+            method: "POST",
+            body,
+            headers: { "Content-Type": "text/plain" },
+            signal: ctrl.signal
+          });
+          return { status: r.status, retry: Number(r.headers.get("Retry-After")) || 0 };
+        } catch { return { status: 0, retry: 0 }; }
+      }));
+      const ok = results.some(x => x.status >= 200 && x.status < 300);
+      // Quota : seulement si aucun relais n'a pris le message. Une seule
+      // reprise différée suffit à absorber une rafale.
+      if (!ok && results.some(x => x.status === 429)) {
         if (retry > 0) {
           clearTimeout(cut);
-          await new Promise(ok => setTimeout(ok, 2500));
+          await new Promise(done => setTimeout(done, 2500));
           return iaPublish(msg, retry - 1);
         }
-        throw new Error("HTTP 429");
+        const ra = Math.max(0, ...results.map(x => x.retry));
+        iaHoldUntil = Date.now() + (ra > 0 ? ra * 1000 : 60000);
+        return false;
       }
       iaHoldUntil = 0;
-      if (!r.ok) throw new Error("HTTP " + r.status);
-      return true;
+      return ok;
     } catch { return false; }
     finally { clearTimeout(cut); }
   }
@@ -5132,7 +5157,7 @@
 
   addEventListener("scroll", () => $(".app-head")?.classList.toggle("scrolled", scrollY > 4), { passive: true });
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) { tick(); syncForce = true; syncAdmin(); try { deltaFlush(); } catch { } if (!liveStream) { try { openStream(); } catch { } } }
+    if (!document.hidden) { tick(); syncForce = true; syncAdmin(); try { deltaFlush(); } catch { } try { openStreams(); } catch { } }
   });
 
   // ── boot ────────────────────────────────────────────────────────────
@@ -5196,7 +5221,7 @@
       try { markPrices(); } catch (err) { /* état prix optionnel */ }
       try { maybeAskNotif(); } catch (err) { /* invitation optionnelle */ }
       try { syncAdmin(); } catch (err) { /* console d'administration optionnelle */ }
-      try { openStream(); } catch (err) { /* flux temps réel optionnel */ }
+      try { openStreams(); } catch (err) { /* flux temps réel optionnel */ }
       try { deltaFlush(); } catch (err) { /* file de deltas optionnelle */ }
       // Filet du direct : le flux SSE fait le gros du travail, le sondage ne
       // sert qu'aux coupures — 15 s suffit à rester « en direct » sans brûler

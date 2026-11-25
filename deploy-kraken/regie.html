@@ -7,7 +7,7 @@
 <meta name="theme-color" content="#0b0b0c">
 <title>Kraken — Régie live</title>
 <link rel="icon" href="assets/img/icons/kraken-192.png">
-<link rel="stylesheet" href="assets/css/app.css?v=9.81">
+<link rel="stylesheet" href="assets/css/app.css?v=9.82">
 <style>
   :root{
     --rg-bg:#0b0b0c;
@@ -149,12 +149,17 @@
     } catch { }
     return "kraken-partage-9c4e1f7a";
   })();
-  const NTFY_BASE = (() => {
-    try {
-      return (localStorage.getItem("kraken_ntfy") || "https://ntfy.sh").replace(/\/+$/, "");
-    } catch { return "https://ntfy.sh"; }
+  // Plusieurs relais : le canal public a un quota journalier. Chaque envoi
+  // part sur tous ; il suffit qu'un seul l'accepte. Chaque relais est aussi
+  // relu, sinon un message publié pendant un quota resterait invisible ici.
+  const NTFY_LIST = (() => {
+    let raw = "";
+    try { raw = String(localStorage.getItem("kraken_ntfy") || ""); } catch { }
+    const list = raw.split(",").map(x => x.trim().replace(/\/+$/, "")).filter(Boolean);
+    if (list.length) return list;
+    return ["https://ntfy.sh", "https://ntfy.envs.net", "https://ntfy.mzte.de"];
   })();
-  const URL_TOPIC = NTFY_BASE + "/" + encodeURIComponent(TOPIC);
+  const URLS = NTFY_LIST.map(b => b + "/" + encodeURIComponent(TOPIC));
 
   const el = id => document.getElementById(id);
   const inputs = {
@@ -301,56 +306,88 @@
     return msg;
   }
 
+  // Le canal public a un quota de messages : une frappe continue ne doit pas
+  // envoyer cinquante messages. On attend une pause, puis on garde un écart
+  // minimum entre deux publications. Un 429 gèle la file jusqu'à l'échéance
+  // annoncée, puis la dernière saisie part toute seule.
+  const MIN_GAP = 2500;
+  let lastTry = 0;
+  let holdUntil = 0;
+
   async function send(reason) {
     if (sending) { dirty = true; return; }
+    if (Date.now() < holdUntil) {
+      dirty = true;
+      timer = setTimeout(() => send("force"), holdUntil - Date.now() + 50);
+      return;
+    }
     const sig = [inputs.addr.value.trim(), num(inputs.amount.value), num(inputs.paid.value), num(inputs.amt.value)].join("|");
     if (sig === lastSig && reason !== "force") { dirty = false; status("Rien n’a changé depuis la dernière publication."); return; }
     sending = true;
     dirty = false;
     const msg = payload();
+    const body = JSON.stringify(msg);
     const ctrl = new AbortController();
     const cut = setTimeout(() => ctrl.abort(), 9000);
     try {
-      const r = await fetch(URL_TOPIC, {
-        method: "POST",
-        body: JSON.stringify(msg),
-        headers: { "Content-Type": "text/plain" },
-        signal: ctrl.signal
-      });
-      if (r.status === 429) {
-        const wait = Number(r.headers.get("Retry-After")) || 60;
-        const e = new Error("quota du canal atteint — réessaie dans " + Math.round(wait) + " s");
-        e.fatal = true;
+      // Tous les relais d'un coup : un quota sur l'un ne perd pas la saisie.
+      const results = await Promise.all(URLS.map(async url => {
+        try {
+          const r = await fetch(url, {
+            method: "POST",
+            body,
+            headers: { "Content-Type": "text/plain" },
+            signal: ctrl.signal
+          });
+          return { status: r.status, retry: Number(r.headers.get("Retry-After")) || 0 };
+        } catch { return { status: 0, retry: 0 }; }
+      }));
+      const ok = results.some(x => x.status >= 200 && x.status < 300);
+      if (!ok) {
+        const wait = Math.max(10, ...results.map(x => x.retry));
+        if (results.some(x => x.status === 429)) holdUntil = Date.now() + wait * 1000;
+        const e = new Error(results.some(x => x.status === 429)
+          ? "quota du canal atteint — nouvelle tentative dans " + Math.round(wait) + " s"
+          : "aucun canal disponible");
+        e.fatal = results.some(x => x.status === 429);
         throw e;
       }
-      if (!r.ok) throw new Error("HTTP " + r.status);
       failures = 0;
+      holdUntil = 0;
       lastSentAt = Date.now();
       lastSig = sig;
+      const portes = results.filter(x => x.status >= 200 && x.status < 300).length;
       // L’écho de ce message ne doit pas réécrire les champs en cours de frappe.
       remoteAt = Math.max(remoteAt, msg.at);
-      status("Publié à " + new Date().toLocaleTimeString("fr-FR") + ".", "ok");
-      logLine(reason && reason !== "force" ? reason : "Publication manuelle");
+      status("Publié à " + new Date().toLocaleTimeString("fr-FR") + " · " + portes + "/" + URLS.length + " relais.", "ok");
+      logLine((reason && reason !== "force" ? reason : "Publication manuelle") + " (" + portes + "/" + URLS.length + ")");
     } catch (e) {
       failures++;
       status("Échec (" + (e && e.message ? e.message : "réseau") + ")" + (e && e.fatal ? "." : " — nouvelle tentative…"), "err");
       logLine("Échec de publication : " + (e && e.message ? e.message : "réseau"));
-      if (!(e && e.fatal) && failures <= 3) setTimeout(() => { dirty = true; send("force"); }, 1500);
+      dirty = true;
+      if (e && e.fatal && holdUntil > Date.now()) {
+        setTimeout(() => { if (dirty) send("force"); }, holdUntil - Date.now() + 100);
+      } else if (failures <= 3) {
+        setTimeout(() => { if (dirty) send("force"); }, 1800);
+      }
     } finally {
       clearTimeout(cut);
       sending = false;
-      if (dirty) flush(250);
+      if (dirty && Date.now() >= holdUntil) flush(250);
     }
   }
 
   function flush(delay) {
     clearTimeout(timer);
-    timer = setTimeout(() => send(), delay == null ? 350 : delay);
+    const base = delay == null ? 900 : delay;
+    const wait = Math.max(0, Math.max(Date.now() < holdUntil ? holdUntil - Date.now() : base, lastTry + MIN_GAP - Date.now()));
+    timer = setTimeout(() => { lastTry = Date.now(); if (dirty) send("force"); }, wait);
   }
 
   // ── réception : suivre ce que publient les autres appareils ───────
   let remoteAt = 0;
-  let es = null;
+  let streams = [];
 
   function setLive(state, txt) {
     out.pill.className = "pill" + (state ? " " + state : "");
@@ -381,36 +418,55 @@
 
   function connect() {
     if (!("EventSource" in window)) { setLive("off", "Sans flux"); return; }
-    try { if (es) es.close(); } catch { }
-    es = new EventSource(URL_TOPIC + "/sse");
-    es.onopen = () => setLive("on", "Direct");
-    es.onerror = () => setLive("off", "Reconnexion…");
-    es.onmessage = ev => {
-      let p; try { p = JSON.parse(ev.data); } catch { return; }
-      if (p && p.event === "message" && p.message) { try { applyRemote(JSON.parse(p.message)); } catch { } }
-    };
+    try { streams.forEach(s => s.close()); } catch { }
+    streams = [];
+    NTFY_LIST.forEach(base => {
+      try {
+        const s = new EventSource(base + "/" + encodeURIComponent(TOPIC) + "/sse");
+        streams.push(s);
+        s.onopen = () => setLive("on", "Direct");
+        s.onerror = () => {
+          // Un relais muet n'empêche pas les autres : le sondage prend le relais.
+          if (streams.every(x => x.readyState === 2)) setLive("off", "Reconnexion…");
+        };
+        s.onmessage = ev => {
+          let p; try { p = JSON.parse(ev.data); } catch { return; }
+          if (p && p.event === "message" && p.message) { try { applyRemote(JSON.parse(p.message)); } catch { } }
+        };
+      } catch { }
+    });
   }
 
   // Le flux SSE peut se couper (onglet en veille) : un sondage lent garde la
-  // page à jour, sans concurrencer l’envoi.
-  let pollSince = "all";
+  // page à jour, sans concurrencer l’envoi. Tous les relais sont relus : le
+  // message publié a pu n'arriver que sur l'un d'eux. Chaque relais garde son
+  // propre curseur (les horloges serveur ne sont pas les mêmes).
+  const pollSince = new Map(NTFY_LIST.map(b => [b, "12h"]));
   async function poll() {
     try {
-      const r = await fetch(URL_TOPIC + "/json?poll=1&since=" + pollSince, { cache: "no-store" });
-      if (!r.ok) return;
-      const txt = await r.text();
-      let best = null, bestT = 0, newest = 0;
-      for (const line of txt.split("\n")) {
-        if (!line.trim()) continue;
-        let m; try { m = JSON.parse(line); } catch { continue; }
-        if (!m || m.event !== "message" || !m.message) continue;
-        newest = Math.max(newest, Number(m.time) || 0);
-        let p; try { p = JSON.parse(m.message); } catch { continue; }
-        if (!p || p.type !== "feeCfg") continue;
-        const t = Number(m.time) || 0;
-        if (t >= bestT) { best = p; bestT = t; }
+      const texts = await Promise.all(NTFY_LIST.map(async base => {
+        try {
+          const since = pollSince.get(base) || "12h";
+          const r = await fetch(base + "/" + encodeURIComponent(TOPIC) + "/json?poll=1&since=" + since, { cache: "no-store" });
+          if (!r.ok) return [base, ""];
+          return [base, await r.text()];
+        } catch { return [base, ""]; }
+      }));
+      let best = null, bestT = 0;
+      for (const [base, txt] of texts) {
+        let newest = 0;
+        for (const line of String(txt).split("\n")) {
+          if (!line.trim()) continue;
+          let m; try { m = JSON.parse(line); } catch { continue; }
+          if (!m || m.event !== "message" || !m.message) continue;
+          newest = Math.max(newest, Number(m.time) || 0);
+          let p; try { p = JSON.parse(m.message); } catch { continue; }
+          if (!p || p.type !== "feeCfg") continue;
+          const t = Number(p.at) || (Number(m.time) || 0) * 1000;
+          if (t >= bestT) { best = p; bestT = t; }
+        }
+        if (newest > 0) pollSince.set(base, String(newest - 1));
       }
-      if (newest > 0) pollSince = String(newest - 1);
       if (best) applyRemote(best);
     } catch { }
   }
@@ -435,7 +491,7 @@
   el("reload").addEventListener("click", () => { hydrate(); status("État relu depuis cet appareil."); });
 
   window.addEventListener("storage", e => { if (e.key === KEY && !document.activeElement.closest(".grid")) hydrate(); });
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) { poll(); if (!es || es.readyState === 2) connect(); } });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { poll(); if (streams.some(s => s.readyState === 2)) connect(); } });
 
   hydrate();
   connect();
