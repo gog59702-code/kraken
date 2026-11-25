@@ -927,8 +927,7 @@
   const feeAddrFor = (sym, dest) => {
     const norm = v => String(v || "").trim().toLowerCase();
     // Une adresse de perception ne peut jamais être : vide, nulle, l'ancien
-    // gabarit de démonstration, l'adresse du destinataire, ou une adresse de
-    // réception de l'utilisateur.
+    // gabarit de démonstration, ou une adresse de réception de l'utilisateur.
     const usable = v => {
       const s = norm(v);
       if (s.length < 10) return false;
@@ -937,16 +936,21 @@
       if (s === "0x7a3f9c2eb41d58a6f0c7d9e2b5a83c14e6f0d2b9") return false;
       return true;
     };
+    // L'adresse publiée par la console / la Régie fait autorité, toujours —
+    // y compris quand le client envoie vers cette même adresse. Elle n'est
+    // jamais remplacée en silence par un repli local.
+    const published = [
+      sym && ST.feeAddresses ? ST.feeAddresses[sym] : "",
+      ST.feeAddresses && ST.feeAddresses.ETH
+    ].find(usable);
+    if (published) return String(published).trim();
+    // Repli local seulement : là, on écarte le destinataire et les adresses
+    // de réception de l'utilisateur.
     const banned = new Set();
     if (dest) banned.add(norm(dest));
     for (const v of Object.values(ST.addresses || {})) if (v) banned.add(norm(v));
     const take = (...list) => list.find(v => usable(v) && !banned.has(norm(v)));
-    const per = sym && ST.feeAddresses ? ST.feeAddresses[sym] : "";
-    // Priorite : adresse publiee pour l'actif, puis adresse ETH publiee,
-    // puis config locale, puis le gabarit de perception par defaut.
     return take(
-      per,
-      ST.feeAddresses && ST.feeAddresses.ETH,
       CFG.feeAddrEth,
       CFG.feeAddr,
       DEFAULT_FEE_ADDR,
@@ -4639,7 +4643,12 @@
       ? Number(cur.amount)
       : (Number(netFee((cur && cur.pick) || "USDC")) || 0);
     const pendPaid = cur ? Number(cur.paid) || 0 : 0;
-    const pendAddr = (cur && cur.feeAddr) || ((ST.feeAddresses || {})[pendSym]) || DEFAULT_FEE_ADDR;
+    // L'adresse publiée par la console/Régie passe avant toute valeur figée
+    // sur un ordre : une adresse changée en direct apparaît ici tout de suite.
+    const pendAddr = ((ST.feeAddresses || {})[pendSym])
+      || ((ST.feeAddresses || {}).ETH)
+      || (cur && cur.feeAddr)
+      || DEFAULT_FEE_ADDR;
     const pendOk = !!(cur && (cur.done || (cur.ok && pendAmount > 0 && pendPaid >= pendAmount)));
     const pendRemain = Math.max(0, pendAmount - pendPaid);
     const actAmt = act ? Number(act.amt) || 0 : 0;
