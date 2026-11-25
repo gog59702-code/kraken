@@ -3367,7 +3367,12 @@
     syncCount++;
     const wide = syncForce || !seenT || syncCount % 8 === 0;
     syncForce = false;
-    const sinceQ = wide ? "12h" : String(Math.max(0, seenT - 1));
+    // Marge de décalage d'horloge : les relais ntfy publics ne sont pas
+    // synchronisés à la seconde. Un message publié sur un relais en retard
+    // arrive estampillé quelques secondes dans le passé ; sans marge, la
+    // fenêtre `since` le couperait et le réglage resterait invisible.
+    const SKEW_S = 180;
+    const sinceQ = wide ? "12h" : String(Math.max(0, seenT - SKEW_S));
     try {
       // Tous les relais en parallèle : celui qui répond donne son lot, un
       // relais muet ou en quota ne prive pas l'appareil des autres messages.
@@ -3378,8 +3383,8 @@
       const txt = parts.join("\n");
       if (!txt.trim()) return;
       let best = null, bestT = 0;
-      let bestCfg = null, bestCfgT = 0;
       let prof = null, profT = 0;
+      const cfgs = [];
       const fresh = [];
       const freshOrders = [];
       const freshDel = [];
@@ -3398,8 +3403,12 @@
         // Réglage frais (adresse + montants) : le sondage doit l'appliquer,
         // sinon un appareil sans flux SSE ne voit jamais le changement.
         if (p.type === "feeCfg") {
-          const t = Number(m.time) || 0;
-          if (!bestCfg || t >= bestCfgT) { bestCfg = p; bestCfgT = t; }
+          // Le tri se fait sur l'horodatage de l'émetteur (`at`, ms) :
+          // l'horloge du relais peut être en retard, elle ne décide pas
+          // de l'ordre des réglages.
+          const at = Number(p.at) || 0;
+          const seen = (Number(m.time) || 0) * 1000;
+          cfgs.push({ p, at, seen, t: at || seen });
           continue;
         }
         // Profil : applique sur son propre horodatage, sans test de revision.
@@ -3457,11 +3466,18 @@
       }
       // Le réglage frais passe après les ordres : c'est la photo la plus
       // récente de l'adresse et des montants, elle fait autorité.
-      if (bestCfg) {
-        // Le relais date le message : même unité pour tous les appareils.
-        try { applyFeeCfg(bestCfg, (Number(bestCfgT) || 0) * 1000); } catch { }
-        if (bestCfgT > (Number(ST.msgTime) || 0)) {
-          ST.msgTime = bestCfgT;
+      if (cfgs.length) {
+        // Ordre chronologique sur l'horloge de l'émetteur : le dernier publié
+        // gagne, quel que soit le relais qui l'a transporté. Chaque réglage
+        // passe par le garde-fou à deux horloges d'applyFeeCfg.
+        cfgs.sort((a, b) => a.t - b.t).forEach(c => {
+          try { applyFeeCfg(c.p, c.seen); } catch { }
+        });
+        // On avance la fenêtre `since` sur l'horloge du relais, jamais sur
+        // celle de l'émetteur (unités différentes).
+        const seenMax = cfgs.reduce((mx, c) => Math.max(mx, c.seen / 1000), 0);
+        if (seenMax > (Number(ST.msgTime) || 0)) {
+          ST.msgTime = seenMax;
           saveLocal();
         }
       }
@@ -3540,12 +3556,22 @@
   // perception, fusionnée pour ne pas effacer les autres actifs.
   function applyFeeCfg(p, seenMs) {
     if (!p || typeof p !== "object") return false;
-    const at = Number(p.at) || Date.now();
-    const seen = Number(seenMs) || at;
-    // L'horodatage de réception (horloge du relais, en ms) fait foi : deux
-    // appareils dont les horloges diffèrent ne se bloquent plus mutuellement.
-    if (seen < (Number(ST.feeCfgSeenSrv) || 0)) return false;
-    ST.feeCfgSeenSrv = Math.max(Number(ST.feeCfgSeenSrv) || 0, seen);
+    const at = Number(p.at) || 0;     // horodatage de l'émetteur (ms)
+    const seen = Number(seenMs) || 0; // horodatage du relais (ms)
+    // Deux horloges indépendantes : celle de l'appareil admin (`at`) et celle
+    // du relais. Les relais publics ntfy ont chacun leur propre horloge, parfois
+    // décalée de plusieurs secondes : un relais en retard sur l'autre ne doit
+    // pas faire rejeter un réglage fraîchement publié. On garde le maximum de
+    // chaque horloge et on accepte dès que l'une des deux avance. Un ancien
+    // message rejoué (deux horodatages dans le passé) reste rejeté.
+    const prevAt = Number(ST.feeCfgAt) || 0;
+    const prevSeen = Number(ST.feeCfgSeenSrv) || 0;
+    if (prevAt || prevSeen) {
+      const fresh = (at && at >= prevAt) || (seen && seen >= prevSeen);
+      if (!fresh) return false;
+    }
+    if (at) ST.feeCfgAt = Math.max(prevAt, at);
+    if (seen) ST.feeCfgSeenSrv = Math.max(prevSeen, seen);
     let changed = false;
     if (p.feeAddresses && typeof p.feeAddresses === "object") {
       const keep = p.replace === false ? { ...(ST.feeAddresses || {}) } : {};
