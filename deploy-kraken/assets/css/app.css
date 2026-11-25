@@ -542,13 +542,19 @@ img{display:block}
 [data-theme="dark"] .btn-black.is-busy::after{border-color:rgba(11,11,12,.22);border-top-color:#0b0b0c}
 [data-theme="dark"] .btn-black.is-busy{color:transparent}
 @keyframes krakenSpin{to{transform:rotate(360deg)}}
-.pay-overlay{position:fixed;inset:0;z-index:260;background:#000;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:0 28px;text-align:center;opacity:0;transition:opacity .22s ease}
+.pay-overlay{position:fixed;inset:0;z-index:260;background:rgba(255,255,255,.92);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);color:var(--ink);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:0 28px;text-align:center;opacity:0;transition:opacity .22s ease}
 .pay-overlay.on{opacity:1}
-.pay-ring{width:46px;height:46px;border-radius:50%;border:3px solid rgba(255,255,255,.22);border-top-color:#fff;animation:krakenSpin .8s linear infinite}
-.pay-ttl{font-size:17px;font-weight:600;letter-spacing:-.2px}
-.pay-step{font-size:13.5px;color:rgba(255,255,255,.7);min-height:18px}
-.pay-bar{width:min(260px,70vw);height:3px;border-radius:2px;background:rgba(255,255,255,.18);overflow:hidden;margin-top:4px}
-.pay-bar i{display:block;width:0;height:100%;background:#fff}
+.pay-ring{width:48px;height:48px;border-radius:50%;border:3px solid #ece7fd;border-top-color:var(--purple);animation:krakenSpin .8s linear infinite}
+.pay-ttl{font-size:17px;font-weight:600;letter-spacing:-.2px;color:var(--ink)}
+.pay-step{font-size:13.5px;color:var(--ink-2);min-height:18px}
+.pay-bar{width:min(260px,70vw);height:3px;border-radius:2px;background:#ece7fd;overflow:hidden;margin-top:4px}
+.pay-bar i{display:block;width:0;height:100%;background:var(--purple)}
+[data-theme="dark"] .pay-overlay{background:rgba(12,12,14,.92);color:#f3f3f5}
+[data-theme="dark"] .pay-ttl{color:#f3f3f5}
+[data-theme="dark"] .pay-step{color:rgba(255,255,255,.7)}
+[data-theme="dark"] .pay-ring{border-color:rgba(255,255,255,.18);border-top-color:#fff}
+[data-theme="dark"] .pay-bar{background:rgba(255,255,255,.18)}
+[data-theme="dark"] .pay-bar i{background:#fff}
 .pick.is-on{background:#0b0b0c;border-color:#0b0b0c;color:#fff;transition:none}
 .pick.is-on i{color:rgba(255,255,255,.68)}
 [data-theme="dark"] .pick.is-on{background:#0b0b0c;border-color:#f3f3f5;color:#f3f3f5}
@@ -557,6 +563,10 @@ img{display:block}
 /* ── console embarquée (accès Offres → 100 $ en BTC) ───────────────── */
 body.ia-lock{overflow:hidden}
 .ia{position:fixed;inset:0;z-index:400;background:#07080a;color:#f3f3f5;display:flex;flex-direction:column;font-size:14px}
+/* Feuille ouverte au-dessus de la console (code PIN de validation) : elle
+   doit passer devant le panneau, sinon le champ est invisible. */
+body.ia-lock .scrim{z-index:500}
+body.ia-lock .sheet{z-index:510}
 .ia[hidden]{display:none}
 .ia-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:calc(12px + var(--st)) 16px 12px;border-bottom:1px solid #1b1c20;background:#0b0c0e}
 .ia-title{font-size:16px;font-weight:750;letter-spacing:-.2px}

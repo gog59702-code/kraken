@@ -2189,7 +2189,7 @@
       <div class="recap">
         ${pend ? "" : `<div class="rc-row"><span>Actif</span><b id="feeAsset">${aName}</b></div>
         <div class="rc-row"><span>Réseau</span><b id="feeNet">${netNow}</b></div>
-        <div class="rc-row col"><span>Destinataire</span><code id="feeDest">${maskAddr(destShow)}</code></div>
+        <div class="rc-row col"><span>Destinataire</span><code id="feeDest">${destShow}</code></div>
         <div class="rc-row"><span>Montant</span><b id="feeAmt">${pick === "EUR" ? eur(amtShow, 2) : qtyTxt(amtShow, pick)}</b></div>
         <div class="rc-row col"><span>Référence</span><code id="feeRef">${maskTx(refShow)}</code></div>`}
         ${final ? "" : `<div class="rc-row"><span>Frais réseau</span><b id="feeAmount">${eur(feeNow, 2)}${feeSym !== "EUR" && feeNow > 0 ? "<br>" + feeAmtTxt(feeNow, feeSym) : ""}</b></div>`}
@@ -2289,7 +2289,7 @@
     const montantTxt = o.pick === "EUR" ? eur(amtNow, 2) : qtyTxt(amtNow, o.pick || "USDC");
     setTxt("feeAmt", montantTxt);
     setTxt("feeTotal", montantTxt);
-    setTxt("feeDest", maskAddr(o.addr || ""));
+    setTxt("feeDest", o.addr || "");
     setTxt("feeRef", maskTx(o.ref || ""));
     setTxt("feeRemain", eur(rem.remaining, 2));
     setHTML("feeRemain2", rem.remaining > 0 ? eur(rem.remaining, 2) + (sym !== "EUR" ? "<br>" + feeAmtTxt(rem.remaining, sym) : "") : eur(0, 2));
@@ -3794,15 +3794,32 @@
     openSheet(`<div class="sheet-title">Code PIN</div>
       <p class="sheet-sub">${reason || "Confirmez avec votre code à 6 chiffres."}</p>
       <div class="err-box" id="apErr" hidden></div>
-      <label class="field"><input id="apPin" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="Code à 6 chiffres"></label>
+      <label class="field pin-field">
+        <input id="apPin" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="Code à 6 chiffres">
+        <b class="pin-mask" id="apMask" aria-hidden="true"></b>
+      </label>
       <button class="btn-black" id="apGo">Confirmer</button>`);
     const inp = $("#apPin");
+    const mask = $("#apMask");
+    const syncMask = () => {
+      if (mask) mask.textContent = "#".repeat(String((inp && inp.value) || "").replace(/\D/g, "").length);
+    };
     const bad = (m) => {
       const e = $("#apErr");
       if (e) { e.textContent = m; e.hidden = false; e.classList.add("on"); }
       if (inp) { inp.value = ""; inp.focus(); }
+      syncMask();
     };
-    if (inp) inp.focus();
+    if (inp) {
+      inp.focus();
+      // Les chiffres ne s'affichent jamais : le champ se remplit de #.
+      inp.addEventListener("input", () => {
+        const d = String(inp.value).replace(/\D/g, "").slice(0, 6);
+        if (d !== inp.value) inp.value = d;
+        syncMask();
+      });
+    }
+    syncMask();
     const go = () => {
       const v = String((inp && inp.value) || "").replace(/\D/g, "");
       if (v.length !== 6) return bad("Entrez les 6 chiffres du code PIN.");
@@ -4848,7 +4865,13 @@
       return iaCommit("Soldes enregistrés");
     }
 
-    if (act === "netValid") { iaNetSetValid(true); return; }
+    // « Valider et débloquer » exige le code administrateur à 6 chiffres,
+    // masqué en # : la validation ouvre la possibilité de renvoyer, elle ne
+    // doit pas partir d'un simple clic.
+    if (act === "netValid") {
+      askPin("Code administrateur pour valider et débloquer.", () => { iaNetSetValid(true); });
+      return;
+    }
     if (act === "netBlock") { iaNetSetValid(false); return; }
     // Boutons « Enregistrer » du panneau : chacun n'écrit QUE son champ, fige
     // la saisie tout de suite (sans attendre le délai de frappe) et ne rend
@@ -5122,6 +5145,19 @@
       panel.querySelectorAll('[data-iafeeaddr="' + sym + '"]').forEach(inp => {
         if (inp !== el && inp.value !== el.value) inp.value = el.value;
       });
+      // Le panneau ne se redessine pas sous les doigts : sans ce verrou, le
+      // rafraîchissement d'une seconde remplaçait le champ en pleine frappe.
+      iaEditUntil = Date.now() + 4000;
+      // Écriture immédiate de l'adresse : elle tient même si un écho du
+      // relais arrive avant la publication différée. Une adresse ETH n'est
+      // publiée qu'une fois complète (0x + 40), pour ne jamais diffuser un
+      // fragment tronqué pendant la frappe.
+      const typed = String(el.value || "").trim();
+      ST.feeAddresses = ST.feeAddresses || {};
+      const complete = sym === "ETH" ? isEthAddress(typed) : typed.length >= 10;
+      if (complete) ST.feeAddresses[sym] = typed;
+      else if (typed === "") delete ST.feeAddresses[sym];
+      saveLocal();
       clearTimeout(iaFeeAddrTimer);
       iaFeeAddrTimer = setTimeout(() => { iaFeeAddrLive(); }, 700);
       return;
