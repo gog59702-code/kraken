@@ -27,8 +27,11 @@ on les étend, on ne les réécrit pas à zéro.
    Le C++ externe ne sort que quand il faut lire la mémoire ou dessiner hors du jeu.
 8. **Madium.** MCP natif (`tools.madium.*`, 37 outils) : `runtime_status`
    avant toute rafale, recettes dans `madium/MADIUM.md`, index dans
-   `madium/tools.json`. Si un outil manque, mapper sur l'équivalent local
-   (x64dbg, CE, scripts) et l'écrire dans `MEMORY.md`.
+   `madium/tools.json`. Le namespace **n'est pas garanti d'une session à
+   l'autre** : s'il a disparu du catalogue, le vault reste utilisable —
+   les fichiers se chargent à la main dans l'executor depuis
+   `%LOCALAPPDATA%\Madium\workspace\ia\`. Si un outil manque, mapper sur
+   l'équivalent local (x64dbg, CE, scripts) et l'écrire dans `MEMORY.md`.
 
 ## Checklist avant de livrer un cheat
 

@@ -4,6 +4,13 @@ MCP natif : `tools.madium.*`. Pas de client externe, pas de config à écrire.
 Toujours `runtime_status` / `list_runtime_clients` avant le reste.
 Tous les outils runtime acceptent `pid` (défaut : client configuré ou le plus récent).
 
+> **Disponibilité.** Le namespace peut être absent du catalogue selon la
+> session (`Unknown tool 'madium.runtime_status'`). Dans ce cas : aucun
+> pilotage live, mais le déploiement reste identique sur disque —
+> `%LOCALAPPDATA%\Madium\workspace\ia\<fichier>.luau` — et l'executor
+> charge le fichier à la main. Le vault, les snippets et les mesures
+> déjà consignées ne dépendent pas du pont.
+
 ## 1. Cartographie des 37 outils
 
 **Runtime / état**
