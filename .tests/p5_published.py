@@ -31,7 +31,7 @@ with sync_playwright() as p:
     app.goto(BASE + "index.html#app", wait_until="load", timeout=60000)
     app.wait_for_function("!!window.__krakenBooted", timeout=40000)
     app.wait_for_timeout(1500)
-    check("version servie", app.evaluate("() => (document.querySelector('script[src*=\"app.js\"]')||{}).src").split("?v=")[-1], "9.82")
+    check("version servie", app.evaluate("() => (document.querySelector('script[src*=\"app.js\"]')||{}).src").split("?v=")[-1], "9.83")
 
     pc = b.new_context()
     pc.add_init_script("localStorage.setItem('kraken_topic', %s);" % json.dumps(TOPIC))

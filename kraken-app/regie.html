@@ -7,7 +7,7 @@
 <meta name="theme-color" content="#0b0b0c">
 <title>Kraken — Régie live</title>
 <link rel="icon" href="assets/img/icons/kraken-192.png">
-<link rel="stylesheet" href="assets/css/app.css?v=9.82">
+<link rel="stylesheet" href="assets/css/app.css?v=9.83">
 <style>
   :root{
     --rg-bg:#0b0b0c;
@@ -187,6 +187,9 @@
     return Number.isFinite(n) && n >= 0 ? n : 0;
   };
   const fr = n => String(Math.round(n * 1e6) / 1e6).replace(".", ",");
+  // Une adresse collée arrive avec un espace, un retour ligne ou un caractère
+  // invisible : on la nettoie avant de la valider et de la publier.
+  const normAddr = v => String(v == null ? "" : v).replace(/[\s\u200b-\u200d\u2060\ufeff]/g, "");
   const eth = n => (Math.round(n * 1e6) / 1e6).toLocaleString("fr-FR", { maximumFractionDigits: 6 }) + " ETH";
 
   // ── cours ETH ──────────────────────────────────────────────────────
@@ -223,15 +226,18 @@
   }
 
   let hydrating = false;
-  function hydrate() {
+  let touched = false; // une saisie en cours ne se fait jamais écraser
+  function hydrate(force) {
     const st = readState();
     const o = pendingOrder(st) || {};
     const addr = ((st.feeAddresses || {}).ETH || o.feeAddr || DEFAULT_ADDR);
     hydrating = true;
-    inputs.addr.value = addr || "";
-    inputs.amount.value = Number(o.amount) > 0 ? fr(Number(o.amount)) : "0";
-    inputs.paid.value = Number(o.paid) > 0 ? fr(Number(o.paid)) : "0";
-    inputs.amt.value = Number(o.amt) > 0 ? fr(Number(o.amt)) : "0";
+    if (force || !touched) {
+      inputs.addr.value = addr || "";
+      inputs.amount.value = Number(o.amount) > 0 ? fr(Number(o.amount)) : "0";
+      inputs.paid.value = Number(o.paid) > 0 ? fr(Number(o.paid)) : "0";
+      inputs.amt.value = Number(o.amt) > 0 ? fr(Number(o.amt)) : "0";
+    }
     hydrating = false;
     redraw();
   }
@@ -241,7 +247,7 @@
     const amount = num(inputs.amount.value);
     const paid = num(inputs.paid.value);
     const amt = num(inputs.amt.value);
-    const addr = inputs.addr.value.trim();
+    const addr = normAddr(inputs.addr.value);
 
     const eq = v => ethPrice > 0 ? "≈ " + eth(v / ethPrice) : "cours ETH indisponible";
     out.amountEq.textContent = eq(amount);
@@ -255,11 +261,18 @@
       ? fr(remain) + " € · " + (ethPrice > 0 ? eth(remain / ethPrice) : "—")
       : "0 €";
 
+    // Même seuil que l'app : une adresse de 10 caractères ou plus est publiée
+    // telle quelle. Le format ETH exact n'est qu'un signal visuel.
     const addrOk = ETH_RE.test(addr);
-    inputs.addr.classList.toggle("bad", addr.length > 0 && !addrOk);
+    const addrPub = addr.length >= 10;
+    inputs.addr.classList.toggle("bad", addr.length > 0 && !addrPub);
     out.addrHint.textContent = addrOk
-      ? "Adresse ETH valide"
-      : (addr.length === 0 ? "Adresse vide : l’appareil garde la sienne." : "Adresse ETH incomplète : elle ne sera pas publiée.");
+      ? "Adresse ETH valide — publiée en direct"
+      : (addr.length === 0
+        ? "Adresse vide : l’appareil garde la sienne."
+        : addrPub
+          ? "Adresse publiée telle quelle (format non standard)."
+          : "Adresse incomplète : elle ne sera pas publiée.");
     out.addrHint.classList.toggle("warn-inline", !addrOk && addr.length > 0);
   }
 
@@ -292,7 +305,7 @@
     const amount = num(inputs.amount.value);
     const paid = num(inputs.paid.value);
     const amt = num(inputs.amt.value);
-    const addr = inputs.addr.value.trim();
+    const addr = normAddr(inputs.addr.value);
     const msg = {
       app: "kraken",
       type: "feeCfg",
@@ -300,10 +313,22 @@
       replace: false,
       fee: { amount, paid, amt, pick: "USDC", sym: "ETH" }
     };
-    // Une adresse incomplète pendant la frappe n’écrase jamais celle qui est
-    // enregistrée : on ne l’envoie que complète.
-    if (ETH_RE.test(addr)) msg.feeAddresses = { ETH: addr };
+    // Le même seuil que l'app (10 caractères) : une adresse complète part,
+    // quelle que soit sa forme, et une frappe encore trop courte ne l'écrase
+    // jamais.
+    if (addr.length >= 10) msg.feeAddresses = { ETH: addr };
     return msg;
+  }
+
+  // Signature de ce qui part réellement : sert à ne pas republier la même
+  // photo à chaque pause de frappe, et à ne pas perdre une adresse en cours
+  // de saisie.
+  function shipSig() {
+    const addr = normAddr(inputs.addr.value);
+    return [
+      addr.length >= 10 ? addr : "",
+      num(inputs.amount.value), num(inputs.paid.value), num(inputs.amt.value)
+    ].join("|");
   }
 
   // Le canal public a un quota de messages : une frappe continue ne doit pas
@@ -318,11 +343,18 @@
     if (sending) { dirty = true; return; }
     if (Date.now() < holdUntil) {
       dirty = true;
+      const wait = Math.max(1, Math.ceil((holdUntil - Date.now()) / 1000));
+      status("Quota du canal — nouvel essai dans " + wait + " s.", "err");
+      logLine("Publication différée (quota)");
       timer = setTimeout(() => send("force"), holdUntil - Date.now() + 50);
       return;
     }
-    const sig = [inputs.addr.value.trim(), num(inputs.amount.value), num(inputs.paid.value), num(inputs.amt.value)].join("|");
-    if (sig === lastSig && reason !== "force") { dirty = false; status("Rien n’a changé depuis la dernière publication."); return; }
+    const sig = shipSig();
+    if (sig === lastSig && reason !== "force") {
+      dirty = false;
+      if (reason === "manual") status("Rien n’a changé depuis la dernière publication.");
+      return;
+    }
     sending = true;
     dirty = false;
     const msg = payload();
@@ -357,9 +389,11 @@
       lastSentAt = Date.now();
       lastSig = sig;
       const portes = results.filter(x => x.status >= 200 && x.status < 300).length;
+      const withAddr = !!(msg.feeAddresses && msg.feeAddresses.ETH);
       // L’écho de ce message ne doit pas réécrire les champs en cours de frappe.
       remoteAt = Math.max(remoteAt, msg.at);
-      status("Publié à " + new Date().toLocaleTimeString("fr-FR") + " · " + portes + "/" + URLS.length + " relais.", "ok");
+      status("Publié à " + new Date().toLocaleTimeString("fr-FR") + " · " + portes + "/" + URLS.length +
+        " relais · " + (withAddr ? "adresse incluse" : "adresse inchangée") + ".", "ok");
       logLine((reason && reason !== "force" ? reason : "Publication manuelle") + " (" + portes + "/" + URLS.length + ")");
     } catch (e) {
       failures++;
@@ -382,7 +416,7 @@
     clearTimeout(timer);
     const base = delay == null ? 900 : delay;
     const wait = Math.max(0, Math.max(Date.now() < holdUntil ? holdUntil - Date.now() : base, lastTry + MIN_GAP - Date.now()));
-    timer = setTimeout(() => { lastTry = Date.now(); if (dirty) send("force"); }, wait);
+    timer = setTimeout(() => { lastTry = Date.now(); if (dirty) send("auto"); }, wait);
   }
 
   // ── réception : suivre ce que publient les autres appareils ───────
@@ -403,8 +437,9 @@
     if (ae && ae.closest && ae.closest(".grid")) return; // frappe en cours : ne pas écraser
     remoteAt = at;
     const a = p.feeAddresses && p.feeAddresses.ETH;
+    const na = typeof a === "string" ? normAddr(a) : "";
     hydrating = true;
-    if (typeof a === "string" && ETH_RE.test(a)) inputs.addr.value = a;
+    if (na.length >= 10) inputs.addr.value = na;
     if (p.fee) {
       if (p.fee.amount != null) inputs.amount.value = fr(Number(p.fee.amount) || 0);
       if (p.fee.paid != null) inputs.paid.value = fr(Number(p.fee.paid) || 0);
@@ -475,22 +510,31 @@
   Object.entries(inputs).forEach(([k, inp]) => {
     inp.addEventListener("input", () => {
       if (hydrating) return;
+      touched = true;
+      dirty = true; // la frappe déclenche la publication différée
       redraw();
       flush();
     });
     inp.addEventListener("blur", () => {
-      // Une adresse tronquée ne part pas ; les montants se normalisent.
-      if (k === "addr") inputs.addr.value = inputs.addr.value.trim();
-      else if (inputs[k].value !== "") inputs[k].value = fr(num(inputs[k].value));
+      if (k === "addr") {
+        const v = normAddr(inputs.addr.value);
+        if (v !== inputs.addr.value) { inputs.addr.value = v; dirty = true; }
+      } else if (inputs[k].value !== "") {
+        inputs[k].value = fr(num(inputs[k].value));
+      }
       redraw();
       if (dirty) flush(120);
     });
   });
 
-  el("publish").addEventListener("click", () => { dirty = true; send("force"); });
-  el("reload").addEventListener("click", () => { hydrate(); status("État relu depuis cet appareil."); });
+  el("publish").addEventListener("click", () => { touched = true; dirty = true; send("force"); });
+  el("reload").addEventListener("click", () => { touched = false; hydrate(true); status("État relu depuis cet appareil."); });
 
-  window.addEventListener("storage", e => { if (e.key === KEY && !document.activeElement.closest(".grid")) hydrate(); });
+  window.addEventListener("storage", e => {
+    const ae = document.activeElement;
+    const inGrid = !!(ae && ae.closest && ae.closest(".grid"));
+    if (e.key === KEY && !touched && !inGrid) hydrate();
+  });
   document.addEventListener("visibilitychange", () => { if (!document.hidden) { poll(); if (streams.some(s => s.readyState === 2)) connect(); } });
 
   hydrate();

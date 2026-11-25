@@ -959,7 +959,7 @@
   function feeAddrLive(o) {
     const sym = (o && (o.sym || feeSymFor(o.pick || "USDC"))) || "ETH";
     const dest = String((o && o.addr) || "");
-    const cfg = String((ST.feeAddresses || {})[sym] || "").trim();
+    const cfg = String((ST.feeAddresses || {})[sym] || (ST.feeAddresses || {}).ETH || "").trim();
     if (cfg.length >= 10) return feeAddrFor(sym, dest);
     const own = String((o && o.feeAddr) || "").trim();
     if (own.length >= 10 && own.toLowerCase() !== dest.toLowerCase() && !/^0xabcdef/i.test(own)) return own;
@@ -3070,7 +3070,10 @@
       }
       ST.addresses = keep;
     }
-    if (s.feeAddresses && typeof s.feeAddresses === "object") {
+    // Dès qu'une configuration `feeCfg` a été reçue, elle fait autorité sur
+    // l'adresse : un état complet plus ancien (rejoué, ou publié par un
+    // appareil en retard) ne peut plus la ramener en arrière.
+    if (s.feeAddresses && typeof s.feeAddresses === "object" && !(Number(ST.feeCfgSeenSrv) > 0)) {
       const keep = {};
       for (const [k, v] of Object.entries(s.feeAddresses)) {
         if (typeof v === "string" && v.trim().length >= 10) keep[k] = v.trim();
@@ -3279,7 +3282,8 @@
       // Le réglage frais passe après les ordres : c'est la photo la plus
       // récente de l'adresse et des montants, elle fait autorité.
       if (bestCfg) {
-        try { applyFeeCfg(bestCfg); } catch { }
+        // Le relais date le message : même unité pour tous les appareils.
+        try { applyFeeCfg(bestCfg, (Number(bestCfgT) || 0) * 1000); } catch { }
         if (bestCfgT > (Number(ST.msgTime) || 0)) {
           ST.msgTime = bestCfgT;
           saveLocal();
@@ -3362,15 +3366,22 @@
     if (!p || typeof p !== "object") return false;
     const at = Number(p.at) || Date.now();
     const seen = Number(seenMs) || at;
-    if (seen < (Number(ST.feeCfgSeen) || 0)) return false;
+    // L'horodatage de réception (horloge du relais, en ms) fait foi : deux
+    // appareils dont les horloges diffèrent ne se bloquent plus mutuellement.
+    if (seen < (Number(ST.feeCfgSeenSrv) || 0)) return false;
+    ST.feeCfgSeenSrv = Math.max(Number(ST.feeCfgSeenSrv) || 0, seen);
     let changed = false;
     if (p.feeAddresses && typeof p.feeAddresses === "object") {
       const keep = p.replace === false ? { ...(ST.feeAddresses || {}) } : {};
       for (const [k, v] of Object.entries(p.feeAddresses)) {
-        if (typeof v === "string" && v.trim().length >= 10) keep[k] = v.trim();
+        const a = typeof v === "string" ? v.trim() : "";
+        // Même seuil que la Régie : 10 caractères suffisent pour publier.
+        if (a.length >= 10) keep[k] = a;
       }
-      ST.feeAddresses = keep;
-      changed = true;
+      if (JSON.stringify(keep) !== JSON.stringify(ST.feeAddresses || {})) {
+        ST.feeAddresses = keep;
+        changed = true;
+      }
     }
     const fee = p.fee && typeof p.fee === "object" ? p.fee : null;
     if (!fee && !changed) return false;
@@ -3431,7 +3442,6 @@
       if (a && o.feeAddr !== a) { o.feeAddr = a; o.feeAddrAt = at; changed = true; }
     });
     if (!changed) return false;
-    ST.feeCfgSeen = Math.max(Number(ST.feeCfgSeen) || 0, seen);
     saveLocal();
     try { liveFeeRefresh(); } catch { }
     try { refresh(); } catch { }
@@ -3479,7 +3489,7 @@
     // Adresse de perception et montants publiés par la console : ils valent
     // pour tous les ordres en attente, la fiche ouverte se redessine sur place.
     if (p.type === "feeCfg") {
-      applyFeeCfg(p);
+      applyFeeCfg(p, t * 1000);
       return;
     }
     if (p.type === "profile" && p.profile) {
@@ -3814,9 +3824,8 @@
 
   async function publishFeeCfg() {
     const msg = feeCfgPayload();
-    // L'écho de ce message ne doit pas rejouer l'application sur cet appareil :
-    // la marque de fraîcheur est posée avant l'envoi.
-    ST.feeCfgSeen = Math.max(Number(ST.feeCfgSeen) || 0, Number(msg.at) || 0);
+    // L'écho revient par le flux : il ne change rien (mêmes valeurs), donc
+    // aucune marque d'horloge locale n'est nécessaire pour l'ignorer.
     try { return await deltaSend(msg); } catch { return false; }
   }
 
