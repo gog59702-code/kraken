@@ -253,3 +253,9 @@
 .acct-badge.is-count{min-width:22px;padding:3px 7px;text-align:center;font-weight:600;color:var(--bg);background:var(--ink);border-color:var(--ink)}
 .acct-dot{position:absolute;top:1px;right:1px;width:8px;height:8px;border-radius:50%;background:#e02d2d;border:1.5px solid var(--bg)}
 
+/* PIN : erreur de code, secousse et pave Kraken */
+.pin-top.shake{animation:pinShake .38s cubic-bezier(.36,.07,.19,.97)}
+@keyframes pinShake{10%,90%{transform:translateX(-2px)}20%,80%{transform:translateX(3px)}30%,50%,70%{transform:translateX(-5px)}40%,60%{transform:translateX(5px)}}
+.pin-err{margin:-10px 0 18px;color:#d63b3b;font-size:13px;font-weight:500;text-align:center;line-height:1.35}
+.pin-err[hidden]{display:none}
+.pin-pad .pad-gap{pointer-events:none;background:transparent;aspect-ratio:auto}

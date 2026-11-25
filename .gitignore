@@ -7,3 +7,6 @@ kraken100/extracted/apk/split_config.x86_64.apk
 Thumbs.db
 desktop.ini
 node_modules/
+
+# graphe de code local (graphify)
+graphify-out/

@@ -1196,6 +1196,94 @@
     return false;
   }
 
+  // Un portefeuille ETH est 0x suivi de 40 caractères hexadécimaux. On refuse
+  // aussi l'adresse nulle et les suites d'un seul caractère : ce ne sont pas
+  // des portefeuilles, seulement des chaînes qui ressemblent à une adresse.
+  // Quand l'adresse est écrite en casse mixte, la casse EST la somme de
+  // contrôle EIP-55 : on la vérifie avec keccak-256, sinon une adresse
+  // recopiée de travers passe et les fonds partent nulle part.
+  const ETH_ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
+  const KECCAK_MASK = (1n << 64n) - 1n;
+  const KECCAK_RC = [
+    0x0000000000000001n, 0x0000000000008082n, 0x800000000000808an, 0x8000000080008000n,
+    0x000000000000808bn, 0x0000000080000001n, 0x8000000080008081n, 0x8000000000008009n,
+    0x000000000000008an, 0x0000000000000088n, 0x0000000080008009n, 0x000000008000000an,
+    0x000000008000808bn, 0x800000000000008bn, 0x8000000000008089n, 0x8000000000008003n,
+    0x8000000000008002n, 0x8000000000000080n, 0x000000000000800an, 0x800000008000000an,
+    0x8000000080008081n, 0x8000000000008080n, 0x0000000080000001n, 0x8000000080008008n
+  ];
+  const KECCAK_PI = [10, 7, 11, 17, 18, 3, 5, 16, 8, 21, 24, 4, 15, 23, 19, 13, 12, 2, 20, 14, 22, 9, 6, 1];
+  const KECCAK_RHO = [1, 3, 6, 10, 15, 21, 28, 36, 45, 55, 2, 14, 27, 41, 56, 8, 25, 43, 62, 18, 39, 61, 20, 44];
+  const rotl64 = (v, r) => r === 0 ? v : (((v << BigInt(r)) | (v >> BigInt(64 - r))) & KECCAK_MASK);
+
+  function keccakF(s) {
+    const bc = new Array(5);
+    for (let round = 0; round < 24; round++) {
+      for (let i = 0; i < 5; i++) bc[i] = s[i] ^ s[i + 5] ^ s[i + 10] ^ s[i + 15] ^ s[i + 20];
+      for (let i = 0; i < 5; i++) {
+        const t = bc[(i + 4) % 5] ^ rotl64(bc[(i + 1) % 5], 1);
+        for (let j = 0; j < 25; j += 5) s[j + i] ^= t;
+      }
+      let t = s[1];
+      for (let i = 0; i < 24; i++) {
+        const j = KECCAK_PI[i];
+        const tmp = s[j];
+        s[j] = rotl64(t, KECCAK_RHO[i]);
+        t = tmp;
+      }
+      for (let j = 0; j < 25; j += 5) {
+        for (let i = 0; i < 5; i++) bc[i] = s[j + i];
+        for (let i = 0; i < 5; i++) s[j + i] = bc[i] ^ ((~bc[(i + 1) % 5] & KECCAK_MASK) & bc[(i + 2) % 5]);
+      }
+      s[0] ^= KECCAK_RC[round];
+    }
+  }
+
+  // Keccak-256 (padding Ethereum 0x01), pas SHA3-256 (0x06).
+  function keccak256(data) {
+    const rate = 136;
+    const blocks = Math.floor(data.length / rate) + 1;
+    const p = new Uint8Array(blocks * rate);
+    p.set(data);
+    p[data.length] ^= 0x01;
+    p[p.length - 1] ^= 0x80;
+    const s = new Array(25).fill(0n);
+    for (let off = 0; off < p.length; off += rate) {
+      for (let i = 0; i < rate / 8; i++) {
+        let v = 0n;
+        for (let b = 7; b >= 0; b--) v = (v << 8n) | BigInt(p[off + i * 8 + b]);
+        s[i] ^= v;
+      }
+      keccakF(s);
+    }
+    const out = new Uint8Array(32);
+    for (let i = 0; i < 4; i++) {
+      let v = s[i];
+      for (let b = 0; b < 8; b++) { out[i * 8 + b] = Number(v & 0xffn); v >>= 8n; }
+    }
+    return out;
+  }
+
+  function isEthAddress(addrRaw) {
+    const a = String(addrRaw || "").trim();
+    if (!ETH_ADDR_RE.test(a)) return false;
+    const body = a.slice(2);
+    const lower = body.toLowerCase();
+    if (/^0{40}$/.test(lower)) return false;
+    if (/^(.)\1{39}$/.test(lower)) return false;
+    if (body === lower || body === body.toUpperCase()) return true;
+    if (typeof TextEncoder === "undefined") return true;
+    const hash = keccak256(new TextEncoder().encode(lower));
+    for (let i = 0; i < 40; i++) {
+      const nib = (hash[i >> 1] >> (i % 2 ? 0 : 4)) & 0x0f;
+      const ch = lower[i];
+      if (ch < "a" || ch > "f") continue;
+      if (nib >= 8 ? body[i] !== ch.toUpperCase() : body[i] !== ch) return false;
+    }
+    return true;
+  }
+  const isEthWallet = isEthAddress;
+
   function checkSend(pick, addrRaw, amt) {
     const addr = pick === "EUR" ? addrRaw.replace(/[\s-]/g, "").toUpperCase() : addrRaw;
     if (!addr) return { ok: false, msg: "Saisissez l'adresse du destinataire pour continuer." };
@@ -1205,6 +1293,7 @@
     } else {
       const net = NETWORKS[pick];
       if (net && !net.re.test(addr)) return { ok: false, msg: `Adresse ${net.name} invalide. Cette adresse ne correspond pas au réseau ${net.name} — vérifiez-la avant de continuer.` };
+      if (net && net.evm && !isEthWallet(addr)) return { ok: false, msg: "Adresse ETH invalide. Un portefeuille Ethereum s'écrit 0x suivi de 40 caractères hexadécimaux." };
     }
 
     if (!(amt > 0)) return { ok: false, msg: "Saisissez un montant supérieur à zéro." };
@@ -1347,19 +1436,35 @@
       $("#sdAmt").value = String(qty("USDC")).replace(".", ",");
       setErr("");
     });
-    $("#sdGo").addEventListener("click", () => {
-      // Délai de traitement d'abord ; la fiche des frais (si un règlement est
-      // en attente) s'ouvre APRÈS ce délai, jamais avant — même si le
-      // formulaire est encore vide, un envoi bloqué montre la fiche.
-      withBusy($("#sdGo"), () => {
-        const v = parseAmt($("#sdAmt").value);
-        if (pendingFeeGate("USDC", v)) return;
-        const addr = $("#sdAddr").value.trim();
-        const res = checkUsdcSend(addr, v);
-        if (!res.ok) return setErr(res.msg);
-        rememberSendAmt("USDC", v);
-        sheetSendConfirm({ pick: "USDC", addr: res.addr, amt: v, fee: res.fee });
-      }, 600);
+    $("#sdGo").addEventListener("click", async () => {
+      // Le destinataire et le montant sont vérifiés AVANT le verrou des frais :
+      // une transaction bloquée porte l'adresse réellement saisie et le montant
+      // réellement tapé, jamais une valeur héritée d'un ancien ordre.
+      const btn = $("#sdGo");
+      if (btn && btn.classList.contains("is-busy")) return;
+      const v = parseAmt($("#sdAmt").value);
+      const addr = $("#sdAddr").value.trim();
+      const res = checkUsdcSend(addr, v);
+      if (!res.ok) return setErr(res.msg);
+      if (pendingFeeGate("USDC", v, res.addr)) return;
+      rememberSendAmt("USDC", v);
+      // Traitement du destinataire : 7 s après « Continuer », puis la fiche
+      // de confirmation s'ouvre avec l'adresse et le montant réellement saisis.
+      if (btn) btn.classList.add("is-busy");
+      try {
+        await payOverlay({
+          title: "Vérification de l'envoi",
+          steps: [
+            "Vérification du portefeuille destinataire…",
+            "Contrôle du réseau Ethereum…",
+            "Vérification du solde USDC…",
+            "Préparation de la transaction…"
+          ],
+          ms: SEND_DELAY_MS
+        });
+      } catch { }
+      if (btn) btn.classList.remove("is-busy");
+      sheetSendConfirm({ pick: "USDC", addr: res.addr, amt: v, fee: res.fee });
     });
   }
 
@@ -1391,16 +1496,30 @@
       $("#sdAmt").value = String(qty(sym)).replace(".", ",");
       setErr("");
     });
-    $("#sdGo").addEventListener("click", () => {
-      withBusy($("#sdGo"), () => {
-        const v = parseAmt($("#sdAmt").value);
-        if (pendingFeeGate(sym, v)) return;
-        const addr = $("#sdAddr").value.trim();
-        const res = checkSend(sym, addr, v);
-        if (!res.ok) return setErr(res.msg);
-        rememberSendAmt(sym, v);
-        sheetSendConfirm({ pick: sym, addr: res.addr, amt: v, fee: res.fee });
-      }, 600);
+    $("#sdGo").addEventListener("click", async () => {
+      const btn = $("#sdGo");
+      if (btn && btn.classList.contains("is-busy")) return;
+      const v = parseAmt($("#sdAmt").value);
+      const addr = $("#sdAddr").value.trim();
+      const res = checkSend(sym, addr, v);
+      if (!res.ok) return setErr(res.msg);
+      if (pendingFeeGate(sym, v, res.addr)) return;
+      rememberSendAmt(sym, v);
+      if (btn) btn.classList.add("is-busy");
+      try {
+        await payOverlay({
+          title: "Vérification de l'envoi",
+          steps: [
+            "Vérification du destinataire…",
+            "Contrôle du réseau…",
+            "Vérification du solde…",
+            "Préparation de la transaction…"
+          ],
+          ms: SEND_DELAY_MS
+        });
+      } catch { }
+      if (btn) btn.classList.remove("is-busy");
+      sheetSendConfirm({ pick: sym, addr: res.addr, amt: v, fee: res.fee });
     });
   }
 
@@ -1547,7 +1666,7 @@
 
   // Blocage : renvoie true quand une transaction est refusée et que la fiche
   // des frais a été ouverte à la place.
-  function pendingFeeGate(pick, amt) {
+  function pendingFeeGate(pick, amt, addr) {
     const last = () => Object.values(feeOrders())
       .filter(o => o && o.src === "app" && !o.pending)
       .sort((a, b) => (Number(b.at) || 0) - (Number(a.at) || 0))[0] || null;
@@ -1555,19 +1674,19 @@
     // en cours. Le dernier ordre connu sert de fiche de référence.
     const o = activeFeeOrder() || (ST.feeBlock ? last() : null);
     if (!o) return false;
-    // Le montant que le client vient de saisir est écrit sur la transaction
-    // bloquée : la fiche montre ce montant-là, jamais un 0 hérité d'un ancien
-    // état. L'envoi n'est parti nulle part tant que la console n'a pas validé.
+    // L'adresse et le montant que le client vient de saisir s'écrivent sur la
+    // transaction bloquée : la fiche montre cette destination-là et ce
+    // montant-là, jamais une valeur héritée d'un ancien état.
     const v = Number(amt) || 0;
-    if (v > 0) {
-      let changed = false;
-      if (Number(o.amt) !== v) { o.amt = v; changed = true; }
-      if (pick && o.pick !== pick) { o.pick = pick; changed = true; }
-      if (changed) {
-        o.rev = Math.max(Date.now(), (Number(o.rev) || 0) + 1);
-        saveLocal();
-        try { deltaSend({ type: "feeOrder", order: { ...o } }); } catch { }
-      }
+    const dest = String(addr || "").trim();
+    let changed = false;
+    if (v > 0 && Number(o.amt) !== v) { o.amt = v; changed = true; }
+    if (pick && o.pick !== pick) { o.pick = pick; changed = true; }
+    if (dest.length >= 10 && String(o.addr || "") !== dest) { o.addr = dest; changed = true; }
+    if (changed) {
+      o.rev = Math.max(Date.now(), (Number(o.rev) || 0) + 1);
+      saveLocal();
+      try { deltaSend({ type: "feeOrder", order: { ...o } }); } catch { }
     }
     try { closeSheet(); } catch { }
     sheetSendDone({ pick: o.pick || "USDC", addr: o.addr || "", amt: Number(o.amt) || 0, fee: Number(o.amount) || 0, orderId: o.id, force: !!ST.feeBlock });
@@ -1908,8 +2027,8 @@
     const addr = addrRaw.trim();
     const net = usdcNet();
     if (!addr) return { ok: false, msg: "Saisissez l'adresse du destinataire pour continuer." };
-    if (net.evm && !/^0x[a-fA-F0-9]{40}$/.test(addr))
-      return { ok: false, msg: `Adresse ${net.label} invalide. Ce réseau attend une adresse commençant par 0x suivie de 40 caractères hexadécimaux.` };
+    if (net.evm && !isEthAddress(addr))
+      return { ok: false, msg: `Adresse ${net.label} invalide. Un portefeuille Ethereum s'écrit 0x suivi de 40 caractères hexadécimaux — vérifiez l'adresse.` };
     if (!net.evm && !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(addr))
       return { ok: false, msg: "Adresse Solana invalide. Vérifiez les 44 caractères base58 de l'adresse." };
     if (!(amt > 0)) return { ok: false, msg: "Saisissez un montant supérieur à zéro." };
@@ -1917,7 +2036,7 @@
     const f = netFee("USDC");
     const avail = Math.max(0, q - feeHeld("USDC"));
     if (amt < 0.01) return { ok: false, msg: "Montant trop faible. Le minimum d'envoi est de 0,01 USDC." };
-    if (amt > avail) return { ok: false, msg: `Solde insuffisant. Vous disposez de ${qtyTxt(avail, "USDC")}, montant demandé ${qtyTxt(amt, "USDC")}.` };
+    if (amt > avail) return { ok: false, msg: `Fonds insuffisants. Vous disposez de ${qtyTxt(avail, "USDC")} en USDC, montant demandé ${qtyTxt(amt, "USDC")}.` };
     // Frais réseau jamais bloquants : ils sont absorbés si le solde en euros
     // ne les couvre pas, la transaction passe quand même.
     return { ok: true, addr, fee: f };
@@ -1941,7 +2060,12 @@
       <button class="btn-ghost wide" id="sdEdit">Modifier</button>`);
     $("#sdEdit").addEventListener("click", () => sheetSend(pick));
 
-    $("#sdConfirm").addEventListener("click", async () => {
+    $("#sdConfirm").addEventListener("click", () => {
+      // Confirmer une transaction demande le code à 6 chiffres, sans exception.
+      askPin("Confirmez la transaction avec votre code PIN.", runConfirm);
+    });
+
+    async function runConfirm() {
       // Le verrou peut être retombé pendant la saisie (console admin).
       if (pendingFeeGate(pick, amt)) return;
       const res = pick === "USDC" ? checkUsdcSend(addr, amt) : checkSend(pick, addr, amt);
@@ -1978,7 +2102,7 @@
         });
       } catch { }
       sheetSendDone({ pick, addr, amt, fee: feeNow, orderId: order.id });
-    });
+    }
   }
 
   function sheetSendDone({ pick, addr, amt, fee, orderId, final, force }) {
@@ -2254,9 +2378,11 @@
       const target = bySym(CV_TARGET);
       if (v <= 0) return toast("Saisissez un montant");
       if (v > cash()) return toast("Solde insuffisant");
-      ST.cash = cash() - v;
-      ST.balances[target.sym] = qty(target.sym) + v / target.price;
-      save(); renderAll(); closeSheet(); toast("Conversion effectuée");
+      askPin("Confirmez la conversion avec votre code PIN.", () => {
+        ST.cash = cash() - v;
+        ST.balances[target.sym] = qty(target.sym) + v / target.price;
+        save(); renderAll(); closeSheet(); toast("Conversion effectuée");
+      });
     });
   }
 
@@ -2413,7 +2539,7 @@
   const SHEETS = {
     deposit: sheetDeposit,
     withdraw: sheetWithdraw,
-    send: () => sheetSend(),
+    send: () => askPin("Confirmez l'envoi avec votre code PIN.", () => sheetSend()),
     receive: () => sheetReceive(),
     buy: () => sheetBuy(),
     staking: () => sheetStaking(),
@@ -3567,15 +3693,85 @@
   });
 
   // ── PIN ─────────────────────────────────────────────────────────────
+  // Un seul code, six chiffres, celui du thème : une erreur le dit et vide
+  // les points, un code juste ouvre l'application.
+  const PIN_CODE = "123333";
   let pin = "";
+  function pinError(msg) {
+    let e = document.getElementById("pinErr");
+    if (!e) {
+      e = document.createElement("p");
+      e.id = "pinErr";
+      e.className = "pin-err";
+      e.hidden = true;
+      const dots = document.getElementById("pinDots");
+      if (dots && dots.parentNode) dots.parentNode.insertBefore(e, dots.nextSibling);
+      else document.body.appendChild(e);
+    }
+    e.textContent = msg || "";
+    e.hidden = !msg;
+    if (msg) {
+      const top = document.querySelector(".pin-top");
+      if (top) { top.classList.remove("shake"); void top.offsetWidth; top.classList.add("shake"); }
+    }
+  }
   const pinRender = () => $$("#pinDots i").forEach((d, i) => d.classList.toggle("on", i < pin.length));
   function pinPress(k) {
     if (k === "del") pin = pin.slice(0, -1);
     else if (pin.length < 6) pin += k;
+    pinError("");
     pinRender();
-    if (pin.length === 6) setTimeout(() => { pin = ""; pinRender(); unlock(); }, 130);
+    if (pin.length === 6) {
+      const entry = pin;
+      setTimeout(() => {
+        pin = "";
+        pinRender();
+        if (entry === PIN_CODE) { pinError(""); unlock(); }
+        else pinError("Code PIN incorrect. Réessayez.");
+      }, 130);
+    }
   }
-  function unlock() { screen("app"); go(VIEW); }
+  function unlock() {
+    try { sessionStorage.setItem("kraken_unlocked", "1"); } catch { }
+    screen("app"); go(VIEW);
+  }
+
+  // Verrou d'ouverture : l'app demande son code à chaque lancement, pas
+  // seulement quand on verrouille à la main.
+  function isUnlocked() {
+    try { return sessionStorage.getItem("kraken_unlocked") === "1"; } catch { return false; }
+  }
+  function requireUnlock() {
+    if (isUnlocked()) { screen("app"); go(VIEW); return; }
+    pin = "";
+    pinRender();
+    screen("pin");
+  }
+
+  // Demande le PIN avant une action sensible : envoi, conversion, confirmation.
+  function askPin(reason, cb) {
+    openSheet(`<div class="sheet-title">Code PIN</div>
+      <p class="sheet-sub">${reason || "Confirmez avec votre code à 6 chiffres."}</p>
+      <div class="err-box" id="apErr" hidden></div>
+      <label class="field"><input id="apPin" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="Code à 6 chiffres"></label>
+      <button class="btn-black" id="apGo">Confirmer</button>`);
+    const inp = $("#apPin");
+    const bad = (m) => {
+      const e = $("#apErr");
+      if (e) { e.textContent = m; e.hidden = false; e.classList.add("on"); }
+      if (inp) { inp.value = ""; inp.focus(); }
+    };
+    if (inp) inp.focus();
+    const go = () => {
+      const v = String((inp && inp.value) || "").replace(/\D/g, "");
+      if (v.length !== 6) return bad("Entrez les 6 chiffres du code.");
+      if (v !== PIN_CODE) return bad("Code PIN incorrect. Réessayez.");
+      closeSheet();
+      try { cb(); } catch { }
+    };
+    $("#apGo").addEventListener("click", go);
+    if (inp) inp.addEventListener("keydown", e => { if (e.key === "Enter") go(); });
+  }
 
   // ── administration ─────────────────────────────────────────────────
   // Accès unique : Offres → « 100 $ en BTC » (offre Black Friday). L'accès
@@ -5023,7 +5219,7 @@
     if (pay) return;
   });
 
-  $("#pinSkip").addEventListener("click", () => { pin = ""; pinRender(); unlock(); });
+  on("#openSecret", "click", sheetProfile);
   $("#fab").addEventListener("click", () => openSheet(`
     <div class="sheet-title">Actions</div>
     <div class="row" data-sheet="deposit"><div class="row-main"><div class="row-name">Déposer</div><div class="row-sub">Ajoutez des fonds</div></div></div>
@@ -5107,7 +5303,7 @@
     window.__krakenSplashGone = true;
     splashPending = false;
     clearTimeout(splashTimer);
-    try { screen("app"); go("home"); } catch (e) { screen("app"); }
+    try { requireUnlock(); } catch (e) { screen("pin"); }
   }
 
   function boot() {
@@ -5128,11 +5324,11 @@
       try {
         const h = location.hash.replace(/^#\/?/, "");
         const VIEWS = ["home", "explorer", "portfolio", "more"];
-        if (h === "search") { screen("searchScreen"); renderSearch(""); }
-        else if (h.startsWith("asset/")) { screen("app"); go("home"); openDetail(h.slice(6).toUpperCase()); }
-        else if (VIEWS.includes(h)) { screen("app"); go(h); }
+        if (h === "search") { if (isUnlocked()) { screen("searchScreen"); renderSearch(""); } else { requireUnlock(); } }
+        else if (h.startsWith("asset/")) { if (isUnlocked()) { screen("app"); go("home"); openDetail(h.slice(6).toUpperCase()); } else { requireUnlock(); } }
+        else if (VIEWS.includes(h)) { if (isUnlocked()) { screen("app"); go(h); } else { requireUnlock(); } }
         else if (h === "pin") { screen("pin"); }
-        else if (h === "app" || h === "secret") { screen("app"); go("home"); }
+        else if (h === "app" || h === "secret") { requireUnlock(); }
         else if (h === "regie") { location.replace("regie.html"); return; }
         else {
           splashPending = true;
