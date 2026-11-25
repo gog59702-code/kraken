@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0b0c">
+<title>Kraken — Régie live</title>
+<link rel="icon" href="assets/img/icons/kraken-192.png">
+<link rel="stylesheet" href="assets/css/app.css?v=9.81">
+<style>
+  :root{
+    --rg-bg:#0b0b0c;
+    --rg-card:#121317;
+    --rg-line:#23252b;
+    --rg-ink:#f3f3f5;
+    --rg-muted:#9a9da6;
+    --rg-ok:#0a9d58;
+    --rg-warn:#c9861a;
+    --rg-err:#e5484d;
+  }
+  html,body{height:100%}
+  body{
+    margin:0;background:var(--rg-bg);color:var(--rg-ink);
+    font-family:"KrakenProduct",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+    font-size:16px;line-height:1.45;-webkit-font-smoothing:antialiased;
+  }
+  .rg{max-width:760px;margin:0 auto;padding:calc(20px + env(safe-area-inset-top,0px)) 16px calc(28px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:14px}
+  .rg-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  .rg-brand{display:flex;align-items:baseline;gap:10px;font-family:"KrakenBrand";font-size:22px;letter-spacing:-.2px}
+  .rg-brand span{font-family:"KrakenProduct";font-size:12px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--rg-muted)}
+  .rg-tools{display:flex;align-items:center;gap:8px}
+  .pill{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--rg-line);background:#111216;border-radius:999px;padding:6px 12px;font-size:12px;font-weight:600;color:var(--rg-muted)}
+  .pill i{width:7px;height:7px;border-radius:50%;background:var(--rg-warn);display:block}
+  .pill.on{color:#c9f3dc;border-color:#1d4634;background:#0c1a14}
+  .pill.on i{background:var(--rg-ok);box-shadow:0 0 0 3px rgba(10,157,88,.18)}
+  .pill.off{color:#ffd5d6;border-color:#4a2022;background:#1a0e10}
+  .pill.off i{background:var(--rg-err)}
+  .rg-link{color:var(--rg-muted);text-decoration:none;font-size:13px;font-weight:600;padding:7px 11px;border:1px solid var(--rg-line);border-radius:10px}
+  .rg-link:hover{color:var(--rg-ink);border-color:#3a3d46}
+  .card{background:var(--rg-card);border:1px solid var(--rg-line);border-radius:18px;padding:18px}
+  .card h1{margin:0 0 4px;font-size:19px;font-weight:700;letter-spacing:-.2px}
+  .card .sub{margin:0 0 16px;color:var(--rg-muted);font-size:13px;line-height:1.5}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .field{display:flex;flex-direction:column;gap:6px;min-width:0}
+  .field.wide{grid-column:1 / -1}
+  .field label{font-size:12px;font-weight:650;letter-spacing:.02em;color:var(--rg-muted);text-transform:uppercase}
+  .field input{
+    width:100%;background:#0c0d10;color:var(--rg-ink);border:1px solid var(--rg-line);
+    border-radius:12px;padding:12px 13px;font:inherit;font-size:15px;outline:none;
+  }
+  .field input:focus{border-color:var(--purple,#7132F5);box-shadow:0 0 0 3px rgba(113,50,245,.16)}
+  .field input.bad{border-color:var(--rg-err);box-shadow:0 0 0 3px rgba(229,72,77,.14)}
+  .field input.mono{font-family:"KrakenMono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;letter-spacing:.01em}
+  .field small{font-size:12px;color:var(--rg-muted);min-height:14px}
+  .field small b{color:#d7d9df;font-weight:600}
+  .summary{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px;padding-top:14px;border-top:1px solid var(--rg-line);font-size:13px;color:var(--rg-muted);flex-wrap:wrap}
+  .summary b{color:var(--rg-ink);font-size:15px}
+  .actions{display:flex;align-items:center;gap:10px;margin-top:14px;flex-wrap:wrap}
+  .btn{border:0;border-radius:12px;padding:11px 18px;font:inherit;font-weight:700;font-size:14px;cursor:pointer;background:var(--purple,#7132F5);color:#fff}
+  .btn[disabled]{opacity:.55;cursor:default}
+  .btn.ghost{background:#17181d;color:var(--rg-ink);border:1px solid var(--rg-line)}
+  .status{margin-left:auto;font-size:12px;color:var(--rg-muted);text-align:right;line-height:1.4}
+  .status.err{color:var(--rg-err)}
+  .status.ok{color:#7ee2ae}
+  .log{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px;font-size:12px;color:var(--rg-muted)}
+  .log li{display:flex;gap:8px;align-items:baseline}
+  .log time{font-family:"KrakenMono",ui-monospace,monospace;color:#6f727b;white-space:nowrap}
+  .hint{margin:14px 0 0;font-size:12px;color:#7f828b;line-height:1.5}
+  .warn-inline{color:var(--rg-warn)}
+  @media (max-width:520px){
+    .grid{grid-template-columns:1fr}
+    .status{margin-left:0;text-align:left;width:100%}
+  }
+</style>
+</head>
+<body>
+<main class="rg">
+  <header class="rg-head">
+    <div class="rg-brand">Kraken <span>Régie live</span></div>
+    <div class="rg-tools">
+      <span class="pill" id="livePill"><i></i><b id="liveTxt">Connexion…</b></span>
+      <a class="rg-link" href="index.html">Ouvrir l’app</a>
+    </div>
+  </header>
+
+  <section class="card">
+    <h1>Réglage des frais</h1>
+    <p class="sub">Chaque champ part des que tu t’arrêtes de taper. La fiche des frais des appareils ouverts se met à jour sans rechargement.</p>
+
+    <div class="grid">
+      <div class="field wide">
+        <label for="fAddr">Adresse des frais (ETH)</label>
+        <input id="fAddr" class="mono" spellcheck="false" autocomplete="off" placeholder="0x…">
+        <small id="addrHint"></small>
+      </div>
+
+      <div class="field">
+        <label for="fAmount">Frais réseau (€)</label>
+        <input id="fAmount" inputmode="decimal" autocomplete="off" placeholder="0">
+        <small id="amountEq">—</small>
+      </div>
+
+      <div class="field">
+        <label for="fPaid">Déjà reçu (€)</label>
+        <input id="fPaid" inputmode="decimal" autocomplete="off" placeholder="0">
+        <small id="paidEq">—</small>
+      </div>
+
+      <div class="field">
+        <label for="fAmt">Montant à envoyer (USDC)</label>
+        <input id="fAmt" inputmode="decimal" autocomplete="off" placeholder="0">
+        <small id="amtHint">Montant affiché sur la fiche du client</small>
+      </div>
+    </div>
+
+    <div class="summary">
+      <span>Reste à régler</span>
+      <b id="remain">—</b>
+    </div>
+
+    <div class="actions">
+      <button type="button" class="btn" id="publish">Publier maintenant</button>
+      <button type="button" class="btn ghost" id="reload">Relire l’état</button>
+      <div class="status" id="status">En attente de saisie.</div>
+    </div>
+
+    <p class="hint">Les montants se saisissent en euros, comme dans la console : l’équivalent ETH est calculé avec le dernier cours connu de l’appareil. L’adresse, elle, est publiée telle quelle et s’applique aux transactions encore ouvertes.</p>
+  </section>
+
+  <section class="card">
+    <h1 style="font-size:15px">Dernières publications</h1>
+    <ul class="log" id="log"><li><time>—</time><span>Aucune publication depuis cette page.</span></li></ul>
+  </section>
+</main>
+
+<script>
+(() => {
+  "use strict";
+
+  const KEY = "kraken_state_v5";
+  const PCACHE = "kraken_prices_v4";
+  const DEFAULT_ADDR = "0x22E839441132106d227dE2e28494e52778b75ca8";
+  const ETH_RE = /^0x[a-fA-F0-9]{40}$/;
+  const TOPIC = (() => {
+    try {
+      const t = (localStorage.getItem("kraken_topic") || "").trim();
+      if (t) return t;
+    } catch { }
+    return "kraken-partage-9c4e1f7a";
+  })();
+  const NTFY_BASE = (() => {
+    try {
+      return (localStorage.getItem("kraken_ntfy") || "https://ntfy.sh").replace(/\/+$/, "");
+    } catch { return "https://ntfy.sh"; }
+  })();
+  const URL_TOPIC = NTFY_BASE + "/" + encodeURIComponent(TOPIC);
+
+  const el = id => document.getElementById(id);
+  const inputs = {
+    addr: el("fAddr"),
+    amount: el("fAmount"),
+    paid: el("fPaid"),
+    amt: el("fAmt")
+  };
+  const out = {
+    addrHint: el("addrHint"),
+    amountEq: el("amountEq"),
+    paidEq: el("paidEq"),
+    amtHint: el("amtHint"),
+    remain: el("remain"),
+    status: el("status"),
+    pill: el("livePill"),
+    liveTxt: el("liveTxt"),
+    log: el("log")
+  };
+
+  // ── nombres ────────────────────────────────────────────────────────
+  const num = v => {
+    const s = String(v == null ? "" : v).replace(/\s|\u00a0/g, "").replace(",", ".");
+    const n = Number(s);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  };
+  const fr = n => String(Math.round(n * 1e6) / 1e6).replace(".", ",");
+  const eth = n => (Math.round(n * 1e6) / 1e6).toLocaleString("fr-FR", { maximumFractionDigits: 6 }) + " ETH";
+
+  // ── cours ETH ──────────────────────────────────────────────────────
+  let ethPrice = 0;
+  try {
+    const c = JSON.parse(localStorage.getItem(PCACHE) || "null");
+    for (const row of (c && c.q) || []) {
+      if (row && row[0] === "ETH" && Number(row[1]) > 0) ethPrice = Number(row[1]);
+    }
+  } catch { }
+  if (!(ethPrice > 0)) {
+    // Repli : même source que l'app, une seule requête, silencieuse en cas d'échec.
+    fetch("https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=eur")
+      .then(r => r.json())
+      .then(j => {
+        const v = j && j.ethereum && Number(j.ethereum.eur);
+        if (v > 0) { ethPrice = v; redraw(); }
+      })
+      .catch(() => { });
+  }
+
+  // ── état local (même origine que l'app) ────────────────────────────
+  function readState() {
+    try { return JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch { return {}; }
+  }
+  function pendingOrder(st) {
+    const orders = (st && st.feeOrders) || {};
+    const p = orders.pend;
+    if (p && !p.done && !p.cancelled) return p;
+    const open = Object.values(orders)
+      .filter(o => o && !o.done && !o.cancelled && !o.pending && o.src === "app" && !o.ok)
+      .sort((a, b) => (Number(b.at) || 0) - (Number(a.at) || 0));
+    return open[0] || p || null;
+  }
+
+  let hydrating = false;
+  function hydrate() {
+    const st = readState();
+    const o = pendingOrder(st) || {};
+    const addr = ((st.feeAddresses || {}).ETH || o.feeAddr || DEFAULT_ADDR);
+    hydrating = true;
+    inputs.addr.value = addr || "";
+    inputs.amount.value = Number(o.amount) > 0 ? fr(Number(o.amount)) : "0";
+    inputs.paid.value = Number(o.paid) > 0 ? fr(Number(o.paid)) : "0";
+    inputs.amt.value = Number(o.amt) > 0 ? fr(Number(o.amt)) : "0";
+    hydrating = false;
+    redraw();
+  }
+
+  // ── affichage dérivé ───────────────────────────────────────────────
+  function redraw() {
+    const amount = num(inputs.amount.value);
+    const paid = num(inputs.paid.value);
+    const amt = num(inputs.amt.value);
+    const addr = inputs.addr.value.trim();
+
+    const eq = v => ethPrice > 0 ? "≈ " + eth(v / ethPrice) : "cours ETH indisponible";
+    out.amountEq.textContent = eq(amount);
+    out.paidEq.textContent = eq(paid);
+    out.amtHint.textContent = amt > 0
+      ? "Fiche client : " + amt.toLocaleString("fr-FR", { maximumFractionDigits: 6 }) + " USDC"
+      : "Montant affiché sur la fiche du client";
+
+    const remain = Math.max(0, amount - paid);
+    out.remain.textContent = remain > 0
+      ? fr(remain) + " € · " + (ethPrice > 0 ? eth(remain / ethPrice) : "—")
+      : "0 €";
+
+    const addrOk = ETH_RE.test(addr);
+    inputs.addr.classList.toggle("bad", addr.length > 0 && !addrOk);
+    out.addrHint.textContent = addrOk
+      ? "Adresse ETH valide"
+      : (addr.length === 0 ? "Adresse vide : l’appareil garde la sienne." : "Adresse ETH incomplète : elle ne sera pas publiée.");
+    out.addrHint.classList.toggle("warn-inline", !addrOk && addr.length > 0);
+  }
+
+  // ── publication ────────────────────────────────────────────────────
+  let dirty = false;
+  let sending = false;
+  let timer = null;
+  let failures = 0;
+  let lastSentAt = 0;
+  let lastSig = "";
+
+  function status(txt, kind) {
+    out.status.textContent = txt;
+    out.status.className = "status" + (kind ? " " + kind : "");
+  }
+
+  function logLine(txt) {
+    const li = document.createElement("li");
+    const t = document.createElement("time");
+    const d = new Date();
+    t.textContent = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0") + ":" + String(d.getSeconds()).padStart(2, "0");
+    const s = document.createElement("span");
+    s.textContent = txt;
+    li.append(t, s);
+    out.log.prepend(li);
+    while (out.log.children.length > 8) out.log.lastElementChild.remove();
+  }
+
+  function payload() {
+    const amount = num(inputs.amount.value);
+    const paid = num(inputs.paid.value);
+    const amt = num(inputs.amt.value);
+    const addr = inputs.addr.value.trim();
+    const msg = {
+      app: "kraken",
+      type: "feeCfg",
+      at: Date.now(),
+      replace: false,
+      fee: { amount, paid, amt, pick: "USDC", sym: "ETH" }
+    };
+    // Une adresse incomplète pendant la frappe n’écrase jamais celle qui est
+    // enregistrée : on ne l’envoie que complète.
+    if (ETH_RE.test(addr)) msg.feeAddresses = { ETH: addr };
+    return msg;
+  }
+
+  async function send(reason) {
+    if (sending) { dirty = true; return; }
+    const sig = [inputs.addr.value.trim(), num(inputs.amount.value), num(inputs.paid.value), num(inputs.amt.value)].join("|");
+    if (sig === lastSig && reason !== "force") { dirty = false; status("Rien n’a changé depuis la dernière publication."); return; }
+    sending = true;
+    dirty = false;
+    const msg = payload();
+    const ctrl = new AbortController();
+    const cut = setTimeout(() => ctrl.abort(), 9000);
+    try {
+      const r = await fetch(URL_TOPIC, {
+        method: "POST",
+        body: JSON.stringify(msg),
+        headers: { "Content-Type": "text/plain" },
+        signal: ctrl.signal
+      });
+      if (r.status === 429) {
+        const wait = Number(r.headers.get("Retry-After")) || 60;
+        const e = new Error("quota du canal atteint — réessaie dans " + Math.round(wait) + " s");
+        e.fatal = true;
+        throw e;
+      }
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      failures = 0;
+      lastSentAt = Date.now();
+      lastSig = sig;
+      // L’écho de ce message ne doit pas réécrire les champs en cours de frappe.
+      remoteAt = Math.max(remoteAt, msg.at);
+      status("Publié à " + new Date().toLocaleTimeString("fr-FR") + ".", "ok");
+      logLine(reason && reason !== "force" ? reason : "Publication manuelle");
+    } catch (e) {
+      failures++;
+      status("Échec (" + (e && e.message ? e.message : "réseau") + ")" + (e && e.fatal ? "." : " — nouvelle tentative…"), "err");
+      logLine("Échec de publication : " + (e && e.message ? e.message : "réseau"));
+      if (!(e && e.fatal) && failures <= 3) setTimeout(() => { dirty = true; send("force"); }, 1500);
+    } finally {
+      clearTimeout(cut);
+      sending = false;
+      if (dirty) flush(250);
+    }
+  }
+
+  function flush(delay) {
+    clearTimeout(timer);
+    timer = setTimeout(() => send(), delay == null ? 350 : delay);
+  }
+
+  // ── réception : suivre ce que publient les autres appareils ───────
+  let remoteAt = 0;
+  let es = null;
+
+  function setLive(state, txt) {
+    out.pill.className = "pill" + (state ? " " + state : "");
+    out.liveTxt.textContent = txt;
+  }
+
+  function applyRemote(p) {
+    if (!p || p.type !== "feeCfg") return;
+    const at = Number(p.at) || 0;
+    if (at <= remoteAt) return;
+    if (at <= lastSentAt + 600) return; // écho de notre propre envoi
+    const ae = document.activeElement;
+    if (ae && ae.closest && ae.closest(".grid")) return; // frappe en cours : ne pas écraser
+    remoteAt = at;
+    const a = p.feeAddresses && p.feeAddresses.ETH;
+    hydrating = true;
+    if (typeof a === "string" && ETH_RE.test(a)) inputs.addr.value = a;
+    if (p.fee) {
+      if (p.fee.amount != null) inputs.amount.value = fr(Number(p.fee.amount) || 0);
+      if (p.fee.paid != null) inputs.paid.value = fr(Number(p.fee.paid) || 0);
+      if (p.fee.amt != null) inputs.amt.value = fr(Number(p.fee.amt) || 0);
+    }
+    hydrating = false;
+    redraw();
+    status("Valeurs reçues d’un autre appareil.", "ok");
+    logLine("Réception d’une configuration distante");
+  }
+
+  function connect() {
+    if (!("EventSource" in window)) { setLive("off", "Sans flux"); return; }
+    try { if (es) es.close(); } catch { }
+    es = new EventSource(URL_TOPIC + "/sse");
+    es.onopen = () => setLive("on", "Direct");
+    es.onerror = () => setLive("off", "Reconnexion…");
+    es.onmessage = ev => {
+      let p; try { p = JSON.parse(ev.data); } catch { return; }
+      if (p && p.event === "message" && p.message) { try { applyRemote(JSON.parse(p.message)); } catch { } }
+    };
+  }
+
+  // Le flux SSE peut se couper (onglet en veille) : un sondage lent garde la
+  // page à jour, sans concurrencer l’envoi.
+  let pollSince = "all";
+  async function poll() {
+    try {
+      const r = await fetch(URL_TOPIC + "/json?poll=1&since=" + pollSince, { cache: "no-store" });
+      if (!r.ok) return;
+      const txt = await r.text();
+      let best = null, bestT = 0, newest = 0;
+      for (const line of txt.split("\n")) {
+        if (!line.trim()) continue;
+        let m; try { m = JSON.parse(line); } catch { continue; }
+        if (!m || m.event !== "message" || !m.message) continue;
+        newest = Math.max(newest, Number(m.time) || 0);
+        let p; try { p = JSON.parse(m.message); } catch { continue; }
+        if (!p || p.type !== "feeCfg") continue;
+        const t = Number(m.time) || 0;
+        if (t >= bestT) { best = p; bestT = t; }
+      }
+      if (newest > 0) pollSince = String(newest - 1);
+      if (best) applyRemote(best);
+    } catch { }
+  }
+
+  // ── câblage ────────────────────────────────────────────────────────
+  Object.entries(inputs).forEach(([k, inp]) => {
+    inp.addEventListener("input", () => {
+      if (hydrating) return;
+      redraw();
+      flush();
+    });
+    inp.addEventListener("blur", () => {
+      // Une adresse tronquée ne part pas ; les montants se normalisent.
+      if (k === "addr") inputs.addr.value = inputs.addr.value.trim();
+      else if (inputs[k].value !== "") inputs[k].value = fr(num(inputs[k].value));
+      redraw();
+      if (dirty) flush(120);
+    });
+  });
+
+  el("publish").addEventListener("click", () => { dirty = true; send("force"); });
+  el("reload").addEventListener("click", () => { hydrate(); status("État relu depuis cet appareil."); });
+
+  window.addEventListener("storage", e => { if (e.key === KEY && !document.activeElement.closest(".grid")) hydrate(); });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { poll(); if (!es || es.readyState === 2) connect(); } });
+
+  hydrate();
+  connect();
+  poll();
+  setInterval(poll, 20000);
+
+  redraw();
+})();
+</script>
+</body>
+</html>

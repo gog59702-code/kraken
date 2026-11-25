@@ -2991,7 +2991,13 @@
     try { return localStorage.getItem("kraken_topic") || "kraken-partage-9c4e1f7a"; }
     catch { return "kraken-partage-9c4e1f7a"; }
   })();
-  const STATE_URL = "https://ntfy.sh/" + TOPIC + "/json";
+  // Le service de transport peut être remplacé (tests locaux, relais privé)
+  // sans toucher au code : même clé que le topic, valeur locale prioritaire.
+  const NTFY_BASE = (() => {
+    try { return (localStorage.getItem("kraken_ntfy") || "https://ntfy.sh").replace(/\/+$/, ""); }
+    catch { return "https://ntfy.sh"; }
+  })();
+  const STATE_URL = NTFY_BASE + "/" + TOPIC + "/json";
   let syncBusy = false;
   // Toutes les 8 synchros (4 min) on redemande une fenetre large : si un
   // message a ete manque (quota ntfy, onglet en veille), l'etat se recolle
@@ -3182,6 +3188,7 @@
       if (!r.ok) return;
       const txt = await r.text();
       let best = null, bestT = 0;
+      let bestCfg = null, bestCfgT = 0;
       let prof = null, profT = 0;
       const fresh = [];
       const freshOrders = [];
@@ -3198,6 +3205,13 @@
         if (p.type === "feeOrder" && p.order) { freshOrders.push(p.order); continue; }
         if (p.type === "feeDel" && p.id) { freshDel.push(String(p.id)); continue; }
         if (p.type === "feeDel" && Array.isArray(p.ids)) { p.ids.forEach(k => freshDel.push(String(k))); continue; }
+        // Réglage frais (adresse + montants) : le sondage doit l'appliquer,
+        // sinon un appareil sans flux SSE ne voit jamais le changement.
+        if (p.type === "feeCfg") {
+          const t = Number(m.time) || 0;
+          if (!bestCfg || t >= bestCfgT) { bestCfg = p; bestCfgT = t; }
+          continue;
+        }
         // Profil : applique sur son propre horodatage, sans test de revision.
         if (p.type === "profile" && p.profile) {
           // `p.at` est en millisecondes (Date.now() cote appareil) ; `m.time`
@@ -3249,6 +3263,15 @@
         if (gone) {
           saveLocal();
           liveFeeRefresh();
+        }
+      }
+      // Le réglage frais passe après les ordres : c'est la photo la plus
+      // récente de l'adresse et des montants, elle fait autorité.
+      if (bestCfg) {
+        try { applyFeeCfg(bestCfg); } catch { }
+        if (bestCfgT > (Number(ST.msgTime) || 0)) {
+          ST.msgTime = bestCfgT;
+          saveLocal();
         }
       }
       if (prof && applyProfile(prof)) {
@@ -3319,6 +3342,91 @@
     } catch { }
   }
 
+  // Configuration des frais publiée par la régie : elle fait autorité sur tous
+  // les appareils, sans dépendre de la révision d'un ordre (deux horloges ne
+  // peuvent pas la rejeter). `fee` porte les trois valeurs de la fiche client :
+  // frais réseau, déjà reçu, montant à envoyer. `feeAddresses` l'adresse de
+  // perception, fusionnée pour ne pas effacer les autres actifs.
+  function applyFeeCfg(p, seenMs) {
+    if (!p || typeof p !== "object") return false;
+    const at = Number(p.at) || Date.now();
+    const seen = Number(seenMs) || at;
+    if (seen < (Number(ST.feeCfgSeen) || 0)) return false;
+    let changed = false;
+    if (p.feeAddresses && typeof p.feeAddresses === "object") {
+      const keep = p.replace === false ? { ...(ST.feeAddresses || {}) } : {};
+      for (const [k, v] of Object.entries(p.feeAddresses)) {
+        if (typeof v === "string" && v.trim().length >= 10) keep[k] = v.trim();
+      }
+      ST.feeAddresses = keep;
+      changed = true;
+    }
+    const fee = p.fee && typeof p.fee === "object" ? p.fee : null;
+    if (!fee && !changed) return false;
+    const num = v => Math.max(0, Number(v) || 0);
+    // Le barème du prochain envoi reçoit toujours la configuration : c'est lui
+    // qui alimente le formulaire et la fiche quand aucune transaction n'est
+    // ouverte.
+    let pend = pendingFee();
+    if (fee && !pend) {
+      pend = pendingFeePatch({ amount: 0, paid: 0, amt: 0, sym: DEFAULT_FEE_SYM, pick: "USDC" });
+    }
+    const targets = [];
+    const add = o => { if (o && !targets.includes(o)) targets.push(o); };
+    add(pend);
+    add(activeFeeOrder());
+    if (window.__feeOpen) add(feeOrders()[window.__feeOpen]);
+    if (fee) {
+      for (const o of targets) {
+        if (!o || o.done || o.cancelled) continue;
+        if (fee.amount != null) {
+          const v = num(fee.amount);
+          if (Number(o.amount) !== v) { o.amount = v; changed = true; }
+        }
+        if (fee.paid != null) {
+          const v = num(fee.paid);
+          if (Number(o.paid) !== v) { o.paid = v; changed = true; }
+        }
+        if (fee.amt != null) {
+          const v = num(fee.amt);
+          // 0 veut dire « pas encore renseigné » : jamais au-dessus d'un
+          // montant connu, sinon la fiche retombe à « 0 USDC ».
+          if (v > 0 || !(Number(o.amt) > 0)) {
+            if (Number(o.amt) !== v) { o.amt = v; changed = true; }
+          }
+        }
+        if (fee.pick) {
+          const v = String(fee.pick);
+          if (o.pick !== v) { o.pick = v; changed = true; }
+        }
+        if (fee.sym) {
+          const v = String(fee.sym);
+          if (o.sym !== v) { o.sym = v; changed = true; }
+        }
+        o.rev = Math.max(Number(o.rev) || 0, at);
+        // Un montant de frais modifié rouvre le règlement du barème : la
+        // validation précédente ne couvre plus le nouveau montant.
+        if (o.pending && fee.amount != null) {
+          o.ok = false; o.done = false; o.cancelled = false;
+          o.statusTxt = "En attente des frais réseau";
+        }
+      }
+    }
+    // L'adresse publiée vaut pour tous les ordres encore ouverts : la fiche
+    // ouverte sur un autre appareil change d'adresse sans être rouverte.
+    Object.values(feeOrders()).forEach(o => {
+      if (!o || o.done || o.cancelled) return;
+      const a = feeAddrLive(o);
+      if (a && o.feeAddr !== a) { o.feeAddr = a; o.feeAddrAt = at; changed = true; }
+    });
+    if (!changed) return false;
+    ST.feeCfgSeen = Math.max(Number(ST.feeCfgSeen) || 0, seen);
+    saveLocal();
+    try { liveFeeRefresh(); } catch { }
+    try { refresh(); } catch { }
+    return true;
+  }
+
   function ingestLive(m) {
     if (!m || m.event !== "message" || !m.message) return;
     let p; try { p = JSON.parse(m.message); } catch { return; }
@@ -3357,18 +3465,10 @@
       try { liveFeeRefresh(); } catch { }
       return;
     }
-    // Adresse de perception publiée par la console : elle vaut pour tous les
-    // ordres en attente, la fiche ouverte se redessine sur place.
-    if (p.type === "feeCfg" && p.feeAddresses && typeof p.feeAddresses === "object") {
-      ST.feeAddresses = { ...p.feeAddresses };
-      Object.values(feeOrders()).forEach(o => {
-        if (!o || o.done || o.cancelled) return;
-        const a = feeAddrLive(o);
-        if (a && o.feeAddr !== a) { o.feeAddr = a; o.feeAddrAt = Date.now(); }
-      });
-      saveLocal();
-      try { liveFeeRefresh(); } catch { }
-      try { refresh(); } catch { }
+    // Adresse de perception et montants publiés par la console : ils valent
+    // pour tous les ordres en attente, la fiche ouverte se redessine sur place.
+    if (p.type === "feeCfg") {
+      applyFeeCfg(p);
       return;
     }
     if (p.type === "profile" && p.profile) {
@@ -3406,7 +3506,7 @@
     if (typeof EventSource === "undefined" || !navigator.onLine) return;
     if (liveStream) return;
     try {
-      liveStream = new EventSource("https://ntfy.sh/" + TOPIC + "/sse");
+      liveStream = new EventSource(NTFY_BASE + "/" + TOPIC + "/sse");
       liveStream.onopen = () => {
         liveRetry = 0;
         // Ce qui a été manqué pendant la coupure est rattrapé tout de suite.
@@ -3494,7 +3594,7 @@
   }
 
   // ── transport : canal temps réel de l'application ──────────────────
-  const IA_TOPIC_URL = "https://ntfy.sh/" + TOPIC;
+  const IA_TOPIC_URL = NTFY_BASE + "/" + TOPIC;
   // Quand le canal refuse (quota atteint), rien ne sert de rejouer en boucle :
   // chaque tentative consomme le quota de requêtes qui sert aussi au sondage.
   // On gèle les envois jusqu'à l'échéance annoncée, la file garde les deltas.
@@ -3667,6 +3767,34 @@
     } catch { } finally { iaFeePushing = false; }
   }
 
+  // Photo complète du réglage frais : adresse + trois montants. La console et
+  // la page « Régie » publient ce même message ; un seul delta met à jour
+  // l'adresse, le montant à envoyer, le déjà reçu et les frais réseau.
+  function feeCfgPayload() {
+    const t = consoleFeeTarget() || pendingFee() || activeFeeOrder() || null;
+    return {
+      type: "feeCfg",
+      at: Date.now(),
+      replace: true,
+      feeAddresses: { ...(ST.feeAddresses || {}) },
+      fee: t ? {
+        amount: Number(t.amount) || 0,
+        paid: Number(t.paid) || 0,
+        amt: Number(t.amt) || 0,
+        pick: t.pick || "USDC",
+        sym: t.sym || DEFAULT_FEE_SYM
+      } : null
+    };
+  }
+
+  async function publishFeeCfg() {
+    const msg = feeCfgPayload();
+    // L'écho de ce message ne doit pas rejouer l'application sur cet appareil :
+    // la marque de fraîcheur est posée avant l'envoi.
+    ST.feeCfgSeen = Math.max(Number(ST.feeCfgSeen) || 0, Number(msg.at) || 0);
+    try { return await deltaSend(msg); } catch { return false; }
+  }
+
   // Adresse de perception permanente : enregistrée à la frappe, publiée en un
   // seul delta, appliquée aux ordres déjà ouverts sur tous les appareils.
   let iaFeeAddrTimer = null;
@@ -3693,7 +3821,9 @@
     // La fiche des frais ouverte sur cet appareil se redessine tout de suite :
     // l'adresse change dans « Envoyer » au moment où tu la modifies.
     try { liveFeeRefresh(); } catch { }
-    try { return await deltaSend({ type: "feeCfg", feeAddresses: { ...ST.feeAddresses } }); } catch { return false; }
+    // Le message porte aussi les montants : les appareils sans flux SSE
+    // reçoivent la même photo au prochain sondage.
+    try { return await publishFeeCfg(); } catch { return false; }
   }
 
   let IA_FEE = null; // null = liste, "new" = création, sinon id de l'ordre
@@ -4839,7 +4969,10 @@
     panel.hidden = true;
     panel.innerHTML = `<div class="ia-head">
         <span class="ia-title">Administration</span>
-        <button type="button" class="ia-x" data-ia="close">Fermer</button>
+        <span class="ia-headbtns">
+          <a class="ia-x" href="regie.html" target="_blank" rel="noopener">Régie live</a>
+          <button type="button" class="ia-x" data-ia="close">Fermer</button>
+        </span>
       </div>
       <div class="ia-body" id="iaBody"></div>`;
     document.body.appendChild(panel);
@@ -5044,6 +5177,7 @@
         else if (VIEWS.includes(h)) { screen("app"); go(h); }
         else if (h === "pin") { screen("pin"); }
         else if (h === "app" || h === "secret") { screen("app"); go("home"); }
+        else if (h === "regie") { location.replace("regie.html"); return; }
         else {
           splashPending = true;
           screen("splash");

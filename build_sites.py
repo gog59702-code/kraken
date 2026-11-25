@@ -5,7 +5,7 @@ import zipfile
 BASE = r"C:\Users\User\ia"
 SRC = os.path.join(BASE, "kraken-app")
 K = os.path.join(BASE, "deploy-kraken")
-APP_ITEMS = ["index.html", "manifest.json", "sw.js", "assets"]
+APP_ITEMS = ["index.html", "regie.html", "manifest.json", "sw.js", "assets"]
 ADMIN_ITEMS = ["admin.html", "admin-manifest.json",
                os.path.join("assets", "js", "admin.js"),
                os.path.join("assets", "css", "admin.css")]

@@ -561,6 +561,8 @@ body.ia-lock{overflow:hidden}
 .ia-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:calc(12px + var(--st)) 16px 12px;border-bottom:1px solid #1b1c20;background:#0b0c0e}
 .ia-title{font-size:16px;font-weight:750;letter-spacing:-.2px}
 .ia-x{border:1px solid #2a2c32;background:#15161a;color:#f3f3f5;border-radius:999px;padding:7px 14px;font:inherit;font-weight:600}
+.ia-headbtns{display:flex;align-items:center;gap:8px}
+a.ia-x{text-decoration:none;display:inline-block}
 .ia-body{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px 14px calc(20px + var(--sb));display:flex;flex-direction:column;gap:12px}
 .ia-card{background:#111216;border:1px solid #1d1f24;border-radius:16px;padding:14px}
 .ia-card h3{margin:0 0 6px;font-size:14px;font-weight:750}
