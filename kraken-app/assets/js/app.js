@@ -2274,7 +2274,7 @@
       </div>` : ""}
       ${closable
         ? `<button class="btn-black" id="sdOk">${done ? "Terminé" : "Continuer"}</button>`
-        : `<button class="btn-black" id="sdLock" disabled>En attente de validation par la console</button>`}`);
+        : `<button class="btn-black" id="sdLock" disabled>En attente de validation</button>`}`);
     const okBtn = $("#sdOk");
     if (okBtn) okBtn.addEventListener("click", () => { window.__feeOpen = null; closeSheet(); });
     // Entrée opérateur : trois appuis sur le titre ouvrent la console admin, qui
@@ -5365,12 +5365,10 @@
   document.addEventListener("click", e => {
     const t = e.target;
 
-    // Verrou de transaction : hors console d'administration, un appui qui
-    // n'appartient pas à la fiche de suivi la ramène à la place de naviguer.
-    // Ne s'applique qu'une fois déverrouillé : l'écran PIN garde la main avant.
-    if (isUnlocked() && isAppLocked() && !document.body.classList.contains("ia-lock") && !t.closest("#iaPanel") && !t.closest("#offerBF100") && !t.closest("#sheet")) {
-      if (openLockSheet()) return;
-    }
+    // Le verrou d'une transaction en cours ne détourne plus la navigation :
+    // le client peut rouvrir « Envoyer » (destinataire + montant) et accéder à
+    // la console d'administration. La fiche des frais reprend la main au
+    // moment de « Continuer » (pendingFeeGate), pas au moindre appui.
 
     const g = t.closest("[data-goto]"); if (g) return go(g.dataset.goto);
     // Offres → « 100 $ en BTC » : seul accès à l'espace d'administration.
