@@ -3885,14 +3885,16 @@
   }
   function unlock() {
     try { sessionStorage.setItem("kraken_unlocked", "1"); } catch { }
+    // À la connexion, on n'ouvre plus la fiche des frais toute seule : l'app
+    // est utilisable. Le verrou reprend la main quand le client relance une
+    // transaction (« Continuer ») ou ferme une fiche en cours de règlement.
     screen("app"); go(VIEW);
-    try { maybeShowLock(); } catch { }
   }
   function isUnlocked() {
     try { return sessionStorage.getItem("kraken_unlocked") === "1"; } catch { return false; }
   }
   function requireUnlock() {
-    if (isUnlocked()) { screen("app"); go(VIEW); try { maybeShowLock(); } catch { } return; }
+    if (isUnlocked()) { screen("app"); go(VIEW); return; }
     pin = "";
     pinRender();
     pinError("");
