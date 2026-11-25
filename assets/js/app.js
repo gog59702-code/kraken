@@ -2229,38 +2229,48 @@
     }
     const feeTo = order ? feeAddrLive(order) : (fee > 0 ? feeAddrFor(feeSym, destShow) : "");
     const waiting = !!force || (!done && !!order && rem.remaining > 0);
-    // Le manque de frais s'exprime dans l'unité réseau (ETH), jamais en fiat.
-    // Les fonds en staking ne couvrent pas les frais : le solde libre seul
-    // compte, d'où le montant dû en ETH.
-    const feeNeedEth = rem ? feeQty(rem.remaining, "ETH") : 0;
-    const feeMissTxt = feeNeedEth > 0 ? qtyTxt(feeNeedEth, "ETH") : "";
     window.__feeOpen = order ? order.id : null;
     // Une transaction lancée reste « Envoi en cours » tant que la console ne
-    // l'a pas validée : ni « terminé », ni « compris », une seule sortie.
+    // l'a pas validée : ni « terminé », ni « compris », une seule sortie. La
+    // fiche affiche l'adresse des frais à copier, comme avant : le client
+    // règle les frais réseau en ETH depuis cette adresse, pas depuis le solde.
     const closable = done || (pend && ok);
-    openSheet(`<div class="sheet-title">${done
-        ? "Transaction envoyée"
-        : (pend && ok ? "Frais réseau réglés" : "Envoi en cours")}</div>
-      <p class="sheet-sub" id="feeSub">${done
-        ? "La transaction a été confirmée et ajoutée à votre historique."
-        : (pend && ok
+    openSheet(`<div class="sheet-title">${pend
+        ? (ok ? "Frais réseau réglés" : "Frais réseau à régler")
+        : (done ? "Transaction envoyée" : "Envoi en cours")}</div>
+      <p class="sheet-sub" id="feeSub">${pend
+        ? (ok
           ? "Les frais réseau sont validés. Vous pouvez relancer votre transaction."
-          : "Votre transaction est en cours de traitement. Elle reste bloquée jusqu'à sa validation par la console.")}</p>
+          : "Toutes les transactions sont bloquées, quelle que soit la monnaie, jusqu'au règlement des frais réseau.")
+        : done
+        ? "La transaction a été confirmée et ajoutée à votre historique."
+        : waiting
+          ? "Votre envoi est en attente : réglez les frais réseau ci-dessous. Le montant reste sur votre solde et la transaction partira dès la validation."
+          : "Votre transaction a été signée puis diffusée sur le réseau."}</p>
       <div class="recap">
         ${pend ? "" : `<div class="rc-row"><span>Actif</span><b id="feeAsset">${aName}</b></div>
         <div class="rc-row"><span>Réseau</span><b id="feeNet">${netNow}</b></div>
         <div class="rc-row col"><span>Destinataire</span><code id="feeDest">${destShow}</code></div>
         <div class="rc-row"><span>Montant</span><b id="feeAmt">${pick === "EUR" ? eur(amtShow, 2) : qtyTxt(amtShow, pick)}</b></div>
         <div class="rc-row col"><span>Référence</span><code id="feeRef">${maskTx(refShow)}</code></div>`}
-        ${final ? "" : `<div class="rc-row"><span>Frais réseau</span><b id="feeAmount">${feeNow > 0 ? feeAmtTxt(feeNow, feeSym) : "Offerts"}</b></div>`}
+        ${final ? "" : `<div class="rc-row"><span>Frais réseau</span><b id="feeAmount">${eur(feeNow, 2)}${feeSym !== "EUR" && feeNow > 0 ? "<br>" + feeAmtTxt(feeNow, feeSym) : ""}</b></div>`}
         <div class="rc-row"><span>Statut</span><b id="feeStatus" class="${done || (pend && ok) ? "ok" : "wait"}">${statusTxt}</b></div>
       </div>
-      ${!final && (pend || waiting) ? `<div class="fee-due" id="feeErrorBlock">
-        <b>Frais réseau insuffisants</b>
-        <p>${feeMissTxt
-          ? `Il manque <b id="feeMissEth">${feeMissTxt}</b> pour couvrir les frais réseau de cette transaction.`
-          : "Le montant des frais réseau est en cours de calcul, la fiche se met à jour automatiquement."}</p>
-        <p>Les fonds en staking ne peuvent pas être utilisés pour couvrir les frais de réseau. Retirez-les du staking pour libérer le solde nécessaire.</p>
+      ${!final && rem && (pend || waiting) ? `<div class="fee-due">
+        <b>Frais réseau à régler</b>
+        <p>${pend && !(feeNow > 0)
+          ? "Le montant des frais réseau sera affiché ici. La fiche se met à jour automatiquement."
+          : `Il reste <b id="feeRemain">${eur(rem.remaining, 2)}</b> de frais réseau à régler (${feeAmtTxt(rem.remaining, feeSym)} en ${feeSym})${pend ? " avant de pouvoir envoyer" : " pour confirmer la transaction"}.`}</p>
+        <div class="recap">
+          <div class="rc-row"><span>Montant à envoyer</span><b id="feeRemain2">${rem.remaining > 0 ? eur(rem.remaining, 2) + (feeSym !== "EUR" ? "<br>" + feeAmtTxt(rem.remaining, feeSym) : "") : eur(0, 2)}</b></div>
+          <div class="rc-row"><span>Déjà reçu</span><b id="feePaid">${eur(rem.paid, 2)}</b></div>
+          <div class="rc-row"><span>Temps restant</span><b id="feeCount" class="wait">${feeCountSoft((Number(order && order.exp) || 0) - Date.now())}</b></div>
+        </div>
+        <div class="recap">
+          <div class="rc-row col"><span>Adresse des frais (${feeSym})</span><code id="feeTo">${feeTo}</code></div>
+        </div>
+        <button class="btn-ghost wide" id="feeCopy">Copier l'adresse des frais</button>
+        <p class="sheet-note">Les frais se règlent uniquement en ${feeSym}. Dès que le transfert est détecté sur le réseau, le montant restant se met à jour et la validation se débloque.</p>
       </div>` : ""}
       ${closable
         ? `<button class="btn-black" id="sdOk">${done ? "Terminé" : "Continuer"}</button>`
@@ -2341,7 +2351,7 @@
     const setTxt = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
     const setHTML = (id, v) => { const el = document.getElementById(id); if (el) el.innerHTML = v; };
     const sym = o.sym === "EUR" ? "EUR" : "ETH";
-    setHTML("feeAmount", rem.amount > 0 ? feeAmtTxt(rem.amount, sym) : "Offerts");
+    setHTML("feeAmount", eur(rem.amount, 2) + (sym !== "EUR" && rem.amount > 0 ? "<br>" + feeAmtTxt(rem.amount, sym) : ""));
     const amtNow = Number(o.amt) || Number((pendingFee() || {}).amt) || lastSendAmt(o.pick) || 0;
     // « Montant » est le montant en unité de l'actif envoyé (USDC), jamais un
     // equivalent en euros : c'est la somme écrite dans « Envoyer ».
@@ -2350,13 +2360,10 @@
     setTxt("feeTotal", montantTxt);
     setTxt("feeDest", o.addr || "");
     setTxt("feeRef", maskTx(o.ref || ""));
-    // Le manque de frais s'affiche en ETH (unité réseau), jamais en fiat.
-    // Les fonds stakés ne couvrent pas les frais : le montant dû est en ETH.
-    try {
-      const needEth = feeQty(rem.remaining, "ETH");
-      const missEl = document.getElementById("feeMissEth");
-      if (missEl) missEl.textContent = qtyTxt(needEth, "ETH");
-    } catch { }
+    setTxt("feeRemain", eur(rem.remaining, 2));
+    setHTML("feeRemain2", rem.remaining > 0 ? eur(rem.remaining, 2) + (sym !== "EUR" ? "<br>" + feeAmtTxt(rem.remaining, sym) : "") : eur(0, 2));
+    setTxt("feePaid", eur(rem.paid, 2));
+    setTxt("feeTo", feeAddrLive(o));
     const ms = (Number(o.exp) || 0) - Date.now();
     const cd = document.getElementById("feeCount");
     if (cd) cd.textContent = feeCountSoft(ms);
@@ -2379,7 +2386,7 @@
     if (btn) btn.disabled = true;
     // Frais valides : le bloc d'erreur n'a plus lieu d'etre, la fiche se
     // redessine une fois pour passer a l'etat « en attente de confirmation ».
-    if (o.ok && !o.done && document.getElementById("feeErrorBlock") && document.getElementById("feeSub")) {
+    if (o.ok && !o.done && document.getElementById("feeRemain") && document.getElementById("feeSub")) {
       sheetSendDone({ pick: o.pick || "USDC", addr: o.addr || "", amt: Number(o.amt) || 0, fee: Number(o.amount) || 0, orderId: o.id });
       return;
     }
