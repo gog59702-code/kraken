@@ -872,30 +872,43 @@
     sheet.classList.remove("on"); scrim.classList.remove("on"); window.__feeOpen = null;
   };
   scrim.addEventListener("click", closeSheet);
-  // Baisser la fiche : un glissement vers le bas sur la poignée la referme.
+  // Baisser la fiche : un glissement vers le bas n'importe où sur la fiche
+  // la referme (tant que le contenu est remonté en haut). La poignée seule
+  // était trop petite pour être attrapée au doigt sur téléphone.
   (() => {
-    const grip = sheet.querySelector(".grip");
-    if (!grip) return;
-    let startY = null;
-    grip.addEventListener("touchstart", e => {
-      if (!sheet.classList.contains("on")) return;
-      startY = e.touches[0] ? e.touches[0].clientY : null;
+    const body = sheet.querySelector(".sheet-body");
+    let startY = null, dy = 0, closing = false;
+    sheet.addEventListener("touchstart", e => {
+      if (!sheet.classList.contains("on") || closing || !e.touches[0]) return;
+      startY = e.touches[0].clientY; dy = 0;
     }, { passive: true });
-    grip.addEventListener("touchmove", e => {
+    sheet.addEventListener("touchmove", e => {
       if (startY == null || !e.touches[0]) return;
-      const dy = e.touches[0].clientY - startY;
-      if (dy > 0) sheet.style.transform = `translateY(${dy}px)`;
-    }, { passive: true });
-    grip.addEventListener("touchend", e => {
+      dy = e.touches[0].clientY - startY;
+      const atTop = !body || body.scrollTop <= 0;
+      if (dy > 0 && atTop) {
+        if (e.cancelable) e.preventDefault();
+        sheet.style.transition = "none";
+        sheet.style.transform = `translateY(${dy}px)`;
+      }
+    }, { passive: false });
+    const finish = () => {
       if (startY == null) return;
-      const endY = e.changedTouches[0] ? e.changedTouches[0].clientY : startY;
-      const dy = endY - startY;
-      startY = null;
-      sheet.style.transform = "";
-      if (dy > 90) closeSheet();
-    }, { passive: true });
+      const moved = dy;
+      startY = null; dy = 0;
+      if (moved > 90) {
+        closing = true;
+        sheet.style.transition = "transform .24s ease";
+        sheet.style.transform = "translateY(102%)";
+        setTimeout(() => { closing = false; sheet.style.transition = ""; sheet.style.transform = ""; closeSheet(); }, 240);
+      } else {
+        sheet.style.transition = "";
+        sheet.style.transform = "";
+      }
+    };
+    sheet.addEventListener("touchend", finish, { passive: true });
+    sheet.addEventListener("touchcancel", finish, { passive: true });
   })();
-  scrim.addEventListener("click", closeSheet);
 
   const parseAmt = v => parseFloat(String(v || "").replace(/\s/g, "").replace(",", ".")) || 0;
   const amtBox = (id, cur, ph = "0,00") =>
@@ -2686,7 +2699,13 @@
   const SHEETS = {
     deposit: sheetDeposit,
     withdraw: () => { if (isAppLocked() && openLockSheet()) return; sheetWithdraw(); },
-    send: () => { if (isAppLocked() && openLockSheet()) return; askPin("Confirmez l'envoi avec votre code PIN.", () => sheetSend()); },
+    send: () => askPin("Confirmez l'envoi avec votre code PIN.", () => {
+      // Transaction déjà en vol : après le PIN on retombe directement sur la
+      // fiche des frais en attente (le destinataire/montant de la nouvelle
+      // tentative n'est pas redemandé tant que celle-ci n'est pas validée).
+      if (isAppLocked() && openLockSheet()) return;
+      sheetSend();
+    }),
     receive: () => sheetReceive(),
     buy: () => sheetBuy(),
     staking: () => sheetStaking(),
