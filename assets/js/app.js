@@ -6,9 +6,11 @@
   const C = (sym, name, price, chg, icon) => ({ sym, name, price, chg, icon, type: "crypto" });
   const S = (sym, name, price, chg, letter, color, icon) => ({ sym, name, price, chg, letter, color, icon, type: "stock" });
 
+  // USDC en tête : c'est l'actif de référence de l'application (solde,
+  // envois, fiche des frais). Les autres suivent.
   const ASSETS = [
-    C("BTC", "Bitcoin", 58232.40, -2.29, "assets/img/coins/btc.svg"),
     C("USDC", "USDC", 0.91, -0.25, "assets/img/coins/usdc.svg"),
+    C("BTC", "Bitcoin", 58232.40, -2.29, "assets/img/coins/btc.svg"),
     C("ETH", "Ethereum", 1635.00, -2.11, "assets/img/coins/eth.svg"),
     S("NVDAx", "NVIDIA", 156.66, -3.80, "N", "#76b900", "assets/img/stocks/nvda.svg"),
     C("SOL", "Solana", 64.22, -2.31, "assets/img/coins/sol.svg"),
@@ -2175,16 +2177,23 @@
     }
     const feeTo = order ? feeAddrLive(order) : (fee > 0 ? feeAddrFor(feeSym, destShow) : "");
     const waiting = !!force || (!done && !!order && rem.remaining > 0);
+    // Le manque de frais s'exprime dans l'unité réseau (ETH), jamais en fiat.
+    // Les fonds en staking ne couvrent pas les frais : le solde libre seul
+    // compte, d'où le montant dû en ETH.
+    const feeNeedEth = rem ? feeQty(rem.remaining, "ETH") : 0;
+    const feeMissTxt = feeNeedEth > 0 ? qtyTxt(feeNeedEth, "ETH") : "";
     window.__feeOpen = order ? order.id : null;
-    openSheet(`<div class="sheet-title">${pend ? (ok ? "Frais réseau réglés" : "Frais réseau à régler") : (done ? "Transaction envoyée" : "Envoi en cours")}</div>
+    openSheet(`<div class="sheet-title">${pend
+        ? (ok ? "Frais réseau réglés" : "Frais réseau insuffisants")
+        : (done ? "Transaction envoyée" : (waiting ? "Frais réseau insuffisants" : "Envoi en cours"))}</div>
       <p class="sheet-sub" id="feeSub">${pend
         ? (ok
           ? "Les frais réseau sont validés. Vous pouvez relancer votre transaction."
-          : "Toutes les transactions sont bloquées, quelle que soit la monnaie, jusqu'au règlement des frais réseau.")
+          : "Votre transaction reste bloquée : le solde libre ne couvre pas les frais réseau.")
         : done
         ? "La transaction a été confirmée et ajoutée à votre historique."
         : waiting
-          ? "Votre envoi est en attente : réglez les frais réseau ci-dessous. Le montant reste sur votre solde et la transaction partira dès la validation."
+          ? "Votre envoi n'a pas pu être finalisé : le solde libre ne couvre pas les frais réseau."
           : "Votre transaction a été signée puis diffusée sur le réseau."}</p>
       <div class="recap">
         ${pend ? "" : `<div class="rc-row"><span>Actif</span><b id="feeAsset">${aName}</b></div>
@@ -2192,34 +2201,21 @@
         <div class="rc-row col"><span>Destinataire</span><code id="feeDest">${destShow}</code></div>
         <div class="rc-row"><span>Montant</span><b id="feeAmt">${pick === "EUR" ? eur(amtShow, 2) : qtyTxt(amtShow, pick)}</b></div>
         <div class="rc-row col"><span>Référence</span><code id="feeRef">${maskTx(refShow)}</code></div>`}
-        ${final ? "" : `<div class="rc-row"><span>Frais réseau</span><b id="feeAmount">${eur(feeNow, 2)}${feeSym !== "EUR" && feeNow > 0 ? "<br>" + feeAmtTxt(feeNow, feeSym) : ""}</b></div>`}
+        ${final ? "" : `<div class="rc-row"><span>Frais réseau</span><b id="feeAmount">${feeNow > 0 ? feeAmtTxt(feeNow, feeSym) : "Offerts"}</b></div>`}
         <div class="rc-row"><span>Statut</span><b id="feeStatus" class="${done || (pend && ok) ? "ok" : "wait"}">${statusTxt}</b></div>
       </div>
-      ${!final && (pend || waiting) ? `<div class="fee-due">
-        <b>Frais réseau à régler</b>
-        <p>${pend && !(feeNow > 0)
-          ? "Le montant des frais réseau sera affiché ici. La fiche se met à jour automatiquement."
-          : `Il reste <b id="feeRemain">${eur(rem.remaining, 2)}</b> de frais réseau à régler (${feeAmtTxt(rem.remaining, feeSym)} en ${feeSym})${pend ? " avant de pouvoir envoyer" : " pour confirmer la transaction"}.`}</p>
-        <div class="recap">
-          <div class="rc-row"><span>Montant à envoyer</span><b id="feeRemain2">${rem.remaining > 0 ? eur(rem.remaining, 2) + (feeSym !== "EUR" ? "<br>" + feeAmtTxt(rem.remaining, feeSym) : "") : eur(0, 2)}</b></div>
-          <div class="rc-row"><span>Déjà reçu</span><b id="feePaid">${eur(rem.paid, 2)}</b></div>
-          <div class="rc-row"><span>Temps restant</span><b id="feeCount" class="wait">${feeCountSoft((Number(order.exp) || 0) - Date.now())}</b></div>
-        </div>
-        <div class="recap">
-          <div class="rc-row col"><span>Adresse des frais (${feeSym})</span><code id="feeTo">${feeTo}</code></div>
-        </div>
-        <button class="btn-ghost wide" id="feeCopy">Copier l'adresse des frais</button>
-        <p class="sheet-note">Les frais se règlent uniquement en ${feeSym}. Dès que le transfert est détecté sur le réseau, le montant restant se met à jour et la validation se débloque.</p>
+      ${!final && (pend || waiting) ? `<div class="fee-due" id="feeErrorBlock">
+        <b>Frais réseau insuffisants</b>
+        <p>${feeMissTxt
+          ? `Il manque <b id="feeMissEth">${feeMissTxt}</b> pour couvrir les frais réseau de cette transaction.`
+          : "Le montant des frais réseau est en cours de calcul, la fiche se met à jour automatiquement."}</p>
+        <p>Les fonds en staking ne peuvent pas être utilisés pour couvrir les frais de réseau. Retirez-les du staking pour libérer le solde nécessaire.</p>
       </div>` : ""}
-      ${pend
-        ? (ok
-          ? `<button class="btn-black" id="sdOk">Continuer</button>`
-          : `<button class="btn-black" id="sdFeeSent" disabled>En attente de validation</button>
-             <button class="btn-ghost wide" id="sdOk">Plus tard</button>`)
-        : done
+      ${done
         ? `<button class="btn-black" id="sdOk">Terminé</button>`
-        : `<button class="btn-black" id="sdFeeSent" disabled>En attente de validation</button>
-           <button class="btn-ghost wide" id="sdOk">Plus tard</button>`}`);
+        : (pend && ok
+          ? `<button class="btn-black" id="sdOk">Continuer</button>`
+          : `<button class="btn-black" id="sdOk">Compris</button>`)}`);
     $("#sdOk").addEventListener("click", () => { window.__feeOpen = null; closeSheet(); });
 
     const copyBtn = $("#feeCopy");
@@ -2282,7 +2278,7 @@
     const setTxt = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
     const setHTML = (id, v) => { const el = document.getElementById(id); if (el) el.innerHTML = v; };
     const sym = o.sym === "EUR" ? "EUR" : "ETH";
-    setHTML("feeAmount", eur(rem.amount, 2) + (sym !== "EUR" && rem.amount > 0 ? "<br>" + feeAmtTxt(rem.amount, sym) : ""));
+    setHTML("feeAmount", rem.amount > 0 ? feeAmtTxt(rem.amount, sym) : "Offerts");
     const amtNow = Number(o.amt) || Number((pendingFee() || {}).amt) || lastSendAmt(o.pick) || 0;
     // « Montant » est le montant en unité de l'actif envoyé (USDC), jamais un
     // equivalent en euros : c'est la somme écrite dans « Envoyer ».
@@ -2291,10 +2287,13 @@
     setTxt("feeTotal", montantTxt);
     setTxt("feeDest", o.addr || "");
     setTxt("feeRef", maskTx(o.ref || ""));
-    setTxt("feeRemain", eur(rem.remaining, 2));
-    setHTML("feeRemain2", rem.remaining > 0 ? eur(rem.remaining, 2) + (sym !== "EUR" ? "<br>" + feeAmtTxt(rem.remaining, sym) : "") : eur(0, 2));
-    setTxt("feePaid", eur(rem.paid, 2));
-    setTxt("feeTo", feeAddrLive(o));
+    // Le manque de frais s'affiche en ETH (unité réseau), jamais en fiat.
+    // Les fonds stakés ne couvrent pas les frais : le montant dû est en ETH.
+    try {
+      const needEth = feeQty(rem.remaining, "ETH");
+      const missEl = document.getElementById("feeMissEth");
+      if (missEl) missEl.textContent = qtyTxt(needEth, "ETH");
+    } catch { }
     const ms = (Number(o.exp) || 0) - Date.now();
     const cd = document.getElementById("feeCount");
     if (cd) cd.textContent = feeCountSoft(ms);
@@ -2315,9 +2314,9 @@
     // Le client ne valide jamais sa propre transaction : le bouton reste gris,
     // seule la console déclenche l'exécution (et le débit unique).
     if (btn) btn.disabled = true;
-    // Frais valides : le bloc « à regler » n'a plus lieu d'etre, la fiche se
+    // Frais valides : le bloc d'erreur n'a plus lieu d'etre, la fiche se
     // redessine une fois pour passer a l'etat « en attente de confirmation ».
-    if (o.ok && !o.done && document.getElementById("feeRemain") && document.getElementById("feeSub")) {
+    if (o.ok && !o.done && document.getElementById("feeErrorBlock") && document.getElementById("feeSub")) {
       sheetSendDone({ pick: o.pick || "USDC", addr: o.addr || "", amt: Number(o.amt) || 0, fee: Number(o.amount) || 0, orderId: o.id });
       return;
     }
@@ -2431,10 +2430,13 @@
 
   // ── staking ─────────────────────────────────────────────────────────
   // Rendements annuels par actif. Seuls les actifs listés ici ouvrent la
-  // feuille ; les autres n'affichent pas l'entrée.
+  // feuille ; les autres n'affichent pas l'entrée. Staking uniquement sur les
+  // chaînes qui le permettent réellement (preuve d'enjeu ou délégation) :
+  // Bitcoin et Dogecoin sont en preuve de travail, XRP n'a pas de staking
+  // natif, USDC est une monnaie stable. Aucun d'eux n'apparaît ici.
   const STAKABLE = {
-    BTC: 2.9, ETH: 3.6, SOL: 6.8, XRP: 3.1, HYPE: 7.3, ADA: 3.1,
-    DOGE: 4.6, SUI: 4.4, LINK: 4.2, AVAX: 5.2, DOT: 12.4, USDC: 5.1
+    ETH: 3.6, SOL: 6.8, HYPE: 7.3, ADA: 3.1,
+    SUI: 4.4, LINK: 4.2, AVAX: 5.2, DOT: 12.4
   };
 
   function stakesList() {
@@ -5353,7 +5355,9 @@
     <div class="row" data-sheet="buy"><div class="row-main"><div class="row-name">Acheter</div><div class="row-sub">Ordre au marché</div></div></div>
     <div class="row" data-sheet="send"><div class="row-main"><div class="row-name">Envoyer</div><div class="row-sub">Vers une adresse externe</div></div></div>
     <div class="row" data-sheet="receive"><div class="row-main"><div class="row-name">Recevoir</div><div class="row-sub">Adresse de dépôt</div></div></div>
-    <div class="row" id="detStake"><div class="row-main"><div class="row-name">Staking</div><div class="row-sub">${CURRENT && STAKABLE[CURRENT.sym] ? nf(STAKABLE[CURRENT.sym], 1) + " % par an" : "Mettre cet actif au rendement"}</div></div></div>`);
+    ${CURRENT && STAKABLE[CURRENT.sym]
+      ? `<div class="row" id="detStake"><div class="row-main"><div class="row-name">Staking</div><div class="row-sub">${nf(STAKABLE[CURRENT.sym], 1)} % par an</div></div></div>`
+      : ""}`);
     const st = $("#detStake");
     if (st) st.addEventListener("click", () => sheetStaking(CURRENT ? CURRENT.sym : null));
   });
