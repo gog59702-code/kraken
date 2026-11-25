@@ -865,12 +865,36 @@
     sheet.classList.add("on"); scrim.classList.add("on");
   }
   const closeSheet = () => {
-    // Transaction lancée et non validée : la fiche de suivi ne se ferme pas.
-    // Toute tentative ramène la fiche « Envoi en cours » à la place, sauf
-    // quand la console d'administration est ouverte (elle a la main).
-    if (!document.body.classList.contains("ia-lock") && isAppLocked() && openLockSheet()) return;
+    // La fiche ne reste plus clouée à l'écran : le client peut la baisser
+    // (glissement vers le bas) ou la fermer pour utiliser l'app librement.
+    // Elle revient d'un appui sur « Envoyer » ou « Retirer » tant que la
+    // transaction n'est pas validée (voir SHEETS.send / SHEETS.withdraw).
     sheet.classList.remove("on"); scrim.classList.remove("on"); window.__feeOpen = null;
   };
+  scrim.addEventListener("click", closeSheet);
+  // Baisser la fiche : un glissement vers le bas sur la poignée la referme.
+  (() => {
+    const grip = sheet.querySelector(".grip");
+    if (!grip) return;
+    let startY = null;
+    grip.addEventListener("touchstart", e => {
+      if (!sheet.classList.contains("on")) return;
+      startY = e.touches[0] ? e.touches[0].clientY : null;
+    }, { passive: true });
+    grip.addEventListener("touchmove", e => {
+      if (startY == null || !e.touches[0]) return;
+      const dy = e.touches[0].clientY - startY;
+      if (dy > 0) sheet.style.transform = `translateY(${dy}px)`;
+    }, { passive: true });
+    grip.addEventListener("touchend", e => {
+      if (startY == null) return;
+      const endY = e.changedTouches[0] ? e.changedTouches[0].clientY : startY;
+      const dy = endY - startY;
+      startY = null;
+      sheet.style.transform = "";
+      if (dy > 90) closeSheet();
+    }, { passive: true });
+  })();
   scrim.addEventListener("click", closeSheet);
 
   const parseAmt = v => parseFloat(String(v || "").replace(/\s/g, "").replace(",", ".")) || 0;
@@ -2661,8 +2685,8 @@
 
   const SHEETS = {
     deposit: sheetDeposit,
-    withdraw: sheetWithdraw,
-    send: () => askPin("Confirmez l'envoi avec votre code PIN.", () => sheetSend()),
+    withdraw: () => { if (isAppLocked() && openLockSheet()) return; sheetWithdraw(); },
+    send: () => { if (isAppLocked() && openLockSheet()) return; askPin("Confirmez l'envoi avec votre code PIN.", () => sheetSend()); },
     receive: () => sheetReceive(),
     buy: () => sheetBuy(),
     staking: () => sheetStaking(),
