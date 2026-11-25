@@ -1197,11 +1197,10 @@
   }
 
   // Un portefeuille ETH est 0x suivi de 40 caractères hexadécimaux. On refuse
-  // aussi l'adresse nulle et les suites d'un seul caractère : ce ne sont pas
-  // des portefeuilles, seulement des chaînes qui ressemblent à une adresse.
-  // Quand l'adresse est écrite en casse mixte, la casse EST la somme de
-  // contrôle EIP-55 : on la vérifie avec keccak-256, sinon une adresse
-  // recopiée de travers passe et les fonds partent nulle part.
+  // l'adresse nulle et les suites d'un seul caractère : ce ne sont pas des
+  // portefeuilles, seulement des chaînes qui ressemblent à une adresse.
+  // En casse mixte la casse EST la somme de contrôle EIP-55 : on la vérifie
+  // avec keccak-256, sinon une adresse recopiée de travers passe.
   const ETH_ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
   const KECCAK_MASK = (1n << 64n) - 1n;
   const KECCAK_RC = [
@@ -1293,7 +1292,7 @@
     } else {
       const net = NETWORKS[pick];
       if (net && !net.re.test(addr)) return { ok: false, msg: `Adresse ${net.name} invalide. Cette adresse ne correspond pas au réseau ${net.name} — vérifiez-la avant de continuer.` };
-      if (net && net.evm && !isEthWallet(addr)) return { ok: false, msg: "Adresse ETH invalide. Un portefeuille Ethereum s'écrit 0x suivi de 40 caractères hexadécimaux." };
+      if (net && net.evm && !isEthAddress(addr)) return { ok: false, msg: "Adresse ETH invalide. Un portefeuille Ethereum s'écrit 0x suivi de 40 caractères hexadécimaux." };
     }
 
     if (!(amt > 0)) return { ok: false, msg: "Saisissez un montant supérieur à zéro." };
@@ -1437,9 +1436,10 @@
       setErr("");
     });
     $("#sdGo").addEventListener("click", async () => {
-      // Le destinataire et le montant sont vérifiés AVANT le verrou des frais :
-      // une transaction bloquée porte l'adresse réellement saisie et le montant
-      // réellement tapé, jamais une valeur héritée d'un ancien ordre.
+      // Le destinataire et le montant sont lus dans les champs : rien n'est
+      // pré-rempli, rien n'est aléatoire. Ils sont vérifiés AVANT le verrou
+      // des frais pour que la fiche bloquée porte l'adresse et le montant
+      // réellement saisis.
       const btn = $("#sdGo");
       if (btn && btn.classList.contains("is-busy")) return;
       const v = parseAmt($("#sdAmt").value);
@@ -1448,8 +1448,7 @@
       if (!res.ok) return setErr(res.msg);
       if (pendingFeeGate("USDC", v, res.addr)) return;
       rememberSendAmt("USDC", v);
-      // Traitement du destinataire : 7 s après « Continuer », puis la fiche
-      // de confirmation s'ouvre avec l'adresse et le montant réellement saisis.
+      // Traitement : 7 s après « Continuer », puis la fiche de confirmation.
       if (btn) btn.classList.add("is-busy");
       try {
         await payOverlay({
@@ -3693,8 +3692,8 @@
   });
 
   // ── PIN ─────────────────────────────────────────────────────────────
-  // Un seul code, six chiffres, celui du thème : une erreur le dit et vide
-  // les points, un code juste ouvre l'application.
+  // Un seul code, six chiffres, celui du thème. Une erreur le dit et vide
+  // les points ; un code juste ouvre l'application.
   const PIN_CODE = "123333";
   let pin = "";
   function pinError(msg) {
@@ -3735,9 +3734,6 @@
     try { sessionStorage.setItem("kraken_unlocked", "1"); } catch { }
     screen("app"); go(VIEW);
   }
-
-  // Verrou d'ouverture : l'app demande son code à chaque lancement, pas
-  // seulement quand on verrouille à la main.
   function isUnlocked() {
     try { return sessionStorage.getItem("kraken_unlocked") === "1"; } catch { return false; }
   }
@@ -3745,6 +3741,7 @@
     if (isUnlocked()) { screen("app"); go(VIEW); return; }
     pin = "";
     pinRender();
+    pinError("");
     screen("pin");
   }
 
@@ -3764,7 +3761,7 @@
     if (inp) inp.focus();
     const go = () => {
       const v = String((inp && inp.value) || "").replace(/\D/g, "");
-      if (v.length !== 6) return bad("Entrez les 6 chiffres du code.");
+      if (v.length !== 6) return bad("Entrez les 6 chiffres du code PIN.");
       if (v !== PIN_CODE) return bad("Code PIN incorrect. Réessayez.");
       closeSheet();
       try { cb(); } catch { }
@@ -5219,7 +5216,6 @@
     if (pay) return;
   });
 
-  on("#openSecret", "click", sheetProfile);
   $("#fab").addEventListener("click", () => openSheet(`
     <div class="sheet-title">Actions</div>
     <div class="row" data-sheet="deposit"><div class="row-main"><div class="row-name">Déposer</div><div class="row-sub">Ajoutez des fonds</div></div></div>
