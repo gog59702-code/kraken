@@ -88,7 +88,16 @@ with sync_playwright() as p:
     check("clic publie l'adresse", s2["eth"], THIRD)
     check("horodatage recu", s2["seen"] > 0, True)
 
-    # 3. un etat complet plus ancien ne doit pas ramener l'ancienne adresse
+    # 3. une adresse encore tronquée ne doit jamais partir
+    rg.click("#fAddr")
+    rg.fill("#fAddr", "0xDeadBeef0000111122")
+    rg.click("#fAmount")
+    rg.wait_for_timeout(4500)
+    s3a = state(app)
+    print("apres adresse tronquee:", s3a)
+    check("adresse tronquee non publiee", s3a["eth"], THIRD)
+
+    # 4. un etat complet plus ancien ne doit pas ramener l'ancienne adresse
     big = int(time.time() * 1000) + 600000
     post(TOPIC, {
         "app": "kraken",

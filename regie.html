@@ -271,7 +271,7 @@
       : (addr.length === 0
         ? "Adresse vide : l’appareil garde la sienne."
         : addrPub
-          ? "Adresse publiée telle quelle (format non standard)."
+          ? "Adresse non standard : elle part au clic sur Publier."
           : "Adresse incomplète : elle ne sera pas publiée.");
     out.addrHint.classList.toggle("warn-inline", !addrOk && addr.length > 0);
   }
@@ -301,11 +301,21 @@
     while (out.log.children.length > 8) out.log.lastElementChild.remove();
   }
 
-  function payload() {
+  // Une adresse se publie en direct dès qu'elle est complète. Une forme non
+  // standard (10 caractères ou plus) ne part qu'au clic sur « Publier » :
+  // jamais une adresse tronquée en pleine frappe.
+  function publishAddr(allowPartial) {
+    const a = normAddr(inputs.addr.value);
+    if (!a) return "";
+    if (ETH_RE.test(a)) return a;
+    return allowPartial && a.length >= 10 ? a : "";
+  }
+
+  function payload(allowPartial) {
     const amount = num(inputs.amount.value);
     const paid = num(inputs.paid.value);
     const amt = num(inputs.amt.value);
-    const addr = normAddr(inputs.addr.value);
+    const addr = publishAddr(allowPartial);
     const msg = {
       app: "kraken",
       type: "feeCfg",
@@ -313,20 +323,15 @@
       replace: false,
       fee: { amount, paid, amt, pick: "USDC", sym: "ETH" }
     };
-    // Le même seuil que l'app (10 caractères) : une adresse complète part,
-    // quelle que soit sa forme, et une frappe encore trop courte ne l'écrase
-    // jamais.
-    if (addr.length >= 10) msg.feeAddresses = { ETH: addr };
+    if (addr) msg.feeAddresses = { ETH: addr };
     return msg;
   }
 
   // Signature de ce qui part réellement : sert à ne pas republier la même
-  // photo à chaque pause de frappe, et à ne pas perdre une adresse en cours
-  // de saisie.
-  function shipSig() {
-    const addr = normAddr(inputs.addr.value);
+  // photo à chaque pause de frappe.
+  function shipSig(allowPartial) {
     return [
-      addr.length >= 10 ? addr : "",
+      publishAddr(allowPartial),
       num(inputs.amount.value), num(inputs.paid.value), num(inputs.amt.value)
     ].join("|");
   }
@@ -349,7 +354,8 @@
       timer = setTimeout(() => send("force"), holdUntil - Date.now() + 50);
       return;
     }
-    const sig = shipSig();
+    const force = reason === "force";
+    const sig = shipSig(force);
     if (sig === lastSig && reason !== "force") {
       dirty = false;
       if (reason === "manual") status("Rien n’a changé depuis la dernière publication.");
@@ -357,7 +363,7 @@
     }
     sending = true;
     dirty = false;
-    const msg = payload();
+    const msg = payload(force);
     const body = JSON.stringify(msg);
     const ctrl = new AbortController();
     const cut = setTimeout(() => ctrl.abort(), 9000);
