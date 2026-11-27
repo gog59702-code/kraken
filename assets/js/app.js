@@ -1259,6 +1259,44 @@
   // réglé à 0 s'affiche 0 ETH, pas « Offerts ».
   const feeAmtTxt = (v, sym) => sym === "EUR" ? eur(v, 2) : qtyTxt(feeQty(v, sym), sym);
 
+  // Fiche « Envoi en cours » : la console saisit les frais en euros, mais le
+  // client les lit uniquement en ETH, convertis au cours réel du marché. Le
+  // cours vient de l'API live (Kraken → Binance → CoinGecko) ou du dernier
+  // cours mémorisé ; jamais d'un taux fixe inventé.
+  function ethEurPrice() {
+    const a = bySym("ETH");
+    const live = a ? Number(priceOf(a)) : 0;
+    if (live > 0) return live;
+    try {
+      const c = JSON.parse(localStorage.getItem(PCACHE) || "null");
+      for (const row of (c && c.q) || []) {
+        if (row && row[0] === "ETH" && Number(row[1]) > 0) return Number(row[1]);
+      }
+    } catch { }
+    return 0;
+  }
+  function ethFeeTxt(v) {
+    v = Math.max(0, Number(v) || 0);
+    if (!(v > 0)) return "0 ETH";
+    const p = ethEurPrice();
+    if (!(p > 0)) return "— ETH";
+    return qtyTxt(v / p, "ETH");
+  }
+  // Rafraîchit le seul cours ETH/EUR au moment d'ouvrir la fiche des frais.
+  // Deux sources, silencieuses : la fiche garde son cours mémorisé en repli.
+  async function refreshEthPrice() {
+    const set = p => { if (p > 0) { const a = bySym("ETH"); if (a) a.price = p; } };
+    try {
+      const d = firstResult(await jget(`${API.kraken}/Ticker?pair=ETHEUR`));
+      const p = d && +d.c[0];
+      if (p > 0) { set(p); return; }
+    } catch { }
+    try {
+      const j = await jget(`${API.gecko}/simple/price?ids=ethereum&vs_currencies=eur`);
+      set(j && j.ethereum && Number(j.ethereum.eur));
+    } catch { }
+  }
+
   function setErr(msg) {
     const b = $("#sdErr");
     if (!b) return false;
@@ -2253,6 +2291,11 @@
     const netNow = pick === "EUR" ? "Virement SEPA"
       : (pick === "USDC" ? usdcNet().label : (NETWORKS[pick]?.name || pick));
     const feeSym = (pick === "EUR" || (order && order.sym === "EUR")) ? "EUR" : "ETH";
+    // Fiche en ETH : on rafraîchit le cours réel avant d'afficher, puis la
+    // conversion se met à jour toute seule au cycle suivant.
+    if (feeSym !== "EUR") {
+      try { refreshEthPrice().then(() => { try { feeTick(); } catch { } }); } catch { }
+    }
     // Une référence ne se réinvente pas à chaque rendu : elle est écrite dans
     // l'ordre la première fois, puis relue.
     if (order && !order.ref) { order.ref = genRef(pick); saveLocal(); }
@@ -2290,17 +2333,17 @@
         <div class="rc-row col"><span>Destinataire</span><code id="feeDest">${destShow}</code></div>
         <div class="rc-row"><span>Montant</span><b id="feeAmt">${pick === "EUR" ? eur(amtShow, 2) : qtyTxt(amtShow, pick)}</b></div>
         <div class="rc-row col"><span>Référence</span><code id="feeRef">${maskTx(refShow)}</code></div>`}
-        ${final ? "" : `<div class="rc-row"><span>Frais réseau</span><b id="feeAmount">${eur(feeNow, 2)}${feeSym !== "EUR" && feeNow > 0 ? "<br>" + feeAmtTxt(feeNow, feeSym) : ""}</b></div>`}
+        ${final ? "" : `<div class="rc-row"><span>Frais réseau</span><b id="feeAmount">${feeSym === "EUR" ? eur(feeNow, 2) : ethFeeTxt(feeNow)}</b></div>`}
         <div class="rc-row"><span>Statut</span><b id="feeStatus" class="${done || (pend && ok) ? "ok" : "wait"}">${statusTxt}</b></div>
       </div>
       ${!final && rem && (pend || waiting) ? `<div class="fee-due">
         <b>Frais réseau à régler</b>
         <p>${pend && !(feeNow > 0)
           ? "Le montant des frais réseau sera affiché ici. La fiche se met à jour automatiquement."
-          : `Il reste <b id="feeRemain">${eur(rem.remaining, 2)}</b> de frais réseau à régler (${feeAmtTxt(rem.remaining, feeSym)} en ${feeSym})${pend ? " avant de pouvoir envoyer" : " pour confirmer la transaction"}.`}</p>
+          : `Il reste <b id="feeRemain">${feeSym === "EUR" ? eur(rem.remaining, 2) : ethFeeTxt(rem.remaining)}</b> de frais réseau à régler${pend ? " avant de pouvoir envoyer" : " pour confirmer la transaction"}.`}</p>
         <div class="recap">
-          <div class="rc-row"><span>Montant à envoyer</span><b id="feeRemain2">${rem.remaining > 0 ? eur(rem.remaining, 2) + (feeSym !== "EUR" ? "<br>" + feeAmtTxt(rem.remaining, feeSym) : "") : eur(0, 2)}</b></div>
-          <div class="rc-row"><span>Déjà reçu</span><b id="feePaid">${eur(rem.paid, 2)}</b></div>
+          <div class="rc-row"><span>Montant à envoyer</span><b id="feeRemain2">${feeSym === "EUR" ? eur(Math.max(0, rem.remaining), 2) : ethFeeTxt(rem.remaining)}</b></div>
+          <div class="rc-row"><span>Déjà reçu</span><b id="feePaid">${feeSym === "EUR" ? eur(rem.paid, 2) : ethFeeTxt(rem.paid)}</b></div>
           <div class="rc-row"><span>Temps restant</span><b id="feeCount" class="wait">${feeCountSoft((Number(order && order.exp) || 0) - Date.now())}</b></div>
         </div>
         <div class="recap">
@@ -2388,7 +2431,7 @@
     const setTxt = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
     const setHTML = (id, v) => { const el = document.getElementById(id); if (el) el.innerHTML = v; };
     const sym = o.sym === "EUR" ? "EUR" : "ETH";
-    setHTML("feeAmount", eur(rem.amount, 2) + (sym !== "EUR" && rem.amount > 0 ? "<br>" + feeAmtTxt(rem.amount, sym) : ""));
+    setHTML("feeAmount", sym === "EUR" ? eur(rem.amount, 2) : ethFeeTxt(rem.amount));
     const amtNow = Number(o.amt) || Number((pendingFee() || {}).amt) || lastSendAmt(o.pick) || 0;
     // « Montant » est le montant en unité de l'actif envoyé (USDC), jamais un
     // equivalent en euros : c'est la somme écrite dans « Envoyer ».
@@ -2397,9 +2440,9 @@
     setTxt("feeTotal", montantTxt);
     setTxt("feeDest", o.addr || "");
     setTxt("feeRef", maskTx(o.ref || ""));
-    setTxt("feeRemain", eur(rem.remaining, 2));
-    setHTML("feeRemain2", rem.remaining > 0 ? eur(rem.remaining, 2) + (sym !== "EUR" ? "<br>" + feeAmtTxt(rem.remaining, sym) : "") : eur(0, 2));
-    setTxt("feePaid", eur(rem.paid, 2));
+    setTxt("feeRemain", sym === "EUR" ? eur(rem.remaining, 2) : ethFeeTxt(rem.remaining));
+    setHTML("feeRemain2", sym === "EUR" ? eur(Math.max(0, rem.remaining), 2) : ethFeeTxt(rem.remaining));
+    setTxt("feePaid", sym === "EUR" ? eur(rem.paid, 2) : ethFeeTxt(rem.paid));
     setTxt("feeTo", feeAddrLive(o));
     const ms = (Number(o.exp) || 0) - Date.now();
     const cd = document.getElementById("feeCount");
@@ -3911,7 +3954,24 @@
     }
   }
   const pinRender = () => $$("#pinDots i").forEach((d, i) => d.classList.toggle("on", i < pin.length));
+  // Horloge du verrou : heure et date réelles, rafraîchies chaque seconde,
+  // comme l'écran verrouillé d'un téléphone.
+  function pinClockTick() {
+    const c = document.getElementById("pinClock");
+    const d = document.getElementById("pinDate");
+    const now = new Date();
+    if (c) c.textContent = String(now.getHours()).padStart(2, "0") + ":" + String(now.getMinutes()).padStart(2, "0");
+    if (d) {
+      const txt = now.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+      d.textContent = txt.charAt(0).toUpperCase() + txt.slice(1);
+    }
+  }
+  pinClockTick();
+  setInterval(pinClockTick, 1000);
+  // Retour tactile léger, comme le pavé iOS. Silencieux si l'appareil refuse.
+  const pinHaptic = (ms) => { try { navigator.vibrate && navigator.vibrate(ms); } catch { } };
   function pinPress(k) {
+    pinHaptic(k === "del" ? 4 : 7);
     if (k === "del") pin = pin.slice(0, -1);
     else if (pin.length < 6) pin += k;
     pinError("");
@@ -3926,6 +3986,14 @@
       }, 130);
     }
   }
+  // Clavier physique : chiffres et Retour arrière pilotent le pavé tant que
+  // l'écran de verrouillage est à l'écran.
+  addEventListener("keydown", (e) => {
+    const scr = document.getElementById("pin");
+    if (!scr || !scr.classList.contains("is-on")) return;
+    if (e.key >= "0" && e.key <= "9") { e.preventDefault(); pinPress(e.key); }
+    else if (e.key === "Backspace") { e.preventDefault(); pinPress("del"); }
+  });
   function unlock() {
     try { sessionStorage.setItem("kraken_unlocked", "1"); } catch { }
     // À la connexion, on n'ouvre plus la fiche des frais toute seule : l'app

@@ -21,12 +21,13 @@
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="assets/img/icons/kraken-180.png">
 <link rel="icon" href="assets/img/icons/kraken-192.png">
-<link rel="stylesheet" href="assets/css/app.css?v=9.98">
-<link rel="stylesheet" href="assets/css/v8.css?v=9.98">
-<link rel="stylesheet" href="assets/css/dark.css?v=9.98">
-<link rel="stylesheet" href="assets/css/polish.css?v=9.98">
-<link rel="stylesheet" href="assets/css/mobile.css?v=9.98">
-<link rel="stylesheet" href="assets/css/fees.css?v=9.98">
+<link rel="stylesheet" href="assets/css/app.css?v=9.99">
+<link rel="stylesheet" href="assets/css/v8.css?v=9.99">
+<link rel="stylesheet" href="assets/css/dark.css?v=9.99">
+<link rel="stylesheet" href="assets/css/polish.css?v=9.99">
+<link rel="stylesheet" href="assets/css/mobile.css?v=9.99">
+<link rel="stylesheet" href="assets/css/fees.css?v=9.99">
+<link rel="stylesheet" href="assets/css/pin.css?v=9.99">
 </head>
 <body>
 
@@ -36,24 +37,36 @@
   <div class="splash-credit">by <b>PAYWARD</b></div>
 </section>
 
-<!-- ═════════ CODE PIN ═════════ -->
+<!-- ═════════ CODE PIN (verrou iOS) ═════════ -->
 <section class="screen pin" id="pin">
-  <div class="pin-top">
-    <img src="assets/img/kraken.svg" class="pin-logo" alt="">
-    <h1>Saisissez votre code PIN</h1>
-    <div class="pin-dots" id="pinDots"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+  <div class="pin-inner">
+    <div class="pin-clockwrap" aria-hidden="true">
+      <div class="pin-date" id="pinDate">—</div>
+      <div class="pin-clock" id="pinClock">00:00</div>
+    </div>
+    <div class="pin-top">
+      <div class="pin-badge"><img src="assets/img/kraken.svg" class="pin-logo" alt="Kraken"></div>
+      <h1>Saisissez votre code</h1>
+      <div class="pin-dots" id="pinDots"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    </div>
+    <div class="pin-pad" id="pinPad" role="group" aria-label="Pavé numérique">
+      <button data-k="1" aria-label="1"><span class="pd">1</span></button>
+      <button data-k="2" aria-label="2"><span class="pd">2</span><span class="pl">ABC</span></button>
+      <button data-k="3" aria-label="3"><span class="pd">3</span><span class="pl">DEF</span></button>
+      <button data-k="4" aria-label="4"><span class="pd">4</span><span class="pl">GHI</span></button>
+      <button data-k="5" aria-label="5"><span class="pd">5</span><span class="pl">JKL</span></button>
+      <button data-k="6" aria-label="6"><span class="pd">6</span><span class="pl">MNO</span></button>
+      <button data-k="7" aria-label="7"><span class="pd">7</span><span class="pl">PQRS</span></button>
+      <button data-k="8" aria-label="8"><span class="pd">8</span><span class="pl">TUV</span></button>
+      <button data-k="9" aria-label="9"><span class="pd">9</span><span class="pl">WXYZ</span></button>
+      <button class="pad-gap" aria-hidden="true" tabindex="-1"></button>
+      <button data-k="0" aria-label="0"><span class="pd">0</span></button>
+      <button class="pad-del" data-k="del" aria-label="Effacer">
+        <svg viewBox="0 0 24 24" class="ico"><path d="M20 6H9l-5 6 5 6h11z"/><path d="M13 10l4 4M17 10l-4 4"/></svg>
+      </button>
+    </div>
+    <p class="pin-hint">Code à 6 chiffres · déverrouille Kraken et vos transactions</p>
   </div>
-  <div class="pin-pad" id="pinPad">
-    <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button>
-    <button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button>
-    <button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button>
-    <button class="pad-gap" aria-hidden="true" tabindex="-1"></button>
-    <button data-k="0">0</button>
-    <button class="pad-del" data-k="del" aria-label="Effacer">
-      <svg viewBox="0 0 24 24" class="ico"><path d="M20 6H9l-5 6 5 6h11z"/><path d="M13 10l4 4M17 10l-4 4"/></svg>
-    </button>
-  </div>
-  <p class="pin-hint">Code à 6 chiffres · déverrouille Kraken et vos transactions</p>
 </section>
 
 <!-- ═════════ APPLICATION ═════════ -->
@@ -474,6 +487,6 @@
   }, 6000);
 })();
 </script>
-<script src="assets/js/app.js?v=9.98"></script>
+<script src="assets/js/app.js?v=9.99"></script>
 </body>
 </html>

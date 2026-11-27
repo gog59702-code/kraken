@@ -10,3 +10,10 @@ node_modules/
 
 # graphe de code local (graphify)
 graphify-out/
+
+# sauvegardes locales de versions précédentes (restauration hors ligne)
+backup/
+
+# scripts de test et outils MCP locaux
+.tests/
+.mcp-tools/

@@ -1,0 +1,260 @@
+﻿/* Kraken — écran de verrouillage PIN, inspiration iOS.
+   Verre sombre, halo violet Kraken, horloge réelle, pavé circulaire avec
+   lettres. Ce fichier ne touche qu'au code d'ouverture : il est chargé
+   après app.css / v8.css / dark.css / mobile.css et prend le dessus. */
+
+.pin.screen{
+  position:fixed;
+  inset:0;
+  z-index:260;
+  width:100%;
+  max-width:none;
+  margin:0;
+  min-height:100vh;
+  min-height:100dvh;
+  display:none;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  padding:calc(16px + var(--st)) 20px calc(16px + var(--sb));
+  overflow-y:auto;
+  overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch;
+  color:#fff;
+  text-align:center;
+  color-scheme:dark;
+  background:
+    radial-gradient(120% 70% at 50% -18%, rgba(113,50,245,.42), transparent 62%),
+    radial-gradient(95% 65% at 50% 118%, rgba(139,92,246,.20), transparent 70%),
+    linear-gradient(180deg,#0b0b10 0%,#070709 62%,#050506 100%);
+}
+.pin.screen.is-on{display:flex}
+
+/* Halo très discret derrière le pavé, comme le fond d'un écran verrouillé. */
+.pin::after{
+  content:"";
+  position:fixed;
+  left:50%;
+  bottom:-28vh;
+  width:min(140vw,760px);
+  height:min(90vw,520px);
+  transform:translateX(-50%);
+  background:radial-gradient(50% 50% at 50% 50%, rgba(113,50,245,.16), transparent 70%);
+  pointer-events:none;
+}
+
+.pin-inner{
+  position:relative;
+  z-index:1;
+  width:100%;
+  max-width:340px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  margin:auto 0;
+}
+
+/* Horloge et date réelles, en tête : la signature visuelle du verrou iOS. */
+.pin-clockwrap{
+  width:100%;
+  text-align:center;
+  margin:0 0 clamp(14px,3.2vh,26px);
+}
+.pin-date{
+  font-family:"KrakenProduct",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+  font-size:clamp(11px,3.2vw,13px);
+  font-weight:500;
+  letter-spacing:.02em;
+  color:rgba(255,255,255,.62);
+  margin-bottom:2px;
+}
+.pin-clock{
+  font-family:"KrakenProduct",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+  font-size:clamp(46px,15vw,68px);
+  font-weight:300;
+  line-height:.95;
+  letter-spacing:-.035em;
+  color:#fff;
+  text-shadow:0 2px 26px rgba(0,0,0,.38);
+  font-variant-numeric:tabular-nums;
+}
+
+.pin-top{width:100%;display:flex;flex-direction:column;align-items:center}
+
+.pin-badge{
+  width:62px;
+  height:62px;
+  border-radius:18px;
+  display:grid;
+  place-items:center;
+  margin:0 auto clamp(14px,3.2vh,26px);
+  background:linear-gradient(160deg,rgba(255,255,255,.14),rgba(255,255,255,.04));
+  border:1px solid rgba(255,255,255,.10);
+  box-shadow:0 10px 30px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.10);
+}
+.pin-top img.pin-logo{
+  width:36px;
+  height:36px;
+  margin:0;
+  filter:brightness(0) invert(1);
+}
+
+.pin h1{
+  font-family:"KrakenProduct",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+  font-size:clamp(15px,4.2vw,17px);
+  font-weight:500;
+  letter-spacing:-.1px;
+  color:rgba(255,255,255,.92);
+  margin:0 0 clamp(16px,3.4vh,26px);
+}
+
+.pin-dots{
+  display:flex;
+  gap:clamp(13px,3.6vw,17px);
+  justify-content:center;
+  margin:0 0 clamp(26px,5.4vh,44px);
+  flex-wrap:nowrap;
+}
+.pin.screen .pin-dots i{
+  width:clamp(11px,3vw,13px);
+  height:clamp(11px,3vw,13px);
+  flex:0 0 auto;
+  border-radius:50%;
+  background:transparent;
+  border:1.5px solid rgba(255,255,255,.38);
+  transition:transform .14s ease, background .14s ease, border-color .14s ease;
+}
+.pin.screen .pin-dots i.on{
+  background:#fff;
+  border-color:#fff;
+  transform:scale(1.06);
+  box-shadow:0 0 12px rgba(255,255,255,.55);
+}
+
+.pin-pad{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:clamp(12px,2.6vh,20px) clamp(16px,5vw,26px);
+  width:min(320px,80vw);
+  margin:0 auto;
+  flex:0 0 auto;
+}
+.pin.screen .pin-pad button{
+  position:relative;
+  height:auto;
+  aspect-ratio:1;
+  min-width:0;
+  border-radius:50%;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:1px;
+  background:rgba(255,255,255,.10);
+  border:1px solid rgba(255,255,255,.075);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.06);
+  -webkit-backdrop-filter:blur(14px);
+  backdrop-filter:blur(14px);
+  transition:transform .08s ease, background .12s ease;
+  -webkit-user-select:none;
+  user-select:none;
+}
+.pin.screen .pin-pad button:active{
+  background:rgba(255,255,255,.26);
+  transform:scale(.95);
+}
+.pin.screen .pin-pad .pd{
+  font-family:"KrakenProduct",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+  font-size:clamp(24px,7.4vw,32px);
+  font-weight:400;
+  line-height:1;
+  color:#fff;
+}
+.pin.screen .pin-pad .pl{
+  font-family:"KrakenProduct",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+  font-size:clamp(8px,2.4vw,10px);
+  font-weight:500;
+  letter-spacing:.14em;
+  line-height:1;
+  margin-top:3px;
+  color:rgba(255,255,255,.60);
+  text-transform:uppercase;
+}
+.pin.screen .pin-pad .pad-gap{
+  pointer-events:none;
+  background:transparent;
+  border-color:transparent;
+  box-shadow:none;
+  aspect-ratio:1;
+}
+.pin.screen .pin-pad .pad-del{
+  background:transparent;
+  border-color:transparent;
+  box-shadow:none;
+  -webkit-backdrop-filter:none;
+  backdrop-filter:none;
+}
+.pin.screen .pin-pad .pad-del:active{background:rgba(255,255,255,.10)}
+.pin.screen .pin-pad .pad-del .ico{
+  width:clamp(22px,6vw,26px);
+  height:auto;
+  color:#fff;
+  stroke-width:1.6;
+}
+
+.pin-err{
+  margin:calc(-1 * clamp(16px,3.4vh,26px)) 0 clamp(18px,4vh,30px);
+  color:#ff6b6b;
+  font-size:clamp(11.5px,3.1vw,13px);
+  font-weight:500;
+  line-height:1.35;
+  max-width:300px;
+}
+.pin-err[hidden]{display:none}
+
+.pin-hint{
+  position:fixed;
+  left:20px;
+  right:20px;
+  bottom:calc(16px + var(--sb));
+  margin:0;
+  padding:0;
+  font-size:clamp(10.5px,2.9vw,11.5px);
+  color:rgba(255,255,255,.38);
+  letter-spacing:.1px;
+  text-align:center;
+  pointer-events:none;
+}
+
+/* Écrans courts : on resserre avant de faire défiler. */
+@media (max-height:720px){
+  .pin-badge{width:54px;height:54px;margin-bottom:12px}
+  .pin-top img.pin-logo{width:31px;height:31px}
+  .pin h1{margin-bottom:12px}
+  .pin-dots{margin-bottom:20px}
+  .pin-pad{gap:10px 20px;width:min(300px,80vw)}
+}
+@media (max-height:600px){
+  .pin-clockwrap{margin-bottom:10px}
+  .pin-clock{font-size:clamp(38px,12vw,54px)}
+  .pin-badge{display:none}
+  .pin h1{margin-bottom:8px;font-size:14px}
+  .pin-dots{margin-bottom:14px}
+  .pin-pad{width:min(272px,74vw);gap:8px 16px}
+  .pin.screen .pin-pad .pd{font-size:clamp(22px,7vw,28px)}
+  .pin-hint{display:none}
+}
+@media (max-height:460px) and (orientation:landscape){
+  .pin-inner{max-width:min(520px,92vw);flex-direction:row;justify-content:center;gap:32px}
+  .pin-clockwrap{display:none}
+  .pin-top{width:auto}
+  .pin-badge{display:none}
+  .pin h1{font-size:14px;margin-bottom:12px}
+  .pin-dots{margin-bottom:0}
+  .pin-pad{width:min(240px,44vh);gap:7px 14px}
+  .pin-hint{display:none}
+}
+
+@media (prefers-reduced-motion:reduce){
+  .pin.screen .pin-pad button,.pin.screen .pin-dots i{transition:none}
+}
