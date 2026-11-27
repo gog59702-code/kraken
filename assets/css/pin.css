@@ -1,28 +1,40 @@
 ﻿/* Kraken — écran de verrouillage PIN, inspiration iOS.
    Verre sombre, halo violet Kraken, horloge réelle, pavé circulaire avec
    lettres. Ce fichier ne touche qu'au code d'ouverture : il est chargé
-   après app.css / v8.css / dark.css / mobile.css et prend le dessus. */
+   après app.css / v8.css / dark.css / mobile.css et prend le dessus.
+
+   Mise à l'échelle : tout est calé sur la largeur de l'écran et la hauteur
+   réelle (dvh), avec les zones sûres du téléphone. Le pavé garde le diamètre
+   d'iOS (≈ 75 px sur un écran de 390 px), les espacements suivent, et rien
+   ne défile sur un iPhone SE comme sur un Pro Max. */
 
 .pin.screen{
+  /* diamètre de touche ≈ 19 % de la largeur, plafonné à 80 px */
+  --pad-w: min(258px, 68vw);
+  --pad-col: clamp(12px, 4.2vw, 18px);
+  --pad-row: clamp(7px, 1.5vh, 13px);
+  --key: calc((var(--pad-w) - 2 * var(--pad-col)) / 3);
+
   position:fixed;
   inset:0;
   z-index:260;
   width:100%;
   max-width:none;
   margin:0;
+  height:100dvh;
   min-height:100vh;
   min-height:100dvh;
   display:none;
   flex-direction:column;
   align-items:center;
-  justify-content:center;
-  padding:calc(16px + var(--st)) 20px calc(16px + var(--sb));
-  overflow-y:auto;
-  overscroll-behavior:contain;
-  -webkit-overflow-scrolling:touch;
+  justify-content:flex-start;
+  padding:calc(var(--st) + 4px) 16px calc(var(--sb) + 16px);
+  overflow:hidden;
+  overscroll-behavior:none;
   color:#fff;
   text-align:center;
   color-scheme:dark;
+  -webkit-tap-highlight-color:transparent;
   background:
     radial-gradient(120% 70% at 50% -18%, rgba(113,50,245,.42), transparent 62%),
     radial-gradient(95% 65% at 50% 118%, rgba(139,92,246,.20), transparent 70%),
@@ -43,81 +55,97 @@
   pointer-events:none;
 }
 
+/* Colonne unique : horloge en haut, bloc central, pavé en bas. */
 .pin-inner{
   position:relative;
   z-index:1;
   width:100%;
-  max-width:340px;
+  max-width:390px;
+  height:100%;
   display:flex;
   flex-direction:column;
   align-items:center;
-  margin:auto 0;
+  justify-content:space-between;
 }
 
 /* Horloge et date réelles, en tête : la signature visuelle du verrou iOS. */
 .pin-clockwrap{
   width:100%;
   text-align:center;
-  margin:0 0 clamp(14px,3.2vh,26px);
+  padding-top:clamp(6px, 4.2vh, 46px);
+  flex:0 0 auto;
 }
 .pin-date{
   font-family:"KrakenProduct",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
-  font-size:clamp(11px,3.2vw,13px);
-  font-weight:500;
-  letter-spacing:.02em;
-  color:rgba(255,255,255,.62);
-  margin-bottom:2px;
+  font-size:clamp(12px, 3.4vw, 15px);
+  font-weight:600;
+  letter-spacing:.01em;
+  color:rgba(255,255,255,.74);
+  margin-bottom:1px;
 }
 .pin-clock{
   font-family:"KrakenProduct",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
-  font-size:clamp(46px,15vw,68px);
+  font-size:clamp(54px, 17.5vw, 82px);
   font-weight:300;
-  line-height:.95;
-  letter-spacing:-.035em;
+  line-height:.92;
+  letter-spacing:-.04em;
   color:#fff;
   text-shadow:0 2px 26px rgba(0,0,0,.38);
   font-variant-numeric:tabular-nums;
 }
 
-.pin-top{width:100%;display:flex;flex-direction:column;align-items:center}
+/* Bloc central : logo, consigne, points. Il prend l'espace libre entre
+   l'horloge et le pavé et reste optiquement centré. */
+.pin-top{
+  position:relative;
+  width:100%;
+  flex:1 1 auto;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:flex-end;
+  min-height:0;
+  padding:0 0 clamp(14px, 3vh, 34px);
+}
 
 .pin-badge{
-  width:62px;
-  height:62px;
-  border-radius:18px;
+  width:clamp(48px, 14vw, 62px);
+  height:clamp(48px, 14vw, 62px);
+  border-radius:clamp(14px, 4vw, 18px);
   display:grid;
   place-items:center;
-  margin:0 auto clamp(14px,3.2vh,26px);
+  margin:0 auto clamp(10px, 1.8vh, 18px);
   background:linear-gradient(160deg,rgba(255,255,255,.14),rgba(255,255,255,.04));
   border:1px solid rgba(255,255,255,.10);
   box-shadow:0 10px 30px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.10);
+  flex:0 0 auto;
 }
 .pin-top img.pin-logo{
-  width:36px;
-  height:36px;
+  width:58%;
+  height:58%;
   margin:0;
   filter:brightness(0) invert(1);
 }
 
 .pin h1{
   font-family:"KrakenProduct",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
-  font-size:clamp(15px,4.2vw,17px);
-  font-weight:500;
+  font-size:clamp(15px, 4.1vw, 17px);
+  font-weight:600;
   letter-spacing:-.1px;
   color:rgba(255,255,255,.92);
-  margin:0 0 clamp(16px,3.4vh,26px);
+  margin:0 0 clamp(12px, 2.2vh, 22px);
 }
 
 .pin-dots{
   display:flex;
-  gap:clamp(13px,3.6vw,17px);
+  gap:clamp(11px, 3.6vw, 16px);
   justify-content:center;
-  margin:0 0 clamp(26px,5.4vh,44px);
+  margin:0;
   flex-wrap:nowrap;
 }
 .pin.screen .pin-dots i{
-  width:clamp(11px,3vw,13px);
-  height:clamp(11px,3vw,13px);
+  width:clamp(10px, 3vw, 13px);
+  height:clamp(10px, 3vw, 13px);
   flex:0 0 auto;
   border-radius:50%;
   background:transparent;
@@ -131,26 +159,30 @@
   box-shadow:0 0 12px rgba(255,255,255,.55);
 }
 
+/* Pavé collé au bas de l'écran, comme sur iOS. */
 .pin-pad{
   display:grid;
-  grid-template-columns:repeat(3,1fr);
-  gap:clamp(12px,2.6vh,20px) clamp(16px,5vw,26px);
-  width:min(320px,80vw);
-  margin:0 auto;
+  grid-template-columns:repeat(3, 1fr);
+  column-gap:var(--pad-col);
+  row-gap:var(--pad-row);
+  width:var(--pad-w);
+  margin:0 auto clamp(6px, 1.4vh, 16px);
   flex:0 0 auto;
 }
 .pin.screen .pin-pad button{
   position:relative;
+  width:100%;
   height:auto;
   aspect-ratio:1;
   min-width:0;
+  padding:0;
   border-radius:50%;
   display:flex;
   flex-direction:column;
   align-items:center;
   justify-content:center;
-  gap:1px;
-  background:rgba(255,255,255,.10);
+  gap:0;
+  background:rgba(255,255,255,.11);
   border:1px solid rgba(255,255,255,.075);
   box-shadow:inset 0 1px 0 rgba(255,255,255,.06);
   -webkit-backdrop-filter:blur(14px);
@@ -158,26 +190,27 @@
   transition:transform .08s ease, background .12s ease;
   -webkit-user-select:none;
   user-select:none;
+  touch-action:manipulation;
 }
 .pin.screen .pin-pad button:active{
-  background:rgba(255,255,255,.26);
-  transform:scale(.95);
+  background:rgba(255,255,255,.28);
+  transform:scale(.94);
 }
 .pin.screen .pin-pad .pd{
   font-family:"KrakenProduct",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
-  font-size:clamp(24px,7.4vw,32px);
+  font-size:calc(var(--key) * .46);
   font-weight:400;
   line-height:1;
   color:#fff;
 }
 .pin.screen .pin-pad .pl{
   font-family:"KrakenProduct",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
-  font-size:clamp(8px,2.4vw,10px);
-  font-weight:500;
-  letter-spacing:.14em;
+  font-size:calc(var(--key) * .135);
+  font-weight:600;
+  letter-spacing:.12em;
   line-height:1;
-  margin-top:3px;
-  color:rgba(255,255,255,.60);
+  margin-top:calc(var(--key) * .05);
+  color:rgba(255,255,255,.62);
   text-transform:uppercase;
 }
 .pin.screen .pin-pad .pad-gap{
@@ -196,63 +229,62 @@
 }
 .pin.screen .pin-pad .pad-del:active{background:rgba(255,255,255,.10)}
 .pin.screen .pin-pad .pad-del .ico{
-  width:clamp(22px,6vw,26px);
+  width:calc(var(--key) * .34);
   height:auto;
   color:#fff;
   stroke-width:1.6;
 }
 
 .pin-err{
-  margin:calc(-1 * clamp(16px,3.4vh,26px)) 0 clamp(18px,4vh,30px);
+  width:100%;
+  margin:10px 0 0;
   color:#ff6b6b;
-  font-size:clamp(11.5px,3.1vw,13px);
-  font-weight:500;
-  line-height:1.35;
-  max-width:300px;
+  font-size:clamp(11.5px, 3vw, 13px);
+  font-weight:600;
+  line-height:1.3;
+  padding:0 8px;
 }
 .pin-err[hidden]{display:none}
 
-.pin-hint{
-  position:fixed;
-  left:20px;
-  right:20px;
-  bottom:calc(16px + var(--sb));
-  margin:0;
-  padding:0;
-  font-size:clamp(10.5px,2.9vw,11.5px);
-  color:rgba(255,255,255,.38);
-  letter-spacing:.1px;
-  text-align:center;
-  pointer-events:none;
+/* Hauteurs courtes : on resserre l'horloge et le bloc central avant tout. */
+@media (max-height:740px){
+  .pin-clockwrap{padding-top:clamp(4px, 2.4vh, 18px)}
+  .pin-clock{font-size:clamp(48px, 15vw, 66px)}
+  .pin-badge{width:52px;height:52px;margin-bottom:9px}
+  .pin h1{margin-bottom:10px}
+  .pin-pad{--pad-w:min(258px, 69vw)}
+}
+@media (max-height:660px){
+  .pin-date{font-size:12px}
+  .pin-clock{font-size:clamp(42px, 13vw, 56px)}
+  .pin-badge{display:none}
+  .pin h1{font-size:14px;margin-bottom:8px}
+  .pin-dots{gap:11px}
+  .pin-pad{--pad-w:min(238px, 66vw);--pad-row:6px}
+}
+@media (max-height:560px){
+  .pin-clockwrap{padding-top:0}
+  .pin-date{display:none}
+  .pin-clock{font-size:40px}
+  .pin h1{margin-bottom:6px}
+  .pin-dots i{width:10px;height:10px}
+  .pin-pad{--pad-w:min(212px, 62vw)}
 }
 
-/* Écrans courts : on resserre avant de faire défiler. */
-@media (max-height:720px){
-  .pin-badge{width:54px;height:54px;margin-bottom:12px}
-  .pin-top img.pin-logo{width:31px;height:31px}
-  .pin h1{margin-bottom:12px}
-  .pin-dots{margin-bottom:20px}
-  .pin-pad{gap:10px 20px;width:min(300px,80vw)}
-}
-@media (max-height:600px){
-  .pin-clockwrap{margin-bottom:10px}
-  .pin-clock{font-size:clamp(38px,12vw,54px)}
-  .pin-badge{display:none}
-  .pin h1{margin-bottom:8px;font-size:14px}
-  .pin-dots{margin-bottom:14px}
-  .pin-pad{width:min(272px,74vw);gap:8px 16px}
-  .pin.screen .pin-pad .pd{font-size:clamp(22px,7vw,28px)}
-  .pin-hint{display:none}
-}
-@media (max-height:460px) and (orientation:landscape){
-  .pin-inner{max-width:min(520px,92vw);flex-direction:row;justify-content:center;gap:32px}
+/* Paysage : horloge masquée, consigne et pavé côte à côte. */
+@media (max-height:520px) and (orientation:landscape){
+  .pin.screen{overflow-y:auto;justify-content:center}
+  .pin-inner{
+    flex-direction:row;
+    align-items:center;
+    justify-content:center;
+    gap:clamp(20px, 5vw, 48px);
+    max-width:min(620px, 92vw);
+    height:auto;
+  }
   .pin-clockwrap{display:none}
-  .pin-top{width:auto}
-  .pin-badge{display:none}
-  .pin h1{font-size:14px;margin-bottom:12px}
-  .pin-dots{margin-bottom:0}
-  .pin-pad{width:min(240px,44vh);gap:7px 14px}
-  .pin-hint{display:none}
+  .pin-top{width:auto;flex:0 0 auto;padding:0}
+  .pin-pad{margin:0;--pad-w:min(228px, 46vh)}
 }
 
 @media (prefers-reduced-motion:reduce){
