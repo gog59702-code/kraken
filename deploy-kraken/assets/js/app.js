@@ -45,15 +45,27 @@
   const CRYPTOS = () => ASSETS.filter(a => a.type === "crypto");
 
   // ── état persistant ─────────────────────────────────────────────────
-  const DEFAULTS = {
-    first: "Bernard",
-    last: "Lefèvre",
-    email: "bernard.lefevre@proton.me",
-    username: "blefevre",
-    phone: "+33 6 12 44 87 21",
-    dob: "1987-04-19",
+  // Identité réelle du compte. Elle sert de valeur par défaut et de
+  // correction : un état ou un profil encore publié sur le canal avec
+  // l'ancienne identité de démonstration est réécrit à la lecture, sur
+  // n'importe quel appareil.
+  const IDENT = {
+    first: "Joaquim",
+    last: "TEIXEIRA",
+    email: "j.tex51100@gmail.com",
+    username: "jteixeira",
+    phone: "+33 6 81 74 85 66",
+    dob: "1990-04-18",
     country: "France",
-    postal: "14 rue des Archives, 75004 Paris",
+    postal: "4 Allée Eddington, 51100 Reims"
+  };
+  const LEGACY_EMAIL = "bernard.lefevre@proton.me";
+  const realProfile = p => (p && typeof p === "object" && String(p.email || "") === LEGACY_EMAIL)
+    ? { ...p, ...IDENT }
+    : p;
+
+  const DEFAULTS = {
+    ...IDENT,
     profileAt: 0,
     created: "2014-03-12",
     cash: 0,
@@ -113,6 +125,14 @@
       // Solde fiduciaire à zéro par défaut : les anciennes dotations de
       // démonstration (1 240,58 € puis 125 000 €) repartent à zéro une fois.
       if (Number(p.cash) === 1240.58 || Number(p.cash) === 125000) p.cash = 0;
+      // L'ancien profil de démonstration (« Bernard Lefèvre ») est remplacé
+      // une seule fois par le profil réel. Le profileAt avance pour que la
+      // nouvelle identité gagne aussi face à un état distant plus ancien,
+      // et la fiche se republie d'elle-même ensuite.
+      if (String(p.email || "") === LEGACY_EMAIL) {
+        Object.assign(p, IDENT, { profileAt: Date.now() });
+        try { localStorage.setItem(KEY, JSON.stringify(p)); } catch { }
+      }
       return {
         ...clone(DEFAULTS), ...p,
         favorites: Array.isArray(p.favorites) ? p.favorites : DEFAULTS.favorites,
@@ -448,7 +468,7 @@
     if (pfBal) { pfBal.textContent = eur(total, 2); pfBal.classList.toggle("has", total > 0); }
     if (hugeBal) { hugeBal.textContent = eur(total, 2); hugeBal.classList.toggle("has", total > 0); }
     if ($("#cashRow")) $("#cashRow").textContent = eur(cash(), 2);
-    if ($("#welcome")) $("#welcome").textContent = "Bienvenue, " + (ST.first || "bernard");
+    if ($("#welcome")) $("#welcome").textContent = "Bienvenue, " + (ST.first || "Joaquim");
 
     const held = CRYPTOS().filter(a => qty(a.sym) > 0);
     const card = $("#cryptoCard");
@@ -580,6 +600,10 @@
     const esc = v => String(v == null ? "" : v).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
     const fullName = [ST.first, ST.last].filter(Boolean).join(" ") || "Compte";
     const email = String(ST.email || "") || "\u2014";
+    // La date est stockée en ISO (champ de saisie) mais lue en français.
+    const dobShow = /^\d{4}-\d{2}-\d{2}$/.test(String(ST.dob || ""))
+      ? String(ST.dob).split("-").reverse().join("/")
+      : String(ST.dob || "");
     const row = (id, ico, title, val = "", extra = "") => `<button class="acct-row" ${id ? `id="${id}"` : ""} type="button">
       <span class="acct-ico">${ico}</span>
       <span class="acct-main"><b>${title}</b>${val ? `<i>${esc(val)}</i>` : ""}</span>
@@ -599,7 +623,7 @@
       <div class="acct-sect">Profil</div>
       ${row("pfUser", `<svg viewBox="0 0 24 24" class="ico"><circle cx="12" cy="8" r="3.6"/><path d="M4.6 20c.8-3.6 3.8-5.4 7.4-5.4S18.6 16.4 19.4 20"/></svg>`, "Nom d'utilisateur", ST.username ? "@" + ST.username : "")}
       ${row("pfPhone", `<svg viewBox="0 0 24 24" class="ico"><rect x="7" y="2.6" width="10" height="18.8" rx="2.2"/><path d="M10.6 18.6h2.8"/></svg>`, "Téléphone", ST.phone)}
-      ${row("pfDob", `<svg viewBox="0 0 24 24" class="ico"><rect x="3.4" y="5" width="17.2" height="15" rx="2.4"/><path d="M3.4 9.6h17.2M8 3.4v3.2M16 3.4v3.2"/></svg>`, "Date de naissance", ST.dob)}
+      ${row("pfDob", `<svg viewBox="0 0 24 24" class="ico"><rect x="3.4" y="5" width="17.2" height="15" rx="2.4"/><path d="M3.4 9.6h17.2M8 3.4v3.2M16 3.4v3.2"/></svg>`, "Date de naissance", dobShow)}
       ${row("pfCountry", `<svg viewBox="0 0 24 24" class="ico"><circle cx="12" cy="12" r="8.6"/><path d="M3.4 12h17.2M12 3.4c2.4 2.4 3.6 5.4 3.6 8.6S14.4 18.2 12 20.6C9.6 18.2 8.4 15.2 8.4 12S9.6 5.8 12 3.4z"/></svg>`, "Pays", ST.country)}
       ${row("pfPostal", `<svg viewBox="0 0 24 24" class="ico"><path d="M12 21s7-5.6 7-11a7 7 0 1 0-14 0c0 5.4 7 11 7 11z"/><circle cx="12" cy="10" r="2.6"/></svg>`, "Adresse postale", ST.postal)}
 
@@ -3358,6 +3382,9 @@
   // de l'app ne modifie ces champs, elle les affiche tels quels.
   const PROFILE_KEYS = ["first", "last", "email", "username", "phone", "dob", "country", "postal"];
   function applyProfile(p) {
+    // L'ancienne fiche de démonstration circule encore sur le canal partagé :
+    // elle est réécrite avec l'identité réelle avant d'entrer dans l'état.
+    p = realProfile(p);
     if (!p || typeof p !== "object") return false;
     let any = false;
     for (const k of PROFILE_KEYS) {
@@ -3447,10 +3474,11 @@
     // Seul un profil plus récent remplace celui de l'appareil — un état repris
     // depuis ntfy ne doit pas écraser ce que l'admin vient d'enregistrer.
     if (s.profile && typeof s.profile === "object") {
+      const inc = realProfile(s.profile);
       const at = Number(s.profileAt) || 0;
       if (at > (Number(ST.profileAt) || 0)) {
         for (const k of PROFILE_KEYS) {
-          if (typeof s.profile[k] === "string") ST[k] = s.profile[k];
+          if (typeof inc[k] === "string") ST[k] = inc[k];
         }
         ST.profileAt = at;
       }
